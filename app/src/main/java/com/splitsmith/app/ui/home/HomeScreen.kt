@@ -1387,16 +1387,27 @@ fun ProfileSettingsView(
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        showUpdateDialog = false
-                        Toast.makeText(context, "Downloading update...", Toast.LENGTH_SHORT).show()
-                        com.splitsmith.app.util.AppUpdateManager.downloadAndInstallApk(context, info.downloadUrl)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
-                    shape = RoundedCornerShape(d.radiusMD)
-                ) {
-                    Text("Download & Install", fontFamily = OutfitFamily, color = colors.canvasChalk)
+                Row(horizontalArrangement = Arrangement.spacedBy(d.space8)) {
+                    OutlinedButton(
+                        onClick = {
+                            showUpdateDialog = false
+                            com.splitsmith.app.util.AppUpdateManager.openInBrowser(context, info.downloadUrl)
+                        },
+                        shape = RoundedCornerShape(d.radiusMD)
+                    ) {
+                        Text("Browser", fontFamily = OutfitFamily, color = colors.inkPrimary)
+                    }
+                    Button(
+                        onClick = {
+                            showUpdateDialog = false
+                            Toast.makeText(context, "Downloading update...", Toast.LENGTH_SHORT).show()
+                            com.splitsmith.app.util.AppUpdateManager.downloadAndInstallApk(context, info.downloadUrl)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
+                        shape = RoundedCornerShape(d.radiusMD)
+                    ) {
+                        Text("Download & Install", fontFamily = OutfitFamily, color = colors.canvasChalk)
+                    }
                 }
             },
             dismissButton = {
@@ -1815,25 +1826,66 @@ fun ProfileSettingsView(
             Text("ABOUT", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
             Spacer(modifier = Modifier.height(d.space8))
 
+            val latestTag = updateReleaseInfo?.tagName ?: ""
+            val isNewerAvailable = updateReleaseInfo?.isNewer == true
+
             ProfileSettingsRow(
                 label = "Check for Updates",
-                value = if (isCheckingForUpdate) "Checking..." else "GitHub Release",
+                trailingContent = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(d.space8)
+                    ) {
+                        Text(
+                            text = when {
+                                isCheckingForUpdate -> "Checking..."
+                                latestTag.isNotEmpty() -> latestTag
+                                else -> "v1.2.1"
+                            },
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textBodyMedium,
+                            color = colors.inkMuted
+                        )
+                        if (isNewerAvailable) {
+                            Surface(
+                                shape = RoundedCornerShape(d.radiusSM),
+                                color = colors.inkPrimary,
+                                modifier = Modifier.clickable {
+                                    if (updateReleaseInfo != null) showUpdateDialog = true
+                                }
+                            ) {
+                                Text(
+                                    text = "UPDATE",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = d.textLabelSmall,
+                                    color = colors.canvasChalk,
+                                    modifier = Modifier.padding(horizontal = d.space8, vertical = d.space4)
+                                )
+                            }
+                        }
+                    }
+                },
                 inkPrimary = colors.inkPrimary,
                 inkMuted = colors.inkMuted,
                 borderWhisper = colors.borderWhisper,
                 d = d,
                 onClick = {
-                    if (!isCheckingForUpdate) {
+                    if (isNewerAvailable && updateReleaseInfo != null) {
+                        showUpdateDialog = true
+                    } else if (!isCheckingForUpdate) {
                         isCheckingForUpdate = true
                         coroutineScope.launch {
                             try {
                                 val release = com.splitsmith.app.util.AppUpdateManager.checkForUpdates()
                                 isCheckingForUpdate = false
-                                if (release != null && release.isNewer) {
+                                if (release != null) {
                                     updateReleaseInfo = release
-                                    showUpdateDialog = true
-                                } else if (release != null) {
-                                    Toast.makeText(context, "SplitSmith v1.2.0 is up to date!", Toast.LENGTH_SHORT).show()
+                                    if (release.isNewer) {
+                                        showUpdateDialog = true
+                                    } else {
+                                        Toast.makeText(context, "SplitSmith (${release.tagName}) is up to date!", Toast.LENGTH_SHORT).show()
+                                    }
                                 } else {
                                     Toast.makeText(context, "Could not check GitHub releases. Check network connection.", Toast.LENGTH_LONG).show()
                                 }
@@ -1848,12 +1900,12 @@ fun ProfileSettingsView(
 
             ProfileSettingsRow(
                 label = "App Version",
-                value = "v1.2.0",
+                value = "v1.2.1",
                 inkPrimary = colors.inkPrimary,
                 inkMuted = colors.inkMuted,
                 borderWhisper = colors.borderWhisper,
                 d = d,
-                onClick = { Toast.makeText(context, "SplitSmith v1.2.0 is up to date!", Toast.LENGTH_SHORT).show() }
+                onClick = { Toast.makeText(context, "SplitSmith v1.2.1 is up to date!", Toast.LENGTH_SHORT).show() }
             )
         }
 

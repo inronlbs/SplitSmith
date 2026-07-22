@@ -129,10 +129,13 @@ object AppUpdateManager {
 
             val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
                 setTitle("Downloading SplitSmith Update")
-                setDescription("Downloading latest version...")
+                setDescription("Downloading latest version from GitHub...")
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 setDestinationUri(Uri.fromFile(destinationFile))
                 setMimeType("application/vnd.android.package-archive")
+                setAllowedOverRoaming(true)
+                setAllowedOverMetered(true)
+                addRequestHeader("User-Agent", "SplitSmith-App")
             }
 
             val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
@@ -163,11 +166,22 @@ object AppUpdateManager {
                 )
             }
         } catch (e: Exception) {
-            // Fallback: Open URL in browser
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
+            e.printStackTrace()
+            openInBrowser(context, downloadUrl)
+        }
+    }
+
+    /**
+     * Opens direct URL in system browser as fallback
+     */
+    fun openInBrowser(context: Context, url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
