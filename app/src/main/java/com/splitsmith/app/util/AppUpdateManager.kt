@@ -28,7 +28,8 @@ object AppUpdateManager {
     // Default repository details - modify as needed or configure dynamically
     var githubOwner: String = "inronlbs"
     var githubRepo: String = "SplitSmith"
-    const val CURRENT_VERSION_NAME = "v1.2.0"
+    val currentAppVersion: String
+        get() = com.splitsmith.app.BuildConfig.VERSION_NAME
 
     /**
      * Checks GitHub Releases API for the latest release.
@@ -37,7 +38,7 @@ object AppUpdateManager {
     suspend fun checkForUpdates(
         owner: String = githubOwner,
         repo: String = githubRepo,
-        currentVersion: String = CURRENT_VERSION_NAME
+        currentVersion: String = currentAppVersion
     ): AppReleaseInfo? = withContext(Dispatchers.IO) {
         try {
             val urlString = "https://api.github.com/repos/$owner/$repo/releases/latest"

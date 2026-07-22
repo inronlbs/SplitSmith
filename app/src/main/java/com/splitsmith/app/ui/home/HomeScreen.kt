@@ -1840,7 +1840,7 @@ fun ProfileSettingsView(
                             text = when {
                                 isCheckingForUpdate -> "Checking..."
                                 latestTag.isNotEmpty() -> latestTag
-                                else -> "v1.2.1"
+                                else -> "v${com.splitsmith.app.BuildConfig.VERSION_NAME}"
                             },
                             fontFamily = OutfitFamily,
                             fontSize = d.textBodyMedium,
@@ -1900,12 +1900,12 @@ fun ProfileSettingsView(
 
             ProfileSettingsRow(
                 label = "App Version",
-                value = "v1.2.1",
+                value = "v${com.splitsmith.app.BuildConfig.VERSION_NAME}",
                 inkPrimary = colors.inkPrimary,
                 inkMuted = colors.inkMuted,
                 borderWhisper = colors.borderWhisper,
                 d = d,
-                onClick = { Toast.makeText(context, "SplitSmith v1.2.1 is up to date!", Toast.LENGTH_SHORT).show() }
+                onClick = { Toast.makeText(context, "SplitSmith v${com.splitsmith.app.BuildConfig.VERSION_NAME} is up to date!", Toast.LENGTH_SHORT).show() }
             )
         }
 
