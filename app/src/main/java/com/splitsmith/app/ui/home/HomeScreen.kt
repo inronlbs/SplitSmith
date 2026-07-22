@@ -1177,6 +1177,16 @@ fun ProfileSettingsView(
         }
     }
 
+    LaunchedEffect(Unit) {
+        try {
+            val release = com.splitsmith.app.util.AppUpdateManager.checkForUpdates()
+            if (release != null && release.isNewer) {
+                updateReleaseInfo = release
+                showUpdateDialog = true
+            }
+        } catch (e: Exception) {}
+    }
+
     LaunchedEffect(profile) {
         if (profile != null) {
             upiIdInput = profile.upiId
