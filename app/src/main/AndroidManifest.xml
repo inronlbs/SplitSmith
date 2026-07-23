@@ -35,8 +35,8 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="http" />
                 <data android:scheme="https" />
-                <data android:host="invronteach.web.app" android:pathPrefix="/join" />
-                <data android:host="invronteach.firebaseapp.com" android:pathPrefix="/join" />
+                <data android:host="splitsmith.web.app" android:pathPrefix="/join" />
+                <data android:host="splitsmith.firebaseapp.com" android:pathPrefix="/join" />
             </intent-filter>
             <intent-filter android:label="Import Payment Slip">
                 <action android:name="android.intent.action.SEND" />

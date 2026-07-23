@@ -65,7 +65,7 @@ class MainActivity : ComponentActivity() {
             if (data.scheme == "splitsmith" && data.host == "join") {
                 code = data.getQueryParameter("code")
             } else if ((data.scheme == "http" || data.scheme == "https") && 
-                       (data.host == "invronteach.web.app" || data.host == "invronteach.firebaseapp.com") &&
+                       (data.host == "splitsmith.web.app" || data.host == "splitsmith.firebaseapp.com" || data.host == "invronteach.web.app" || data.host == "invronteach.firebaseapp.com") &&
                        data.path == "/join") {
                 code = data.getQueryParameter("code")
             }

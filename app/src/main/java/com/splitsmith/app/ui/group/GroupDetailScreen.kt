@@ -1293,7 +1293,7 @@ private fun StyledSettingsTab(
 
                                     val contentUri = FileProvider.getUriForFile(context, "com.splitsmith.app.fileprovider", file)
                                     if (contentUri != null) {
-                                        val shareText = "Hey! Join my SplitSmith group '${group.name}' by clicking this link:\nhttps://invronteach.web.app/join?code=${group.id}&v=1"
+                                        val shareText = "Hey! Join my SplitSmith group '${group.name}' by clicking this link:\nhttps://splitsmith.web.app/join?code=${group.id}&v=1"
                                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                             type = "image/png"
                                             putExtra(Intent.EXTRA_STREAM, contentUri)

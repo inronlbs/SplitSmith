@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Group centered with proper 66% safe zone padding for adaptive launcher masks -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54">
+        
+        <!-- Stylized 'S' Logo for SplitSmith -->
+        <path
+            android:fillColor="#A3E635"
+            android:pathData="M65,41.5 C65,36.5 60.5,33 54,33 C47.5,33 43,36.5 43,41.5 C43,46.5 47,49 54,51.5 C61,54 65,56.5 65,62.5 C65,68.5 60,72 54,72 C47.5,72 42.5,67.5 42.5,61.5 H48 C48.5,64.5 50.5,67 54,67 C57.5,67 60,65 60,62.5 C60,59.5 57,57.5 50,55 C43,52.5 38,49.5 38,41.5 C38,34.5 44,28 54,28 C64,28 69.5,34.5 70,41.5 H65 Z" />
+
+        <!-- Clean Slash Cut Line across SplitSmith 'S' -->
+        <path
+            android:strokeColor="#A3E635"
+            android:strokeWidth="2.5"
+            android:strokeLineCap="round"
+            android:pathData="M35,73 L73,35" />
+
+        <path
+            android:strokeColor="#1A1A1A"
+            android:strokeWidth="1.5"
+            android:pathData="M37,71 L71,37" />
+
+    </group>
+
+</vector>
