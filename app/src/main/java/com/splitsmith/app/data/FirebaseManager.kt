@@ -72,18 +72,39 @@ object FirebaseManager {
         val result = auth.signInWithCredential(credential).await()
         val user = result.user ?: throw RuntimeException("Google sign in failed")
         
-        // Initialize user document if not exists with resilient fallback
+        // Initialize user document if not exists with resilient fallback & account linking
         try {
             val userDoc = db.collection("users").document(user.uid).get().await()
             if (!userDoc.exists()) {
-                val profile = UserProfile(
-                    uid = user.uid,
-                    displayName = user.displayName ?: "SplitSmith User",
-                    email = user.email ?: "",
-                    avatarUrl = user.photoUrl?.toString() ?: "",
-                    shortCode = user.uid.take(6).uppercase()
-                )
-                db.collection("users").document(user.uid).set(profile, com.google.firebase.firestore.SetOptions.merge()).await()
+                val userEmail = user.email
+                val emailQuery = if (!userEmail.isNullOrEmpty()) {
+                    try { db.collection("users").whereEqualTo("email", userEmail).get().await() } catch (e: Exception) { null }
+                } else null
+
+                if (emailQuery != null && !emailQuery.isEmpty) {
+                    val oldDoc = emailQuery.documents.first()
+                    val oldUid = oldDoc.id
+                    val oldData = oldDoc.data ?: emptyMap()
+                    val updatedProfile = oldData + mapOf("uid" to user.uid)
+                    db.collection("users").document(user.uid).set(updatedProfile, com.google.firebase.firestore.SetOptions.merge()).await()
+                    
+                    // Link group memberships to new UID
+                    try {
+                        val groupQuery = db.collection("groups").whereEqualTo("members.$oldUid", true).get().await()
+                        for (group in groupQuery.documents) {
+                            db.collection("groups").document(group.id).set(mapOf("members" to mapOf(user.uid to true)), com.google.firebase.firestore.SetOptions.merge())
+                        }
+                    } catch (e: Exception) { }
+                } else {
+                    val profile = UserProfile(
+                        uid = user.uid,
+                        displayName = user.displayName ?: "SplitSmith User",
+                        email = user.email ?: "",
+                        avatarUrl = user.photoUrl?.toString() ?: "",
+                        shortCode = user.uid.take(6).uppercase()
+                    )
+                    db.collection("users").document(user.uid).set(profile, com.google.firebase.firestore.SetOptions.merge()).await()
+                }
             }
         } catch (e: Exception) {
             val profile = UserProfile(
