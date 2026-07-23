@@ -9,22 +9,15 @@
         android:pivotX="54"
         android:pivotY="54">
         
-        <!-- Smooth 'S' Curve in Lime Green -->
+        <!-- Bold White Sans-Serif 'S' Letterform -->
         <path
-            android:fillColor="#A2E635"
-            android:pathData="M 64.5,41.5 C 64.5,35 59.5,31 54,31 C 48.5,31 43.5,35 43.5,41.5 C 43.5,47.5 48.5,50 54,52 C 59.5,54 64.5,56.5 64.5,63 C 64.5,69.5 59.5,73 54,73 C 47.5,73 42,68.5 42,62 H 48.5 C 48.5,65 50.5,67.5 54,67.5 C 57.5,67.5 59,65.5 59,63 C 59,60 56,58 50,55.5 C 44,53 38,50 38,41.5 C 38,33 44.5,25.5 54,25.5 C 63.5,25.5 69.5,33 70,41.5 Z" />
+            android:fillColor="#FFFFFF"
+            android:pathData="M65.5,41.5 C65.5,35 60.5,31 54,31 C47.5,31 42.5,35 42.5,41.5 C42.5,47.5 47.5,50 54,52 C60.5,54 65.5,56.5 65.5,63 C65.5,69.5 60.5,73.5 54,73.5 C47,73.5 41.5,68.5 41.5,61.5 H48 C48.5,65 50.5,67.5 54,67.5 C57.5,67.5 59.5,65.5 59.5,63 C59.5,60 56.5,58 50,55.5 C43.5,53 38,50 38,41.5 C38,33 44.5,25 54,25 C63.5,25 69.5,33 70,41.5 H65.5 Z" />
 
-        <!-- Diagonal Stylus / Needle Line Through 'S' -->
+        <!-- Sharp Tapered Diagonal Knife Slash Line Cutting Through 'S' -->
         <path
-            android:strokeColor="#A2E635"
-            android:strokeWidth="2.5"
-            android:strokeLineCap="round"
-            android:pathData="M 33,75 L 75,33" />
-
-        <!-- Stylus Head Detail -->
-        <path
-            android:fillColor="#A2E635"
-            android:pathData="M 73,31 L 77,35 L 75,37 L 71,33 Z" />
+            android:fillColor="#FFFFFF"
+            android:pathData="M24,84 L27,81 L81,27 L84,24 L81,29 L29,81 Z" />
 
     </group>
 
