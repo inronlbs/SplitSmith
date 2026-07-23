@@ -109,8 +109,12 @@ fun AuthScreen(
                             val uid = authResult.user?.uid
                             var hasUpi = false
                             if (uid != null) {
-                                val profile = FirebaseManager.getUserProfile(uid)
-                                hasUpi = !profile?.upiId.isNullOrEmpty()
+                                try {
+                                    val profile = FirebaseManager.getUserProfile(uid)
+                                    hasUpi = !profile?.upiId.isNullOrEmpty()
+                                } catch (e: Exception) {
+                                    hasUpi = false
+                                }
                             }
                             onAuthSuccess(isNewUser || !hasUpi)
                         } catch (e: Exception) {

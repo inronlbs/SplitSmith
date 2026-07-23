@@ -72,9 +72,20 @@ object FirebaseManager {
         val result = auth.signInWithCredential(credential).await()
         val user = result.user ?: throw RuntimeException("Google sign in failed")
         
-        // Initialize user document if not exists
-        val userDoc = db.collection("users").document(user.uid).get().await()
-        if (!userDoc.exists()) {
+        // Initialize user document if not exists with resilient fallback
+        try {
+            val userDoc = db.collection("users").document(user.uid).get().await()
+            if (!userDoc.exists()) {
+                val profile = UserProfile(
+                    uid = user.uid,
+                    displayName = user.displayName ?: "SplitSmith User",
+                    email = user.email ?: "",
+                    avatarUrl = user.photoUrl?.toString() ?: "",
+                    shortCode = user.uid.take(6).uppercase()
+                )
+                db.collection("users").document(user.uid).set(profile, com.google.firebase.firestore.SetOptions.merge()).await()
+            }
+        } catch (e: Exception) {
             val profile = UserProfile(
                 uid = user.uid,
                 displayName = user.displayName ?: "SplitSmith User",
@@ -82,7 +93,7 @@ object FirebaseManager {
                 avatarUrl = user.photoUrl?.toString() ?: "",
                 shortCode = user.uid.take(6).uppercase()
             )
-            db.collection("users").document(user.uid).set(profile).await()
+            db.collection("users").document(user.uid).set(profile, com.google.firebase.firestore.SetOptions.merge())
         }
         return result
     }
