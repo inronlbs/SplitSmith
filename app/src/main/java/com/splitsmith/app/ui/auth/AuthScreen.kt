@@ -72,9 +72,22 @@ fun AuthScreen(
     val inkMuted        = colors.inkMuted
     val borderWhisper   = colors.borderWhisper
 
-    val googleSignInClient = remember {
+    val webClientId = remember(context) {
+        val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+        if (resId != 0) {
+            context.getString(resId)
+        } else {
+            ""
+        }
+    }
+
+    val googleSignInClient = remember(webClientId) {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestIdToken("538688889606-vg27dc4pnvu0l8uf63qidtt2nm44nlu1.apps.googleusercontent.com")
+            .apply {
+                if (webClientId.isNotEmpty()) {
+                    requestIdToken(webClientId)
+                }
+            }
             .requestEmail()
             .build()
         GoogleSignIn.getClient(context, gso)
