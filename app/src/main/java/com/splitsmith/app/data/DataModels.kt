@@ -92,3 +92,9 @@ data class Debt(
     val amount: Double
 )
 
+data class GroupExpenseWithContext(
+    val expense: Expense,
+    val groupId: String,
+    val groupName: String
+)
+

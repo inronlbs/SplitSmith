@@ -735,11 +735,13 @@ fun HomeDashboardView(
         }.timeInMillis
     }
 
-    // Observe expenses and direct splits for real-time budget tracking on dashboard
+    // Observe expenses, direct splits, and group expenses for real-time budget tracking on dashboard
     val personalExpensesFlow = remember { FirebaseManager.observePersonalExpenses() }
     val personalExpensesState = personalExpensesFlow.collectAsState(initial = emptyList())
     val directSplitsFlow = remember { FirebaseManager.observeDirectSplits() }
     val directSplitsState = directSplitsFlow.collectAsState(initial = emptyList())
+    val groupExpensesFlow = remember { FirebaseManager.observeAllUserGroupExpenses() }
+    val groupExpensesState = groupExpensesFlow.collectAsState(initial = emptyList())
 
     // Comprehensive Total Monthly Outflow: Solo Personal Spend + Net Shared Split Spend for current month
     val totalPersonalSpent = remember(personalExpensesState.value, directSplitsState.value, currentMonthStart, currentUserId) {
@@ -759,7 +761,7 @@ fun HomeDashboardView(
         }
     }
 
-    val combinedRecentActivities = remember(directSplitsState.value, personalExpensesState.value, currentUserId) {
+    val combinedRecentActivities = remember(directSplitsState.value, personalExpensesState.value, groupExpensesState.value, currentUserId) {
         val splits = directSplitsState.value.map { split ->
             RecentActivityItem(
                 id = split.id,
@@ -784,7 +786,20 @@ fun HomeDashboardView(
                 rawSplit = null
             )
         }
-        (splits + personal).sortedByDescending { it.date }.take(10)
+        val groupExps = groupExpensesState.value.map { ge ->
+            val exp = ge.expense
+            RecentActivityItem(
+                id = exp.id,
+                title = if (exp.description.isNotEmpty()) exp.description else exp.category,
+                subtitle = "${ge.groupName} • ${exp.category}",
+                amount = exp.amount,
+                date = exp.date,
+                isPositive = exp.paidBy == currentUserId,
+                isSettled = false,
+                rawSplit = null
+            )
+        }
+        (splits + personal + groupExps).sortedByDescending { it.date }.take(12)
     }
 
     LazyColumn(
@@ -1428,7 +1443,7 @@ fun ProfileSettingsView(
                     OutlinedButton(
                         onClick = {
                             showUpdateDialog = false
-                            com.splitsmith.app.util.AppUpdateManager.openInBrowser(context, info.downloadUrl)
+                            com.splitsmith.app.util.AppUpdateManager.openInBrowser(context, "https://splitsmith.web.app/")
                         },
                         shape = RoundedCornerShape(d.radiusMD)
                     ) {
@@ -1944,6 +1959,81 @@ fun ProfileSettingsView(
                 d = d,
                 onClick = { Toast.makeText(context, "SplitSmith v${com.splitsmith.app.BuildConfig.VERSION_NAME} is up to date!", Toast.LENGTH_SHORT).show() }
             )
+
+            var showInfoDialog by remember { mutableStateOf(false) }
+
+            ProfileSettingsRow(
+                label = "About SplitSmith & Info",
+                value = "Learn more",
+                inkPrimary = colors.inkPrimary,
+                inkMuted = colors.inkMuted,
+                borderWhisper = colors.borderWhisper,
+                d = d,
+                onClick = { showInfoDialog = true }
+            )
+
+            if (showInfoDialog) {
+                AlertDialog(
+                    onDismissRequest = { showInfoDialog = false },
+                    containerColor = colors.surfaceCard,
+                    shape = RoundedCornerShape(d.radiusLG),
+                    title = {
+                        Text(
+                            "About SplitSmith",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textTitleLarge,
+                            color = colors.inkPrimary
+                        )
+                    },
+                    text = {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(d.space12),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "Version v${com.splitsmith.app.BuildConfig.VERSION_NAME}",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = d.textBodyMedium,
+                                color = colors.inkPrimary
+                            )
+                            Text(
+                                "SplitSmith is an intelligent expense splitting and personal budget tracking application crafted for seamless group calculations, direct 1-on-1 splits, and real-time ledger accounting.",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textBodyMedium,
+                                color = colors.inkMuted
+                            )
+                            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+                            Text(
+                                "Developed by Invron Labs",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = d.textLabelLarge,
+                                color = colors.inkPrimary
+                            )
+                            Text(
+                                "Web App: https://splitsmith.web.app/",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelMedium,
+                                color = colors.inkMuted,
+                                modifier = Modifier.clickable {
+                                    com.splitsmith.app.util.AppUpdateManager.openInBrowser(context, "https://splitsmith.web.app/")
+                                }
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { showInfoDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
+                            shape = RoundedCornerShape(d.radiusMD)
+                        ) {
+                            Text("Close", fontFamily = OutfitFamily, color = colors.canvasChalk)
+                        }
+                    }
+                )
+            }
         }
 
         item {

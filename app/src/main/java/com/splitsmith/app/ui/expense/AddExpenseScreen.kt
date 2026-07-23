@@ -755,7 +755,31 @@ fun AddExpenseScreen(
                             OutlinedTextField(
                                 value = valInput,
                                 onValueChange = { inputVal ->
-                                    customSplitInputs = customSplitInputs.toMutableMap().apply { put(uid, inputVal) }
+                                    val newInputs = customSplitInputs.toMutableMap()
+                                    newInputs[uid] = inputVal
+                                    
+                                    val membersList = selectedMembers.toList()
+                                    if (membersList.size > 1) {
+                                        val totalAmt = amountStr.toDoubleOrNull() ?: 0.0
+                                        if (splitMode == "PERCENTAGE") {
+                                            val editedPct = inputVal.toDoubleOrNull() ?: 0.0
+                                            val remainingPct = (100.0 - editedPct).coerceAtLeast(0.0)
+                                            val otherMembers = membersList.filter { it != uid }
+                                            val perOtherPct = if (otherMembers.isNotEmpty()) remainingPct / otherMembers.size else 0.0
+                                            otherMembers.forEach { otherUid ->
+                                                newInputs[otherUid] = if (perOtherPct % 1.0 == 0.0) perOtherPct.toInt().toString() else String.format("%.1f", perOtherPct)
+                                            }
+                                        } else if (splitMode == "EXACT" && totalAmt > 0) {
+                                            val editedAmt = inputVal.toDoubleOrNull() ?: 0.0
+                                            val remainingAmt = (totalAmt - editedAmt).coerceAtLeast(0.0)
+                                            val otherMembers = membersList.filter { it != uid }
+                                            val perOtherAmt = if (otherMembers.isNotEmpty()) remainingAmt / otherMembers.size else 0.0
+                                            otherMembers.forEach { otherUid ->
+                                                newInputs[otherUid] = if (perOtherAmt % 1.0 == 0.0) perOtherAmt.toInt().toString() else String.format("%.2f", perOtherAmt)
+                                            }
+                                        }
+                                    }
+                                    customSplitInputs = newInputs
                                 },
                                 modifier = Modifier.width(120.dp).heightIn(min = d.inputHeight),
                                 shape = RoundedCornerShape(d.radiusSM),

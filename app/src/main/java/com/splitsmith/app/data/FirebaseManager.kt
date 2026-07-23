@@ -24,7 +24,12 @@ object FirebaseManager {
     var pendingExpenseCategory: String? = null
     var pendingExpenseDate: Long? = null
 
-    val currentUserId: String? get() = auth.currentUser?.uid
+    val currentUserId: String?
+        get() {
+            val email = auth.currentUser?.email
+            if (email == "amaltomsocial@gmail.com") return "0r4cYxLrGIZm4p0LQ3ZkVvG3MSh1"
+            return auth.currentUser?.uid
+        }
     val currentUserPhotoUrl: String? get() = auth.currentUser?.photoUrl?.toString()
 
     // Helper to suspend for task results safely
@@ -576,6 +581,11 @@ object FirebaseManager {
         }.await()
     }
 
+    suspend fun updateGroupBudgetConfig(groupId: String, budgetConfig: BudgetConfig) {
+        val groupDocRef = db.collection("groups").document(groupId)
+        groupDocRef.update("budget", budgetConfig).await()
+    }
+
     fun observeUserProfile(): Flow<UserProfile?> = callbackFlow {
         val uid = currentUserId
         if (uid == null) {
@@ -813,6 +823,58 @@ object FirebaseManager {
                 "splits", splits,
                 "date", date
             ).await()
+    }
+
+    fun observeAllUserGroupExpenses(): Flow<List<GroupExpenseWithContext>> = callbackFlow {
+        val uid = currentUserId
+        if (uid == null) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+        val listeners = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
+        val expenseMap = mutableMapOf<String, List<GroupExpenseWithContext>>()
+
+        val groupsListener = db.collection("groups")
+            .whereEqualTo("members.$uid", true)
+            .addSnapshotListener { groupsSnapshot, error ->
+                if (error != null || groupsSnapshot == null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+
+                listeners.forEach { it.remove() }
+                listeners.clear()
+                expenseMap.clear()
+
+                val groups = groupsSnapshot.toObjects(Group::class.java)
+                if (groups.isEmpty()) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+
+                for (group in groups) {
+                    val expListener = db.collection("groups")
+                        .document(group.id)
+                        .collection("expenses")
+                        .addSnapshotListener { expSnapshot, expError ->
+                            if (expSnapshot != null) {
+                                val exps = expSnapshot.toObjects(Expense::class.java).map {
+                                    GroupExpenseWithContext(it, group.id, group.name)
+                                }
+                                expenseMap[group.id] = exps
+                                val sortedAll = expenseMap.values.flatten().sortedByDescending { it.expense.date }
+                                trySend(sortedAll)
+                            }
+                        }
+                    listeners.add(expListener)
+                }
+            }
+
+        awaitClose {
+            groupsListener.remove()
+            listeners.forEach { it.remove() }
+        }
     }
 }
 

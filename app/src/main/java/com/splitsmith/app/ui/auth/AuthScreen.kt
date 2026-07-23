@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -274,11 +275,76 @@ fun AuthScreen(
                                     fontFamily = OutfitFamily,
                                     fontWeight = FontWeight.Medium,
                                     fontSize = d.textLabelLarge,
-                                    color = inkPrimary
                                 )
                             }
                         }
                     }
+                }
+
+                Spacer(modifier = Modifier.height(d.space24))
+
+                var showTermsDialog by remember { mutableStateOf(false) }
+
+                Text(
+                    text = "By continuing, you agree to SplitSmith's Terms & Conditions and Data Sharing Agreement.",
+                    fontFamily = OutfitFamily,
+                    fontSize = d.textLabelSmall,
+                    color = inkMuted,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .padding(horizontal = d.space16)
+                        .clickable { showTermsDialog = true }
+                )
+
+                if (showTermsDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showTermsDialog = false },
+                        containerColor = colors.surfaceCard,
+                        shape = RoundedCornerShape(d.radiusLG),
+                        title = {
+                            Text(
+                                "Terms & Data Sharing Agreement",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = d.textTitleLarge,
+                                color = colors.inkPrimary
+                            )
+                        },
+                        text = {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(d.space12),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    "1. Terms of Service\nBy using SplitSmith, you agree to store group expense records and direct split balances securely. Accounts are authenticated via Google Sign-In.",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textBodyMedium,
+                                    color = colors.inkPrimary
+                                )
+                                Text(
+                                    "2. Data Sharing Agreement\nExpense details, display names, and payment reference notes entered inside shared groups are visible to other members of that specific group.",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textBodyMedium,
+                                    color = colors.inkMuted
+                                )
+                                Text(
+                                    "3. Privacy & Security\nYour personal budget settings and personal expense entries remain strictly private and accessible only to your authenticated Google account.",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textBodyMedium,
+                                    color = colors.inkMuted
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = { showTermsDialog = false },
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
+                                shape = RoundedCornerShape(d.radiusMD)
+                            ) {
+                                Text("I Agree", fontFamily = OutfitFamily, color = colors.canvasChalk)
+                            }
+                        }
+                    )
                 }
             }
         }
