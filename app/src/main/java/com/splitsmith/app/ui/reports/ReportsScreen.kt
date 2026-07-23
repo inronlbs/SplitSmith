@@ -39,7 +39,8 @@ data class ReportTransaction(
     val amount: Double, // positive = credit (others owe us), negative = debit (we spent/owe)
     val date: Long,
     val category: String,
-    val typeName: String // "Personal", "Group: Trip", "Direct Split"
+    val typeName: String, // "Personal", "Group: Trip", "Direct Split"
+    val groupId: String? = null
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,20 +65,9 @@ fun ReportsScreen(
     val directSplitsState = directSplitsFlow.collectAsState(initial = emptyList())
     val directSplits = directSplitsState.value ?: emptyList()
 
-    var groupExpensesMap by remember { mutableStateOf<Map<String, List<Expense>>>(emptyMap()) }
-
-    // Dynamically observe group expenses for each loaded group
-    LaunchedEffect(groups) {
-        groups.forEach { group ->
-            launch {
-                FirebaseManager.observeExpenses(group.id).collect { expensesList ->
-                    groupExpensesMap = groupExpensesMap.toMutableMap().apply {
-                        put(group.id, expensesList)
-                    }
-                }
-            }
-        }
-    }
+    val allGroupExpensesFlow = remember { FirebaseManager.observeAllUserGroupExpenses() }
+    val allGroupExpensesState = allGroupExpensesFlow.collectAsState(initial = emptyList())
+    val allGroupExpenses = allGroupExpensesState.value ?: emptyList()
 
     // Filter states
     var selectedGroupId by remember { mutableStateOf(initialGroupId) }
@@ -120,7 +110,7 @@ fun ReportsScreen(
     val alertRed = colors.alertRed
 
     // Calculate all transactions list
-    val allTransactions = remember(personalExpenses, directSplits, groupExpensesMap, groups) {
+    val allTransactions = remember(personalExpenses, directSplits, allGroupExpenses) {
         val list = mutableListOf<ReportTransaction>()
         val myUid = FirebaseManager.currentUserId ?: ""
 
@@ -154,26 +144,25 @@ fun ReportsScreen(
         }
 
         // 3. Group Expenses
-        groups.forEach { group ->
-            val expenses = groupExpensesMap[group.id] ?: emptyList()
-            expenses.forEach { ge ->
-                val share = ge.splits[myUid] ?: 0.0
-                val netAmount = if (ge.paidBy == myUid) {
-                    ge.amount - share
-                } else {
-                    -share
-                }
-                if (netAmount != 0.0) {
-                    list.add(
-                        ReportTransaction(
-                            description = ge.description.ifEmpty { "Group Split" },
-                            amount = netAmount,
-                            date = ge.date,
-                            category = ge.category,
-                            typeName = "Group: ${group.name}"
-                        )
+        allGroupExpenses.forEach { geCtx ->
+            val ge = geCtx.expense
+            val share = ge.splits[myUid] ?: 0.0
+            val netAmount = if (ge.paidBy == myUid) {
+                ge.amount - share
+            } else {
+                -share
+            }
+            if (netAmount != 0.0) {
+                list.add(
+                    ReportTransaction(
+                        description = ge.description.ifEmpty { "Group Split" },
+                        amount = netAmount,
+                        date = ge.date,
+                        category = ge.category,
+                        typeName = "Group: ${geCtx.groupName}",
+                        groupId = geCtx.groupId
                     )
-                }
+                )
             }
         }
         list
@@ -207,8 +196,12 @@ fun ReportsScreen(
         }
     }
 
-    val filteredTransactions = remember(allTransactions, activeStart, activeEnd) {
-        allTransactions.filter { it.date in activeStart..activeEnd }.sortedByDescending { it.date }
+    val filteredTransactions = remember(allTransactions, activeStart, activeEnd, selectedGroupId) {
+        allTransactions.filter { tx ->
+            val matchesDate = tx.date in activeStart..activeEnd
+            val matchesGroup = if (selectedGroupId == null) true else tx.groupId == selectedGroupId
+            matchesDate && matchesGroup
+        }.sortedByDescending { it.date }
     }
 
     val totalCredits = remember(filteredTransactions) {

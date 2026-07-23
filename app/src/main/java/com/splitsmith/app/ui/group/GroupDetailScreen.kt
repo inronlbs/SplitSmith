@@ -487,12 +487,11 @@ fun GroupDetailScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(d.space12))
-
-                // ── Custom pill tab bar (compact 2-tab layout) ────
+                // ── Custom pill tab bar (compact 2-tab layout with 50% reduced vertical distance) ────
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .offset(y = (-2).dp)
                         .padding(horizontal = d.space24),
                     horizontalArrangement = Arrangement.spacedBy(d.space8)
                 ) {

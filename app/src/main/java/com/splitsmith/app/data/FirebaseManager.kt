@@ -167,10 +167,16 @@ object FirebaseManager {
         val uid = currentUserId ?: return
         try {
             val data = mapOf(
-                "monthlyBudgetLimit" to monthlyLimit,
-                "budgetThreshold" to alertThreshold
+                "budget" to mapOf(
+                    "limit" to monthlyLimit.toDouble(),
+                    "threshold" to alertThreshold,
+                    "type" to "MONTHLY"
+                )
             )
             db.collection("users").document(uid).set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+            profileCache[uid]?.let {
+                profileCache[uid] = it.copy(budget = BudgetConfig(limit = monthlyLimit.toDouble(), threshold = alertThreshold, type = "MONTHLY"))
+            }
         } catch (e: Exception) {
             // Non-blocking fallback
         }

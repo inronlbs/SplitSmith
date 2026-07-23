@@ -781,11 +781,21 @@ fun HomeDashboardView(
     val budgetLimit = (userProfile?.budget?.limit ?: 15000.0).let { if (it <= 0) 15000.0 else it }
     val budgetProgress = if (budgetLimit > 0) (totalPersonalSpent / budgetLimit).coerceIn(0.0, 1.0) else 0.0
 
-    // Consolidated Shared Net Balance (Placeholder calculation)
-    val totalDirectOwed = remember(directSplitsState.value) {
-        directSplitsState.value.filter { it.status == "PENDING" }.sumOf {
+    // Consolidated Shared Net Balance: Direct 1-on-1 Splits + Group Net Balances
+    val totalDirectOwed = remember(directSplitsState.value, groupExpensesState.value, currentUserId) {
+        val directNet = directSplitsState.value.filter { it.status == "PENDING" }.sumOf {
             if (it.paidBy == currentUserId) it.myShare else -it.myShare
         }
+        val groupNet = groupExpensesState.value.sumOf { ge ->
+            val exp = ge.expense
+            val myShare = exp.splits[currentUserId] ?: 0.0
+            if (exp.paidBy == currentUserId) {
+                exp.amount - myShare
+            } else {
+                -myShare
+            }
+        }
+        directNet + groupNet
     }
 
     val combinedRecentActivities = remember(directSplitsState.value, personalExpensesState.value, groupExpensesState.value, currentUserId) {
@@ -2000,103 +2010,122 @@ fun ProfileSettingsView(
             )
 
             if (showInfoDialog) {
-                AlertDialog(
+                ModalBottomSheet(
                     onDismissRequest = { showInfoDialog = false },
-                    containerColor = colors.surfaceCard,
-                    shape = RoundedCornerShape(d.radiusLG),
-                    title = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(d.space12)
-                        ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.app_logo_brand),
-                                contentDescription = "SplitSmith Logo",
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(RoundedCornerShape(8.dp))
+                    containerColor = colors.canvasChalk,
+                    dragHandle = { BottomSheetDefaults.DragHandle(color = colors.borderWhisper) }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(d.space24)
+                            .navigationBarsPadding(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(d.space16)
+                    ) {
+                        // Brand Logo & Header
+                        Image(
+                            painter = painterResource(id = R.drawable.app_logo_brand),
+                            contentDescription = "SplitSmith Brand Logo",
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                        )
+                        
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "SplitSmith",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 24.sp,
+                                color = colors.inkPrimary
                             )
-                            Column {
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = colors.surfaceCard,
+                                border = BorderStroke(0.5.dp, colors.borderWhisper)
+                            ) {
                                 Text(
-                                    "SplitSmith",
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = d.textTitleLarge,
-                                    color = colors.inkPrimary
-                                )
-                                Text(
-                                    "v${com.splitsmith.app.BuildConfig.VERSION_NAME}",
+                                    text = "v${com.splitsmith.app.BuildConfig.VERSION_NAME} • Release Build",
                                     fontFamily = JetBrainsMonoFamily,
                                     fontSize = d.textLabelSmall,
-                                    color = colors.inkMuted
+                                    color = colors.inkMuted,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                 )
                             }
                         }
-                    },
-                    text = {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(d.space12),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
+
+                        Text(
+                            text = "Smart, effortless group expense splitting, real-time balances, and personal ledger accounting.",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textBodyLarge,
+                            color = colors.inkMuted,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = d.space16)
+                        )
+
+                        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+                        // Feature Bento Grid
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                "Intelligent group expense splitting and personal budget tracking application crafted for seamless ledger accounting.",
+                                text = "KEY FEATURES & INFRASTRUCTURE",
                                 fontFamily = OutfitFamily,
-                                fontSize = d.textBodyMedium,
-                                color = colors.inkMuted
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.inkMuted,
+                                letterSpacing = 1.5.sp
                             )
-
-                            // Feature Chips
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Surface(shape = RoundedCornerShape(d.radiusSM), color = colors.canvasChalk, border = BorderStroke(0.5.dp, colors.borderWhisper)) {
-                                    Text("OLED Dark UI", fontFamily = OutfitFamily, fontSize = 10.sp, color = colors.inkPrimary, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                }
-                                Surface(shape = RoundedCornerShape(d.radiusSM), color = colors.canvasChalk, border = BorderStroke(0.5.dp, colors.borderWhisper)) {
-                                    Text("Real-Time Ledgers", fontFamily = OutfitFamily, fontSize = 10.sp, color = colors.inkPrimary, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                }
-                                Surface(shape = RoundedCornerShape(d.radiusSM), color = colors.canvasChalk, border = BorderStroke(0.5.dp, colors.borderWhisper)) {
-                                    Text("Group Budgets", fontFamily = OutfitFamily, fontSize = 10.sp, color = colors.inkPrimary, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                }
-                            }
-
-                            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
                             
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    "Developed by Invron Labs",
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = d.textLabelLarge,
-                                    color = colors.inkPrimary
-                                )
-                                OutlinedButton(
-                                    onClick = {
-                                        com.splitsmith.app.util.AppUpdateManager.openInBrowser(context, "https://splitsmith.web.app/")
-                                    },
-                                    shape = RoundedCornerShape(d.radiusSM),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                ) {
-                                    Text("Website", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkPrimary)
+                            val features = listOf(
+                                "⚡ Real-Time Ledger Accounting",
+                                "📊 Group & Personal Monthly Budgets",
+                                "🔒 Connections & Zero-Overhead Search",
+                                "📷 QR Code Instant Invites & Connect",
+                                "📱 OLED Dark UI & High Performance"
+                            )
+                            features.forEach { feat ->
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = feat,
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = d.textBodyMedium,
+                                        color = colors.inkPrimary
+                                    )
                                 }
                             }
                         }
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = { showInfoDialog = false },
-                            colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
-                            shape = RoundedCornerShape(d.radiusMD)
+
+                        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+                        // Website & Close Action Buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(d.space12)
                         ) {
-                            Text("Close", fontFamily = OutfitFamily, color = colors.canvasChalk)
+                            OutlinedButton(
+                                onClick = {
+                                    com.splitsmith.app.util.AppUpdateManager.openInBrowser(context, "https://splitsmith.web.app/")
+                                },
+                                modifier = Modifier.weight(1f).height(d.buttonHeight),
+                                shape = RoundedCornerShape(d.radiusMD),
+                                border = BorderStroke(1.dp, colors.borderWhisper)
+                            ) {
+                                Text("🌐 Web App", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                            }
+
+                            Button(
+                                onClick = { showInfoDialog = false },
+                                modifier = Modifier.weight(1f).height(d.buttonHeight),
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
+                                shape = RoundedCornerShape(d.radiusMD)
+                            ) {
+                                Text("Done", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                            }
                         }
                     }
-                )
+                }
             }
         }
 
