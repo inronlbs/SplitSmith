@@ -636,7 +636,18 @@ fun QuickActionRow(
         )
     }
 }
-     // ─── 1. HOME DASHBOARD ───────────────────────────────────────
+data class RecentActivityItem(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val amount: Double,
+    val date: Long,
+    val isPositive: Boolean,
+    val isSettled: Boolean = false,
+    val rawSplit: DirectSplit? = null
+)
+
+// ─── 1. HOME DASHBOARD ───────────────────────────────────────
 @Composable
 fun HomeDashboardView(
     groups: List<Group>,
@@ -746,6 +757,34 @@ fun HomeDashboardView(
         directSplitsState.value.filter { it.status == "PENDING" }.sumOf {
             if (it.paidBy == currentUserId) it.myShare else -it.myShare
         }
+    }
+
+    val combinedRecentActivities = remember(directSplitsState.value, personalExpensesState.value, currentUserId) {
+        val splits = directSplitsState.value.map { split ->
+            RecentActivityItem(
+                id = split.id,
+                title = if (split.description.isNotEmpty()) split.description else "Split",
+                subtitle = if (split.status == "SETTLED") "Settled" else if (split.status == "WAITING_APPROVAL") "Approval Pending" else if (split.paidBy == currentUserId) "You paid" else "You owe",
+                amount = split.myShare,
+                date = split.date,
+                isPositive = split.paidBy == currentUserId,
+                isSettled = split.status == "SETTLED",
+                rawSplit = split
+            )
+        }
+        val personal = personalExpensesState.value.map { pe ->
+            RecentActivityItem(
+                id = pe.id,
+                title = if (pe.description.isNotEmpty()) pe.description else pe.category,
+                subtitle = "Personal Expense • ${pe.category}",
+                amount = pe.amount,
+                date = pe.date,
+                isPositive = false,
+                isSettled = true,
+                rawSplit = null
+            )
+        }
+        (splits + personal).sortedByDescending { it.date }.take(10)
     }
 
     LazyColumn(
@@ -1037,8 +1076,7 @@ fun HomeDashboardView(
             )
         }
 
-        val recentSplits = directSplitsState.value.take(5)
-        if (recentSplits.isEmpty()) {
+        if (combinedRecentActivities.isEmpty()) {
             item {
                 Row(
                     modifier = Modifier
@@ -1067,13 +1105,12 @@ fun HomeDashboardView(
                 HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
             }
         } else {
-            items(recentSplits) { split ->
-                val isSettled = split.status == "SETTLED"
+            items(combinedRecentActivities) { item ->
                 Column {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSplitClick(split) }
+                            .clickable { item.rawSplit?.let { onSplitClick(it) } }
                             .padding(vertical = d.space12),
                         horizontalArrangement = Arrangement.spacedBy(d.space12),
                         verticalAlignment = Alignment.CenterVertically
@@ -1084,34 +1121,34 @@ fun HomeDashboardView(
                                 .size(8.dp)
                                 .clip(CircleShape)
                                 .background(
-                                    if (isSettled) colors.inkMuted
-                                    else if (split.paidBy == currentUserId) colors.inkPrimary
+                                    if (item.isSettled) colors.inkMuted
+                                    else if (item.isPositive) colors.inkPrimary
                                     else colors.alertRed
                                 )
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = split.description.ifEmpty { "Split" },
+                                text = item.title,
                                 fontFamily = OutfitFamily,
                                 fontWeight = FontWeight.Medium,
                                 fontSize = d.textBodyLarge,
-                                color = if (isSettled) colors.inkMuted else colors.inkPrimary,
+                                color = if (item.isSettled) colors.inkMuted else colors.inkPrimary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = if (isSettled) "Settled" else if (split.status == "WAITING_APPROVAL") "Approval Pending" else if (split.paidBy == currentUserId) "You paid" else "You owe",
+                                text = item.subtitle,
                                 fontFamily = OutfitFamily,
                                 fontSize = d.textLabelSmall,
                                 color = colors.inkMuted
                             )
                         }
                         Text(
-                            text = "₹${if (split.myShare % 1.0 == 0.0) split.myShare.toInt().toString() else String.format("%.2f", split.myShare)}",
+                            text = "₹${if (item.amount % 1.0 == 0.0) item.amount.toInt().toString() else String.format("%.2f", item.amount)}",
                             fontFamily = JetBrainsMonoFamily,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = d.textBodyLarge,
-                            color = if (isSettled) colors.inkMuted else if (split.paidBy == currentUserId) colors.inkPrimary else colors.alertRed
+                            color = if (item.isSettled) colors.inkMuted else if (item.isPositive) colors.inkPrimary else colors.alertRed
                         )
                     }
                     HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
