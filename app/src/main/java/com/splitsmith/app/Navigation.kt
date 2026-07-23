@@ -73,7 +73,7 @@ fun MainNavigation() {
                         backStack.add(QRCode)
                     },
                     onNavigateToReports = {
-                        backStack.add(ReportsScreenKey)
+                        backStack.add(ReportsScreenKey())
                     },
                     onNavigateToAddExpense = { gid, eid ->
                         backStack.add(AddExpense(gid, eid))
@@ -90,6 +90,9 @@ fun MainNavigation() {
                     onBack = { backStack.removeLastOrNull() },
                     onNavigateToAddExpense = { gid, eid ->
                         backStack.add(AddExpense(gid, eid))
+                    },
+                    onNavigateToReports = { gId ->
+                        backStack.add(ReportsScreenKey(initialGroupId = gId))
                     }
                 )
             }
@@ -110,8 +113,9 @@ fun MainNavigation() {
                     onBack = { backStack.removeLastOrNull() }
                 )
             }
-            entry<ReportsScreenKey> {
+            entry<ReportsScreenKey> { key ->
                 com.splitsmith.app.ui.reports.ReportsScreen(
+                    initialGroupId = key.initialGroupId,
                     onBack = { backStack.removeLastOrNull() }
                 )
             }

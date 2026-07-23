@@ -68,7 +68,8 @@ private fun hueForMember(id: String) = memberHues[Math.abs(id.hashCode()) % memb
 fun GroupDetailScreen(
     groupId: String,
     onBack: () -> Unit,
-    onNavigateToAddExpense: (groupId: String, expenseId: String?) -> Unit
+    onNavigateToAddExpense: (groupId: String, expenseId: String?) -> Unit,
+    onNavigateToReports: ((String) -> Unit)? = null
 ) {
     val d = LocalDimens.current
     // Expenses (0) is DEFAULT selected
@@ -572,6 +573,10 @@ fun GroupDetailScreen(
                     onBack = {
                         showSettingsSheet = false
                         onBack()
+                    },
+                    onNavigateToReports = { gId ->
+                        showSettingsSheet = false
+                        onNavigateToReports?.invoke(gId)
                     }
                 )
             }
@@ -975,7 +980,8 @@ private fun StyledSettingsTab(
     group: Group?,
     userNamesMap: Map<String, String>,
     memberProfilesMap: Map<String, UserProfile>,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToReports: ((String) -> Unit)? = null
 ) {
     val d = LocalDimens.current
     val colors = LocalSplitColors.current
@@ -1414,6 +1420,61 @@ private fun StyledSettingsTab(
                         }
                     }
                 )
+            }
+        }
+
+        // Group Reports & Analytics Shortcut Section
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                Text(
+                    text = "REPORTS & ANALYTICS",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.5.sp
+                )
+                
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToReports?.invoke(group.id) },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            text = "Group Report & Analytics",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = d.textTitleMedium,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            text = "View member breakdowns & export CSV",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelMedium,
+                            color = colors.inkMuted
+                        )
+                    }
+                    
+                    Surface(
+                        shape = RoundedCornerShape(d.radiusSM),
+                        color = colors.surfaceCard,
+                        border = BorderStroke(0.5.dp, colors.borderWhisper)
+                    ) {
+                        Text(
+                            text = "View Report →",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = d.textLabelSmall,
+                            color = colors.inkPrimary,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(d.space8))
+                HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
             }
         }
 

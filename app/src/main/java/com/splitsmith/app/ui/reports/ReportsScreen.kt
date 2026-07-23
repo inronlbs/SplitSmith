@@ -45,6 +45,7 @@ data class ReportTransaction(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportsScreen(
+    initialGroupId: String? = null,
     onBack: () -> Unit
 ) {
     val d = LocalDimens.current
@@ -79,6 +80,7 @@ fun ReportsScreen(
     }
 
     // Filter states
+    var selectedGroupId by remember { mutableStateOf(initialGroupId) }
     var filterType by remember { mutableStateOf("MONTHLY") } // "MONTHLY" or "CUSTOM"
     var selectedCalendar by remember { mutableStateOf(Calendar.getInstance()) }
     var startDate by remember { mutableStateOf(Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -30) }.timeInMillis) }
@@ -332,6 +334,31 @@ fun ReportsScreen(
                     }
                 }
         ) {
+            // Group Selector Bar
+            if (groups.isNotEmpty()) {
+                androidx.compose.foundation.lazy.LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = d.space24, vertical = d.space4),
+                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    item {
+                        FilterChip(
+                            selected = selectedGroupId == null,
+                            onClick = { selectedGroupId = null },
+                            label = { Text("All Activities", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold) }
+                        )
+                    }
+                    items(groups) { g ->
+                        FilterChip(
+                            selected = selectedGroupId == g.id,
+                            onClick = { selectedGroupId = g.id },
+                            label = { Text(g.name, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold) }
+                        )
+                    }
+                }
+            }
+
             // View Mode Selector
             Row(
                 modifier = Modifier

@@ -28,7 +28,7 @@ data object QuickSplit : NavKey
 data object QRCode : NavKey
 
 @Serializable
-data object ReportsScreenKey : NavKey
+data class ReportsScreenKey(val initialGroupId: String? = null) : NavKey
 
 @Serializable
 data class SlipImportKey(val imageUriStr: String) : NavKey

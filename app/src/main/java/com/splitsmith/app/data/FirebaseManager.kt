@@ -8,6 +8,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -747,16 +748,73 @@ object FirebaseManager {
         return null
     }
 
+    // ── CONNECTIONS SYSTEM ──────────────────────────────────
+    suspend fun addConnection(targetUid: String) {
+        val uid = currentUserId ?: return
+        if (targetUid == uid) return
+        db.collection("users").document(uid).collection("connections").document(targetUid).set(
+            mapOf("connectedAt" to System.currentTimeMillis())
+        ).await()
+    }
+
+    suspend fun removeConnection(targetUid: String) {
+        val uid = currentUserId ?: return
+        db.collection("users").document(uid).collection("connections").document(targetUid).delete().await()
+    }
+
+    fun observeConnections(): Flow<List<UserProfile>> = callbackFlow {
+        val uid = currentUserId
+        if (uid == null) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        val listener = db.collection("users").document(uid).collection("connections")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val connUids = snapshot?.documents?.map { it.id } ?: emptyList()
+                launch(kotlinx.coroutines.Dispatchers.IO) {
+                    if (connUids.isEmpty()) {
+                        trySend(getRecentDirectContacts())
+                    } else {
+                        val list = mutableListOf<UserProfile>()
+                        for (cId in connUids) {
+                            getUserProfile(cId)?.let { list.add(it) }
+                        }
+                        trySend(list)
+                    }
+                }
+            }
+        awaitClose { listener.remove() }
+    }
+
     suspend fun searchUsersInstantly(query: String): List<UserProfile> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return emptyList()
-        val allUsers = db.collection("users").get().await()
-        return allUsers.toObjects(UserProfile::class.java).filter {
+
+        // 1. First search within saved connections & recent contacts (0 unindexed DB scans)
+        val connections = getRecentDirectContacts()
+        val matchedLocal = connections.filter {
             (it.displayName.contains(trimmed, ignoreCase = true) ||
              it.email.contains(trimmed, ignoreCase = true) ||
              it.shortCode.contains(trimmed, ignoreCase = true)) &&
             it.uid != currentUserId
         }
+        if (matchedLocal.isNotEmpty()) {
+            return matchedLocal
+        }
+
+        // 2. Exact single-read indexed fallback for new connections (by email or shortCode)
+        if (trimmed.contains("@")) {
+            searchUserByEmail(trimmed)?.let { if (it.uid != currentUserId) return listOf(it) }
+        }
+        searchUserByCode(trimmed)?.let { if (it.uid != currentUserId) return listOf(it) }
+
+        return emptyList()
     }
 
 
