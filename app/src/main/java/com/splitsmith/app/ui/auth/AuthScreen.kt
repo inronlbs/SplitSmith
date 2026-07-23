@@ -77,7 +77,7 @@ fun AuthScreen(
         if (resId != 0) {
             context.getString(resId)
         } else {
-            ""
+            "545492492856-hi7e0d7su8duvi27s8g0ob61a5pbq94p.apps.googleusercontent.com"
         }
     }
 
