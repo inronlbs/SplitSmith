@@ -770,13 +770,16 @@ fun HomeDashboardView(
     val groupExpensesFlow = remember { FirebaseManager.observeAllUserGroupExpenses() }
     val groupExpensesState = groupExpensesFlow.collectAsState(initial = emptyList())
 
-    // Comprehensive Total Monthly Outflow: Solo Personal Spend + Net Shared Split Spend for current month
-    val totalPersonalSpent = remember(personalExpensesState.value, directSplitsState.value, currentMonthStart, currentUserId) {
+    // Comprehensive Total Monthly Outflow: Solo Personal Spend + Direct Splits Share + Group Expense Share for current month
+    val totalPersonalSpent = remember(personalExpensesState.value, directSplitsState.value, groupExpensesState.value, currentMonthStart, currentUserId) {
         val soloMonthly = personalExpensesState.value.filter { it.date >= currentMonthStart }.sumOf { it.amount }
         val directMonthly = directSplitsState.value.filter { it.date >= currentMonthStart }.sumOf { ds ->
-            if (ds.paidBy == currentUserId) ds.myShare else ds.myShare
+            ds.myShare
         }
-        soloMonthly + directMonthly
+        val groupMonthly = groupExpensesState.value.filter { it.expense.date >= currentMonthStart }.sumOf { ge ->
+            ge.expense.splits[currentUserId] ?: 0.0
+        }
+        soloMonthly + directMonthly + groupMonthly
     }
     val budgetLimit = (userProfile?.budget?.limit ?: 15000.0).let { if (it <= 0) 15000.0 else it }
     val budgetProgress = if (budgetLimit > 0) (totalPersonalSpent / budgetLimit).coerceIn(0.0, 1.0) else 0.0
@@ -2078,16 +2081,16 @@ fun ProfileSettingsView(
                             )
                             
                             val features = listOf(
-                                "⚡ Real-Time Ledger Accounting",
-                                "📊 Group & Personal Monthly Budgets",
-                                "🔒 Connections & Zero-Overhead Search",
-                                "📷 QR Code Instant Invites & Connect",
-                                "📱 OLED Dark UI & High Performance"
+                                "Real-Time Ledger Accounting",
+                                "Group & Personal Monthly Budgets",
+                                "Connections & Zero-Overhead Search",
+                                "QR Code Instant Invites & Connect",
+                                "OLED Dark UI & High Performance"
                             )
                             features.forEach { feat ->
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(
-                                        text = feat,
+                                        text = "•  $feat",
                                         fontFamily = OutfitFamily,
                                         fontWeight = FontWeight.Medium,
                                         fontSize = d.textBodyMedium,
@@ -2112,7 +2115,7 @@ fun ProfileSettingsView(
                                 shape = RoundedCornerShape(d.radiusMD),
                                 border = BorderStroke(1.dp, colors.borderWhisper)
                             ) {
-                                Text("🌐 Web App", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                                Text("Visit Web App", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
                             }
 
                             Button(
