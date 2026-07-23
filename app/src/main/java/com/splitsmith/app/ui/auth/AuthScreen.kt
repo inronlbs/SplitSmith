@@ -159,7 +159,7 @@ fun AuthScreen(
                 contentDescription = "SplitSmith App Logo",
                 modifier = Modifier
                     .size(96.dp)
-                    .clip(CircleShape)
+                    .clip(RoundedCornerShape(20.dp))
             )
             Spacer(modifier = Modifier.height(d.space16))
             Text(
@@ -178,20 +178,16 @@ fun AuthScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter),
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-            color = colors.surfaceCard,
-            border = BorderStroke(1.dp, borderWhisper),
-            shadowElevation = 16.dp
+            shape = RoundedCornerShape(topStart = d.radiusXL, topEnd = d.radiusXL),
+            color = colors.canvasChalk,
+            shadowElevation = d.cardElevation
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .wrapContentHeight()
-                    .dotGridBackground(colors.inkMuted.copy(alpha = 0.05f))
-                    .padding(horizontal = d.space24, vertical = d.space32)
+                    .padding(d.space24)
                     .navigationBarsPadding(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Top
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
                     text = "Welcome to SplitSmith",
@@ -201,82 +197,64 @@ fun AuthScreen(
                     color = inkPrimary,
                     textAlign = TextAlign.Center
                 )
-
                 Spacer(modifier = Modifier.height(d.space8))
-
                 Text(
-                    text = "Settle balances and split group expenses seamlessly.",
+                    text = "Smart, effortless expense splitting & personal ledger tracking.",
                     fontFamily = OutfitFamily,
                     fontSize = d.textBodyMedium,
                     color = inkMuted,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = d.space8)
+                    textAlign = TextAlign.Center
                 )
 
                 Spacer(modifier = Modifier.height(d.space32))
 
-                // Standard Google Sign-In button matching Google Branding Guidelines
                 Surface(
                     modifier = Modifier
-                        .width(268.dp)
-                        .height(d.buttonHeight),
+                        .fillMaxWidth()
+                        .height(d.buttonHeight)
+                        .clickable(enabled = !isLoading) {
+                            isLoading = true
+                            googleSignInClient.signOut().addOnCompleteListener {
+                                try {
+                                    launcher.launch(googleSignInClient.signInIntent)
+                                } catch (e: Exception) {
+                                    isLoading = false
+                                    Toast.makeText(context, "Error launching sign-in: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
                     shape = RoundedCornerShape(d.radiusMD),
                     color = colors.surfaceCard,
                     border = BorderStroke(1.dp, borderWhisper),
-                    shadowElevation = d.cardElevation,
-                    enabled = !isLoading,
-                    onClick = {
-                        isLoading = true
-                        googleSignInClient.signOut().addOnCompleteListener {
-                            try {
-                                launcher.launch(googleSignInClient.signInIntent)
-                            } catch (e: Exception) {
-                                isLoading = false
-                                Toast.makeText(context, "Error launching sign-in: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
+                    shadowElevation = d.cardElevation
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = d.space16),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        // Official Multi-Colored Google Logo Box on the left
-                        Box(
-                            modifier = Modifier
-                                .padding(start = 4.dp)
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(d.radiusSM))
-                                .background(Color.White),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = inkPrimary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Image(
                                 painter = painterResource(id = R.drawable.ic_google_logo),
                                 contentDescription = "Google Logo",
-                                tint = Color.Unspecified,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(24.dp)
                             )
-                        }
-
-                        // Centered text
-                        Box(
-                            modifier = Modifier.weight(1f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isLoading) {
-                                CircularProgressIndicator(
-                                    color = inkPrimary,
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Text(
-                                    text = "Continue with Google",
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = d.textLabelLarge,
-                                )
-                            }
+                            Spacer(modifier = Modifier.width(d.space12))
+                            Text(
+                                text = "Continue with Google",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = d.textLabelLarge,
+                                color = inkPrimary
+                            )
                         }
                     }
                 }
@@ -286,7 +264,7 @@ fun AuthScreen(
                 var showTermsDialog by remember { mutableStateOf(false) }
 
                 Text(
-                    text = "By continuing, you agree to SplitSmith's Terms & Conditions and Data Sharing Agreement.",
+                    text = "By continuing, you agree to SplitSmith's\nTerms & Conditions and Data Sharing Agreement",
                     fontFamily = OutfitFamily,
                     fontSize = d.textLabelSmall,
                     color = inkMuted,
@@ -302,37 +280,33 @@ fun AuthScreen(
                         containerColor = colors.surfaceCard,
                         shape = RoundedCornerShape(d.radiusLG),
                         title = {
-                            Text(
-                                "Terms & Data Sharing Agreement",
-                                fontFamily = OutfitFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = d.textTitleLarge,
-                                color = colors.inkPrimary
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("🛡️ Terms & Data Privacy", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.inkPrimary)
+                            }
                         },
                         text = {
                             Column(
                                 verticalArrangement = Arrangement.spacedBy(d.space12),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    "1. Terms of Service\nBy using SplitSmith, you agree to store group expense records and direct split balances securely. Accounts are authenticated via Google Sign-In.",
-                                    fontFamily = OutfitFamily,
-                                    fontSize = d.textBodyMedium,
-                                    color = colors.inkPrimary
-                                )
-                                Text(
-                                    "2. Data Sharing Agreement\nExpense details, display names, and payment reference notes entered inside shared groups are visible to other members of that specific group.",
-                                    fontFamily = OutfitFamily,
-                                    fontSize = d.textBodyMedium,
-                                    color = colors.inkMuted
-                                )
-                                Text(
-                                    "3. Privacy & Security\nYour personal budget settings and personal expense entries remain strictly private and accessible only to your authenticated Google account.",
-                                    fontFamily = OutfitFamily,
-                                    fontSize = d.textBodyMedium,
-                                    color = colors.inkMuted
-                                )
+                                Surface(shape = RoundedCornerShape(d.radiusSM), color = colors.canvasChalk, border = BorderStroke(0.5.dp, borderWhisper)) {
+                                    Column(modifier = Modifier.padding(d.space12)) {
+                                        Text("1. Terms of Service", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyMedium, color = colors.inkPrimary)
+                                        Text("By signing in, you agree to store group expense records securely. Google Auth provides safe passwordless authentication.", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkMuted)
+                                    }
+                                }
+                                Surface(shape = RoundedCornerShape(d.radiusSM), color = colors.canvasChalk, border = BorderStroke(0.5.dp, borderWhisper)) {
+                                    Column(modifier = Modifier.padding(d.space12)) {
+                                        Text("2. Group Data Sharing", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyMedium, color = colors.inkPrimary)
+                                        Text("Shared group expenses, amounts, and display names are visible exclusively to approved members of that group.", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkMuted)
+                                    }
+                                }
+                                Surface(shape = RoundedCornerShape(d.radiusSM), color = colors.canvasChalk, border = BorderStroke(0.5.dp, borderWhisper)) {
+                                    Column(modifier = Modifier.padding(d.space12)) {
+                                        Text("3. Private Ledger Security", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyMedium, color = colors.inkPrimary)
+                                        Text("Your personal budgets and private expense logs are end-to-end isolated and accessible only to your account.", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkMuted)
+                                    }
+                                }
                             }
                         },
                         confirmButton = {
@@ -341,7 +315,7 @@ fun AuthScreen(
                                 colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
                                 shape = RoundedCornerShape(d.radiusMD)
                             ) {
-                                Text("I Agree", fontFamily = OutfitFamily, color = colors.canvasChalk)
+                                Text("I Understand & Agree", fontFamily = OutfitFamily, color = colors.canvasChalk)
                             }
                         }
                     )

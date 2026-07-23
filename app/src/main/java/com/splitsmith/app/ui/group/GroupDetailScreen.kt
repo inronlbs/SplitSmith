@@ -351,34 +351,45 @@ fun GroupDetailScreen(
                     }
                 }
 
-                // ── Group Monthly Budget Header Card ───────────────
-                val groupBudgetLimit = (currentGroup.budget.limit).let { if (it <= 0) 10000.0 else it }
-                val currentMonthStart = remember {
-                    java.util.Calendar.getInstance().apply {
-                        set(java.util.Calendar.DAY_OF_MONTH, 1)
-                        set(java.util.Calendar.HOUR_OF_DAY, 0)
-                        set(java.util.Calendar.MINUTE, 0)
-                        set(java.util.Calendar.SECOND, 0)
-                        set(java.util.Calendar.MILLISECOND, 0)
-                    }.timeInMillis
-                }
-                val groupMonthlySpent = remember(expenses, currentMonthStart) {
-                    expenses.filter { it.date >= currentMonthStart }.sumOf { it.amount }
-                }
-                val groupBudgetProgress = (groupMonthlySpent / groupBudgetLimit).coerceIn(0.0, 1.0)
-                var showEditGroupBudgetDialog by remember { mutableStateOf(false) }
+                // ── Minimal Group Budget Header Line (Only if budget limit > 0) ───
+                val groupBudgetLimit = currentGroup.budget.limit
+                if (groupBudgetLimit > 0.0) {
+                    val budgetType = currentGroup.budget.type
+                    val groupSpent = remember(expenses, budgetType) {
+                        val cal = java.util.Calendar.getInstance()
+                        val startTime = when (budgetType) {
+                            "YEARLY" -> {
+                                cal.set(java.util.Calendar.DAY_OF_YEAR, 1)
+                                cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                                cal.set(java.util.Calendar.MINUTE, 0)
+                                cal.set(java.util.Calendar.SECOND, 0)
+                                cal.set(java.util.Calendar.MILLISECOND, 0)
+                                cal.timeInMillis
+                            }
+                            "EVENT" -> 0L
+                            else -> { // MONTHLY
+                                cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
+                                cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                                cal.set(java.util.Calendar.MINUTE, 0)
+                                cal.set(java.util.Calendar.SECOND, 0)
+                                cal.set(java.util.Calendar.MILLISECOND, 0)
+                                cal.timeInMillis
+                            }
+                        }
+                        expenses.filter { it.date >= startTime }.sumOf { it.amount }
+                    }
+                    val groupBudgetProgress = (groupSpent / groupBudgetLimit).coerceIn(0.0, 1.0)
+                    val typeLabel = when (budgetType) {
+                        "YEARLY" -> "Yearly"
+                        "EVENT" -> "Event"
+                        else -> "Monthly"
+                    }
 
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = d.space24),
-                    shape = RoundedCornerShape(d.radiusMD),
-                    color = colors.surfaceCard,
-                    border = BorderStroke(1.dp, borderWhisper)
-                ) {
                     Column(
-                        modifier = Modifier.padding(d.space16),
-                        verticalArrangement = Arrangement.spacedBy(d.space8)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = d.space24),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -386,59 +397,31 @@ fun GroupDetailScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "GROUP MONTHLY BUDGET",
-                                fontFamily = OutfitFamily,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = inkMuted,
-                                letterSpacing = 1.5.sp
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(d.radiusSM),
-                                color = colors.canvasChalk,
-                                border = BorderStroke(0.5.dp, borderWhisper),
-                                modifier = Modifier.clickable { showEditGroupBudgetDialog = true }
-                            ) {
-                                Text(
-                                    text = "Edit Budget",
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = d.textLabelSmall,
-                                    color = inkPrimary,
-                                    modifier = Modifier.padding(horizontal = d.space8, vertical = d.space4)
-                                )
-                            }
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Bottom
-                        ) {
-                            Text(
-                                text = "₹${"%.0f".format(groupMonthlySpent)}",
-                                fontFamily = JetBrainsMonoFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 24.sp,
-                                color = inkPrimary
-                            )
-                            Text(
-                                text = "of ₹${"%.0f".format(groupBudgetLimit)} limit",
+                                text = "$typeLabel Budget",
                                 fontFamily = OutfitFamily,
                                 fontSize = d.textLabelMedium,
+                                fontWeight = FontWeight.SemiBold,
                                 color = inkMuted
+                            )
+                            Text(
+                                text = "₹${"%.0f".format(groupSpent)} / ₹${"%.0f".format(groupBudgetLimit)}",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontSize = d.textLabelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = inkPrimary
                             )
                         }
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(4.dp)
+                                .height(2.dp)
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(borderWhisper)
                         ) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth(groupBudgetProgress.toFloat())
-                                    .height(4.dp)
+                                    .height(2.dp)
                                     .clip(RoundedCornerShape(999.dp))
                                     .background(
                                         when {
@@ -450,59 +433,6 @@ fun GroupDetailScreen(
                             )
                         }
                     }
-                }
-
-                if (showEditGroupBudgetDialog) {
-                    var inputGroupLimit by remember { mutableStateOf(groupBudgetLimit.toInt().toString()) }
-                    AlertDialog(
-                        onDismissRequest = { showEditGroupBudgetDialog = false },
-                        containerColor = colors.surfaceCard,
-                        shape = RoundedCornerShape(d.radiusLG),
-                        title = { Text("Group Monthly Budget", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary) },
-                        text = {
-                            OutlinedTextField(
-                                value = inputGroupLimit,
-                                onValueChange = { inputGroupLimit = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(d.radiusSM),
-                                label = { Text("Monthly Budget Limit (₹ INR)", fontFamily = OutfitFamily, color = inkMuted) },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = inkPrimary,
-                                    unfocusedBorderColor = borderWhisper,
-                                    focusedTextColor = inkPrimary,
-                                    unfocusedTextColor = inkPrimary,
-                                    focusedContainerColor = colors.surfaceCard,
-                                    unfocusedContainerColor = colors.surfaceCard
-                                ),
-                                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = inkPrimary)
-                            )
-                        },
-                        confirmButton = {
-                            Button(
-                                onClick = {
-                                    val newLimit = inputGroupLimit.toDoubleOrNull() ?: 10000.0
-                                    coroutineScope.launch {
-                                        try {
-                                            FirebaseManager.updateGroupBudgetConfig(groupId, BudgetConfig(limit = newLimit, type = "MONTHLY"))
-                                            showEditGroupBudgetDialog = false
-                                            Toast.makeText(context, "Group budget updated!", Toast.LENGTH_SHORT).show()
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = inkPrimary),
-                                shape = RoundedCornerShape(d.radiusMD)
-                            ) {
-                                Text("Save", fontFamily = OutfitFamily, color = colors.canvasChalk)
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showEditGroupBudgetDialog = false }) {
-                                Text("Cancel", fontFamily = OutfitFamily, color = inkMuted)
-                            }
-                        }
-                    )
                 }
 
                 val myUid = FirebaseManager.currentUserId
@@ -1341,6 +1271,149 @@ private fun StyledSettingsTab(
                 }
                 Spacer(modifier = Modifier.height(d.space8))
                 HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+            }
+        }
+
+        // Group Budget Config Section
+        item {
+            var showEditGroupBudgetDialog by remember { mutableStateOf(false) }
+            val currentBudget = group.budget
+            val isBudgetSet = currentBudget.limit > 0.0
+            val typeDisplay = when (currentBudget.type) {
+                "YEARLY" -> "Yearly"
+                "EVENT" -> "Event / Trip"
+                else -> "Monthly"
+            }
+            val valueText = if (isBudgetSet) "₹${"%.0f".format(currentBudget.limit)} ($typeDisplay)" else "Not set"
+
+            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                Text(
+                    text = "GROUP BUDGET CONFIG",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.5.sp
+                )
+                
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showEditGroupBudgetDialog = true },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            text = "Group Budget Limit",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = d.textTitleMedium,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            text = valueText,
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelMedium,
+                            color = if (isBudgetSet) colors.inkPrimary else colors.inkMuted
+                        )
+                    }
+                    
+                    Surface(
+                        shape = RoundedCornerShape(d.radiusSM),
+                        color = colors.surfaceCard,
+                        border = BorderStroke(0.5.dp, colors.borderWhisper)
+                    ) {
+                        Text(
+                            text = if (isBudgetSet) "Edit" else "Set Budget",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = d.textLabelSmall,
+                            color = colors.inkPrimary,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(d.space8))
+                HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+            }
+
+            if (showEditGroupBudgetDialog) {
+                var inputLimit by remember { mutableStateOf(if (isBudgetSet) currentBudget.limit.toInt().toString() else "10000") }
+                var selectedType by remember { mutableStateOf(currentBudget.type.ifEmpty { "MONTHLY" }) }
+
+                AlertDialog(
+                    onDismissRequest = { showEditGroupBudgetDialog = false },
+                    containerColor = colors.surfaceCard,
+                    shape = RoundedCornerShape(d.radiusLG),
+                    title = { Text("Group Budget Configuration", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.inkPrimary) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(d.space12)) {
+                            Text("Select Budget Cycle Type:", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkMuted)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("MONTHLY" to "Monthly", "YEARLY" to "Yearly", "EVENT" to "Event / Trip").forEach { (typeKey, label) ->
+                                    val isSel = selectedType == typeKey
+                                    Surface(
+                                        shape = RoundedCornerShape(d.radiusSM),
+                                        color = if (isSel) colors.inkPrimary else colors.canvasChalk,
+                                        border = BorderStroke(0.5.dp, colors.borderWhisper),
+                                        modifier = Modifier.clickable { selectedType = typeKey }
+                                    ) {
+                                        Text(
+                                            label,
+                                            fontFamily = OutfitFamily,
+                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                            fontSize = d.textLabelSmall,
+                                            color = if (isSel) colors.canvasChalk else colors.inkPrimary,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            OutlinedTextField(
+                                value = inputLimit,
+                                onValueChange = { inputLimit = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(d.radiusSM),
+                                label = { Text("Limit Amount (₹ INR)", fontFamily = OutfitFamily, color = colors.inkMuted) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = colors.inkPrimary,
+                                    unfocusedBorderColor = colors.borderWhisper,
+                                    focusedTextColor = colors.inkPrimary,
+                                    unfocusedTextColor = colors.inkPrimary,
+                                    focusedContainerColor = colors.surfaceCard,
+                                    unfocusedContainerColor = colors.surfaceCard
+                                ),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = colors.inkPrimary)
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val newLimit = inputLimit.toDoubleOrNull() ?: 0.0
+                                coroutineScope.launch {
+                                    try {
+                                        FirebaseManager.updateGroupBudgetConfig(group.id, BudgetConfig(limit = newLimit, type = selectedType))
+                                        showEditGroupBudgetDialog = false
+                                        Toast.makeText(context, "Group budget updated!", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
+                            shape = RoundedCornerShape(d.radiusMD)
+                        ) {
+                            Text("Save Budget", fontFamily = OutfitFamily, color = colors.canvasChalk)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showEditGroupBudgetDialog = false }) {
+                            Text("Cancel", fontFamily = OutfitFamily, color = colors.inkMuted)
+                        }
+                    }
+                )
             }
         }
 

@@ -10,8 +10,11 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.painterResource
+import com.splitsmith.app.R
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -173,6 +176,30 @@ fun HomeScreen(
 
     var selectedSplitForDetail by remember { mutableStateOf<DirectSplit?>(null) }
     val isAnySheetOpen = showQuickAddSheet || showCreateGroupSheet || showJoinGroupSheet || showSplitActionsSheet || selectedSplitForDetail != null
+
+    // Smart System Back Navigation & Double-Back Exit Guard
+    var lastBackPressTime by remember { mutableStateOf(0L) }
+    androidx.activity.compose.BackHandler {
+        if (isAnySheetOpen) {
+            showQuickAddSheet = false
+            showCreateGroupSheet = false
+            showJoinGroupSheet = false
+            showSplitActionsSheet = false
+            selectedSplitForDetail = null
+        } else if (pagerState.currentPage != 0) {
+            coroutineScope.launch {
+                pagerState.animateScrollToPage(0)
+            }
+        } else {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastBackPressTime < 2000) {
+                (context as? android.app.Activity)?.finish()
+            } else {
+                lastBackPressTime = currentTime
+                Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     Scaffold(
         bottomBar = {
@@ -1978,13 +2005,33 @@ fun ProfileSettingsView(
                     containerColor = colors.surfaceCard,
                     shape = RoundedCornerShape(d.radiusLG),
                     title = {
-                        Text(
-                            "About SplitSmith",
-                            fontFamily = OutfitFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = d.textTitleLarge,
-                            color = colors.inkPrimary
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(d.space12)
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.app_logo_brand),
+                                contentDescription = "SplitSmith Logo",
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                            )
+                            Column {
+                                Text(
+                                    "SplitSmith",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = d.textTitleLarge,
+                                    color = colors.inkPrimary
+                                )
+                                Text(
+                                    "v${com.splitsmith.app.BuildConfig.VERSION_NAME}",
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontSize = d.textLabelSmall,
+                                    color = colors.inkMuted
+                                )
+                            }
+                        }
                     },
                     text = {
                         Column(
@@ -1992,35 +2039,52 @@ fun ProfileSettingsView(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                "Version v${com.splitsmith.app.BuildConfig.VERSION_NAME}",
-                                fontFamily = JetBrainsMonoFamily,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = d.textBodyMedium,
-                                color = colors.inkPrimary
-                            )
-                            Text(
-                                "SplitSmith is an intelligent expense splitting and personal budget tracking application crafted for seamless group calculations, direct 1-on-1 splits, and real-time ledger accounting.",
+                                "Intelligent group expense splitting and personal budget tracking application crafted for seamless ledger accounting.",
                                 fontFamily = OutfitFamily,
                                 fontSize = d.textBodyMedium,
                                 color = colors.inkMuted
                             )
-                            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
-                            Text(
-                                "Developed by Invron Labs",
-                                fontFamily = OutfitFamily,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = d.textLabelLarge,
-                                color = colors.inkPrimary
-                            )
-                            Text(
-                                "Web App: https://splitsmith.web.app/",
-                                fontFamily = OutfitFamily,
-                                fontSize = d.textLabelMedium,
-                                color = colors.inkMuted,
-                                modifier = Modifier.clickable {
-                                    com.splitsmith.app.util.AppUpdateManager.openInBrowser(context, "https://splitsmith.web.app/")
+
+                            // Feature Chips
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Surface(shape = RoundedCornerShape(d.radiusSM), color = colors.canvasChalk, border = BorderStroke(0.5.dp, colors.borderWhisper)) {
+                                    Text("OLED Dark UI", fontFamily = OutfitFamily, fontSize = 10.sp, color = colors.inkPrimary, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                                 }
-                            )
+                                Surface(shape = RoundedCornerShape(d.radiusSM), color = colors.canvasChalk, border = BorderStroke(0.5.dp, colors.borderWhisper)) {
+                                    Text("Real-Time Ledgers", fontFamily = OutfitFamily, fontSize = 10.sp, color = colors.inkPrimary, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                }
+                                Surface(shape = RoundedCornerShape(d.radiusSM), color = colors.canvasChalk, border = BorderStroke(0.5.dp, colors.borderWhisper)) {
+                                    Text("Group Budgets", fontFamily = OutfitFamily, fontSize = 10.sp, color = colors.inkPrimary, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                }
+                            }
+
+                            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Developed by Invron Labs",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = d.textLabelLarge,
+                                    color = colors.inkPrimary
+                                )
+                                OutlinedButton(
+                                    onClick = {
+                                        com.splitsmith.app.util.AppUpdateManager.openInBrowser(context, "https://splitsmith.web.app/")
+                                    },
+                                    shape = RoundedCornerShape(d.radiusSM),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Website", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkPrimary)
+                                }
+                            }
                         }
                     },
                     confirmButton = {

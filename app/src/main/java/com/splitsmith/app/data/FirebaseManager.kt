@@ -876,6 +876,13 @@ object FirebaseManager {
             listeners.forEach { it.remove() }
         }
     }
+
+    suspend fun saveFcmToken(token: String) {
+        val uid = currentUserId ?: return
+        db.collection("users").document(uid)
+            .update("fcmToken", token, "lastTokenUpdate", System.currentTimeMillis())
+            .await()
+    }
 }
 
 
