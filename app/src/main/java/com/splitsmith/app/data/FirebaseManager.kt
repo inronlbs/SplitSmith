@@ -127,9 +127,26 @@ object FirebaseManager {
 
     suspend fun updateUpiId(upiId: String) {
         val uid = currentUserId ?: return
-        db.collection("users").document(uid).set(mapOf("upiId" to upiId), com.google.firebase.firestore.SetOptions.merge()).await()
-        db.collection("users").document(uid).collection("private").document("payment").set(mapOf("upiId" to upiId), com.google.firebase.firestore.SetOptions.merge()).await()
-        profileCache[uid]?.let { profileCache[uid] = it.copy(upiId = upiId) }
+        try {
+            db.collection("users").document(uid).set(mapOf("upiId" to upiId), com.google.firebase.firestore.SetOptions.merge()).await()
+            db.collection("users").document(uid).collection("private").document("payment").set(mapOf("upiId" to upiId), com.google.firebase.firestore.SetOptions.merge())
+            profileCache[uid]?.let { profileCache[uid] = it.copy(upiId = upiId) }
+        } catch (e: Exception) {
+            db.collection("users").document(uid).set(mapOf("upiId" to upiId), com.google.firebase.firestore.SetOptions.merge())
+        }
+    }
+
+    suspend fun updateBudgetSettings(monthlyLimit: Int, alertThreshold: Int) {
+        val uid = currentUserId ?: return
+        try {
+            val data = mapOf(
+                "monthlyBudgetLimit" to monthlyLimit,
+                "budgetThreshold" to alertThreshold
+            )
+            db.collection("users").document(uid).set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+        } catch (e: Exception) {
+            // Non-blocking fallback
+        }
     }
 
     suspend fun getUserProfile(uid: String): UserProfile? {

@@ -238,10 +238,14 @@ fun OnboardingScreen(
                     coroutineScope.launch {
                         try {
                             FirebaseManager.updateUpiId(upiId.trim())
+                            val limit = monthlyBudgetLimit.toIntOrNull() ?: 15000
+                            val threshold = budgetThreshold.toInt()
+                            FirebaseManager.updateBudgetSettings(limit, threshold)
                             Toast.makeText(context, "Setup completed!", Toast.LENGTH_SHORT).show()
                             onOnboardingComplete()
                         } catch (e: Exception) {
                             Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                            onOnboardingComplete()
                         } finally {
                             isLoading = false
                         }
