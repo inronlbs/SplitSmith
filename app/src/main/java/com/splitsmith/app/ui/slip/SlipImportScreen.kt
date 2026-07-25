@@ -83,6 +83,8 @@ fun SlipImportScreen(
     var transactionId by remember { mutableStateOf("") }
     var remarks by remember { mutableStateOf("") }
     var parsedDateMillis by remember { mutableStateOf<Long?>(null) }
+    var isDateExtracted by remember { mutableStateOf(true) }
+    var isIncomingPayment by remember { mutableStateOf(false) }
     var sourcePaymentApp by remember { mutableStateOf("") }
 
     val profileState = FirebaseManager.observeUserProfile().collectAsState(initial = null)
@@ -200,24 +202,33 @@ fun SlipImportScreen(
                     var amountParsed = ""
                     var receiverParsed = ""
                     var txnIdParsed = ""
+                    var noteParsed = ""
+                    var incomingParsed = false
                     var dateParsed: Long? = null
+                    var dateFound = false
 
                     if (localOcrText.isNotEmpty()) {
                         val parsed = parseOCRText(localOcrText)
                         amountParsed = parsed.amount
                         receiverParsed = parsed.receiver
                         txnIdParsed = parsed.txnId
-                        dateParsed = parseDate(localOcrText)
+                        noteParsed = parsed.paymentNote
+                        incomingParsed = parsed.isIncoming
+                        val (dMillis, dFound) = parseDate(localOcrText)
+                        dateParsed = dMillis
+                        dateFound = dFound
                     }
 
                     // Populate fields using local OCR with clipboard fallback
                     amountStr = amountParsed.ifEmpty { clipboardParsedAmount }
                     receiverName = receiverParsed.ifEmpty { clipboardParsedReceiver }
                     transactionId = txnIdParsed
-                    parsedDateMillis = dateParsed
+                    parsedDateMillis = dateParsed ?: System.currentTimeMillis()
+                    isDateExtracted = dateFound
+                    isIncomingPayment = incomingParsed
                     selectedCategory = parseCategory(receiverName)
                     if (remarks.isEmpty()) {
-                        remarks = suggestSmartTitle(receiverName, selectedCategory)
+                        remarks = noteParsed.ifEmpty { suggestSmartTitle(receiverName, selectedCategory) }
                     }
 
                     // Detect source payment app
@@ -509,7 +520,12 @@ fun SlipImportScreen(
 
                     // Date Input / Picker Row
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Transaction Date", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkMuted)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space8)) {
+                            Text("Transaction Date", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkMuted)
+                            if (!isDateExtracted) {
+                                Text("• Today (Estimated)", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
+                            }
+                        }
                         
                         var showDatePicker by remember { mutableStateOf(false) }
                         val datePickerState = rememberDatePickerState(
@@ -883,7 +899,9 @@ private suspend fun recognizeTextFromBitmap(bitmap: Bitmap): String = suspendCan
 private data class ParsedSlip(
     val amount: String,
     val receiver: String,
-    val txnId: String
+    val txnId: String,
+    val paymentNote: String = "",
+    val isIncoming: Boolean = false
 )
 
 private fun cleanReceiverName(raw: String): String {
@@ -909,8 +927,8 @@ private fun cleanReceiverName(raw: String): String {
 
     val lower = cleaned.lowercase()
 
-    // 3. Reject if string contains status words or non-relevant UPI app boilerplate
-    if (cleaned.length < 2 ||
+    // 3. Reject avatar badge 2-letter initials (e.g. "OS", "A", "BG", "S") and boilerplate status words
+    if (cleaned.length <= 2 ||
         lower.contains("transaction") ||
         lower.contains("successful") ||
         lower.contains("completed") ||
@@ -932,6 +950,7 @@ private fun cleanReceiverName(raw: String): String {
 
 private fun parseOCRText(text: String): ParsedSlip {
     val lines = text.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+    val lowerText = text.lowercase()
     
     var amount = ""
     var receiver = ""
@@ -1129,34 +1148,49 @@ private fun parseOCRText(text: String): ParsedSlip {
         }
     }
     
-    return ParsedSlip(amount, receiver, txnId)
+    // 4. Parse Payment Note & Direction
+    var paymentNote = ""
+    val isIncoming = lowerText.contains("received from") || 
+                     lowerText.contains("money received") || 
+                     lowerText.contains("credited to") || 
+                     lowerText.contains("credit from")
+
+    val noteMatch = Regex("(?i)(?:note|message|remarks|for):?\\s*([A-Za-z0-9\\s]{2,40})").find(text)
+    if (noteMatch != null) {
+        paymentNote = noteMatch.groupValues[1].trim()
+    } else {
+        for (i in 0 until lines.size - 2) {
+            val line = lines[i]
+            val nextLine = lines[i + 1]
+            val statusLine = lines[i + 2].lowercase()
+            
+            val isAmount = line.contains("₹") || line.contains("Rs") || line.matches(Regex(".*\\d{2,}.*"))
+            val isStatus = statusLine.contains("completed") || statusLine.contains("successful") || statusLine.contains("paid")
+            
+            if (isAmount && isStatus && nextLine.length in 2..40) {
+                val candidateLower = nextLine.lowercase()
+                if (!candidateLower.contains("completed") && !candidateLower.contains("successful") && !candidateLower.contains("paid") && !candidateLower.contains("bank") && !candidateLower.contains("upi")) {
+                    paymentNote = nextLine.trim()
+                    break
+                }
+            }
+        }
+    }
+    
+    return ParsedSlip(amount, receiver, txnId, paymentNote, isIncoming)
 }
 
-private fun parseDate(text: String): Long? {
-    val dateRegex = Regex("\\b(\\d{1,2})\\s+([A-Za-z]{3})\\s+(\\d{4})\\b")
+private fun parseDate(text: String): Pair<Long?, Boolean> {
+    val dateRegex = Regex("(?i)\\b(\\d{1,2})[\\s,/\\.\\-]+([A-Za-z]{3,9})[\\s,/\\.\\-]+(\\d{2,4})\\b")
     val match = dateRegex.find(text)
     if (match != null) {
         try {
             val day = match.groupValues[1].toInt()
-            val monthStr = match.groupValues[2].lowercase()
-            val year = match.groupValues[3].toInt()
-            
-            val month = when (monthStr) {
-                "jan" -> 0
-                "feb" -> 1
-                "mar" -> 2
-                "apr" -> 3
-                "may" -> 4
-                "jun" -> 5
-                "jul" -> 6
-                "aug" -> 7
-                "sep" -> 8
-                "oct" -> 9
-                "nov" -> 10
-                "dec" -> 11
-                else -> -1
-            }
-            
+            val monthStr = match.groupValues[2].lowercase().take(3)
+            var year = match.groupValues[3].toInt()
+            if (year < 100) year += 2000
+
+            val month = parseMonthIndex(monthStr)
             if (month != -1) {
                 val cal = java.util.Calendar.getInstance()
                 cal.set(java.util.Calendar.YEAR, year)
@@ -1166,13 +1200,72 @@ private fun parseDate(text: String): Long? {
                 cal.set(java.util.Calendar.MINUTE, 0)
                 cal.set(java.util.Calendar.SECOND, 0)
                 cal.set(java.util.Calendar.MILLISECOND, 0)
-                return cal.timeInMillis
+                return Pair(cal.timeInMillis, true)
             }
-        } catch (e: Exception) {
-            android.util.Log.e("SlipImport", "Date parsing failed: ${e.message}")
-        }
+        } catch (e: Exception) {}
     }
-    return null
+
+    val noYearRegex = Regex("(?i)\\b(\\d{1,2})[\\s,/\\.\\-]+([A-Za-z]{3,9})\\b")
+    val match2 = noYearRegex.find(text)
+    if (match2 != null) {
+        try {
+            val day = match2.groupValues[1].toInt()
+            val monthStr = match2.groupValues[2].lowercase().take(3)
+            val month = parseMonthIndex(monthStr)
+            if (month != -1) {
+                val cal = java.util.Calendar.getInstance()
+                cal.set(java.util.Calendar.MONTH, month)
+                cal.set(java.util.Calendar.DAY_OF_MONTH, day)
+                cal.set(java.util.Calendar.HOUR_OF_DAY, 12)
+                cal.set(java.util.Calendar.MINUTE, 0)
+                cal.set(java.util.Calendar.SECOND, 0)
+                cal.set(java.util.Calendar.MILLISECOND, 0)
+                return Pair(cal.timeInMillis, true)
+            }
+        } catch (e: Exception) {}
+    }
+
+    val numRegex = Regex("\\b(\\d{1,2})[/\\.\\-](\\d{1,2})[/\\.\\-](\\d{2,4})\\b")
+    val match3 = numRegex.find(text)
+    if (match3 != null) {
+        try {
+            val day = match3.groupValues[1].toInt()
+            val month = match3.groupValues[2].toInt() - 1
+            var year = match3.groupValues[3].toInt()
+            if (year < 100) year += 2000
+            if (month in 0..11 && day in 1..31) {
+                val cal = java.util.Calendar.getInstance()
+                cal.set(java.util.Calendar.YEAR, year)
+                cal.set(java.util.Calendar.MONTH, month)
+                cal.set(java.util.Calendar.DAY_OF_MONTH, day)
+                cal.set(java.util.Calendar.HOUR_OF_DAY, 12)
+                cal.set(java.util.Calendar.MINUTE, 0)
+                cal.set(java.util.Calendar.SECOND, 0)
+                cal.set(java.util.Calendar.MILLISECOND, 0)
+                return Pair(cal.timeInMillis, true)
+            }
+        } catch (e: Exception) {}
+    }
+
+    return Pair(System.currentTimeMillis(), false)
+}
+
+private fun parseMonthIndex(m: String): Int {
+    return when (m.lowercase().take(3)) {
+        "jan" -> 0
+        "feb" -> 1
+        "mar" -> 2
+        "apr" -> 3
+        "may" -> 4
+        "jun" -> 5
+        "jul" -> 6
+        "aug" -> 7
+        "sep" -> 8
+        "oct" -> 9
+        "nov" -> 10
+        "dec" -> 11
+        else -> -1
+    }
 }
 
 private fun parseCategory(receiverName: String): String {

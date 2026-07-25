@@ -175,7 +175,9 @@ fun HomeScreen(
     }
 
     var selectedSplitForDetail by remember { mutableStateOf<DirectSplit?>(null) }
-    val isAnySheetOpen = showQuickAddSheet || showCreateGroupSheet || showJoinGroupSheet || showSplitActionsSheet || selectedSplitForDetail != null
+    var selectedPersonalForDetail by remember { mutableStateOf<com.splitsmith.app.data.PersonalExpense?>(null) }
+    var selectedGroupExpenseForDetail by remember { mutableStateOf<com.splitsmith.app.data.GroupExpenseWithContext?>(null) }
+    val isAnySheetOpen = showQuickAddSheet || showCreateGroupSheet || showJoinGroupSheet || showSplitActionsSheet || selectedSplitForDetail != null || selectedPersonalForDetail != null || selectedGroupExpenseForDetail != null
 
     // Smart System Back Navigation & Double-Back Exit Guard
     var lastBackPressTime by remember { mutableStateOf(0L) }
@@ -186,6 +188,8 @@ fun HomeScreen(
             showJoinGroupSheet = false
             showSplitActionsSheet = false
             selectedSplitForDetail = null
+            selectedPersonalForDetail = null
+            selectedGroupExpenseForDetail = null
         } else if (pagerState.currentPage != 0) {
             coroutineScope.launch {
                 pagerState.animateScrollToPage(0)
@@ -306,7 +310,9 @@ fun HomeScreen(
                         onCreateGroup = { showCreateGroupSheet = true },
                         onNavigateToQRCode = onNavigateToQRCode,
                         onNavigateToQuickSplit = onNavigateToQuickSplit,
-                        onSplitClick = { selectedSplitForDetail = it }
+                        onSplitClick = { selectedSplitForDetail = it },
+                        onPersonalClick = { selectedPersonalForDetail = it },
+                        onGroupExpenseClick = { selectedGroupExpenseForDetail = it }
                     )
                     1 -> SplitExpensesScreen(
                         onNavigateToGroup = onNavigateToGroup,
@@ -407,6 +413,22 @@ fun HomeScreen(
                 )
             }
 
+            if (selectedPersonalForDetail != null) {
+                PersonalExpenseDetailBottomSheet(
+                    expense = selectedPersonalForDetail!!,
+                    onDismiss = { selectedPersonalForDetail = null }
+                )
+            }
+
+            if (selectedGroupExpenseForDetail != null) {
+                GroupExpenseDetailBottomSheet(
+                    groupExpense = selectedGroupExpenseForDetail!!,
+                    currentUserId = FirebaseManager.currentUserId ?: "",
+                    onNavigateToGroup = onNavigateToGroup,
+                    onDismiss = { selectedGroupExpenseForDetail = null }
+                )
+            }
+
             if (showQuickAddSheet) {
                 ModalBottomSheet(
                     onDismissRequest = { showQuickAddSheet = false },
@@ -430,6 +452,16 @@ fun HomeScreen(
                             color = colors.inkPrimary,
                             modifier = Modifier.padding(bottom = d.space12)
                         )
+                        // 0. Universal Receipt & QR Scanner
+                        QuickActionRow(
+                            title = "Scan Receipt, Bill or QR Code",
+                            subtitle = "Camera scan or upload slip photo from gallery",
+                            icon = Icons.Default.QrCode,
+                            colors = colors, d = d
+                        ) {
+                            showQuickAddSheet = false
+                            onNavigateToQuickSplit()
+                        }
                         // 1. Personal Expense
                         QuickActionRow(
                             title = "Record Personal Expense",
@@ -671,7 +703,9 @@ data class RecentActivityItem(
     val date: Long,
     val isPositive: Boolean,
     val isSettled: Boolean = false,
-    val rawSplit: DirectSplit? = null
+    val rawSplit: DirectSplit? = null,
+    val rawPersonal: com.splitsmith.app.data.PersonalExpense? = null,
+    val rawGroupExpense: com.splitsmith.app.data.GroupExpenseWithContext? = null
 )
 
 // ─── 1. HOME DASHBOARD ───────────────────────────────────────
@@ -684,7 +718,9 @@ fun HomeDashboardView(
     onCreateGroup: () -> Unit,
     onNavigateToQRCode: () -> Unit,
     onNavigateToQuickSplit: () -> Unit = {},
-    onSplitClick: (DirectSplit) -> Unit = {}
+    onSplitClick: (DirectSplit) -> Unit = {},
+    onPersonalClick: (com.splitsmith.app.data.PersonalExpense) -> Unit = {},
+    onGroupExpenseClick: (com.splitsmith.app.data.GroupExpenseWithContext) -> Unit = {}
 ) {
     val d = LocalDimens.current
     val colors = LocalSplitColors.current
@@ -823,7 +859,8 @@ fun HomeDashboardView(
                 date = pe.date,
                 isPositive = false,
                 isSettled = true,
-                rawSplit = null
+                rawSplit = null,
+                rawPersonal = pe
             )
         }
         val groupExps = groupExpensesState.value.map { ge ->
@@ -836,7 +873,8 @@ fun HomeDashboardView(
                 date = exp.date,
                 isPositive = exp.paidBy == currentUserId,
                 isSettled = false,
-                rawSplit = null
+                rawSplit = null,
+                rawGroupExpense = ge
             )
         }
         (splits + personal + groupExps).sortedByDescending { it.date }.take(12)
@@ -1165,7 +1203,11 @@ fun HomeDashboardView(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { item.rawSplit?.let { onSplitClick(it) } }
+                            .clickable {
+                                if (item.rawSplit != null) onSplitClick(item.rawSplit)
+                                else if (item.rawPersonal != null) onPersonalClick(item.rawPersonal)
+                                else if (item.rawGroupExpense != null) onGroupExpenseClick(item.rawGroupExpense)
+                            }
                             .padding(vertical = d.space12),
                         horizontalArrangement = Arrangement.spacedBy(d.space12),
                         verticalAlignment = Alignment.CenterVertically
@@ -2427,6 +2469,213 @@ fun uriToBase64(context: android.content.Context, uri: android.net.Uri): String?
     } catch (e: Exception) {
         e.printStackTrace()
         null
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GroupExpenseDetailBottomSheet(
+    groupExpense: com.splitsmith.app.data.GroupExpenseWithContext,
+    currentUserId: String,
+    onNavigateToGroup: (groupId: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val d = LocalDimens.current
+    val colors = LocalSplitColors.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val exp = groupExpense.expense
+    val isPayer = exp.paidBy == currentUserId
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.canvasChalk,
+        scrimColor = Color.Black.copy(alpha = 0.5f)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = d.space24, vertical = d.space16),
+            verticalArrangement = Arrangement.spacedBy(d.space16)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Groups,
+                        contentDescription = "Group Expense",
+                        tint = colors.inkPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(d.space12))
+                    Column {
+                        Text(
+                            text = exp.description.ifEmpty { exp.category },
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textHeadlineMedium,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            text = "${groupExpense.groupName} • ${exp.category}",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelMedium,
+                            color = colors.inkMuted
+                        )
+                    }
+                }
+            }
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(d.radiusMD),
+                color = colors.surfaceCard,
+                border = BorderStroke(1.dp, colors.borderWhisper)
+            ) {
+                Column(
+                    modifier = Modifier.padding(d.space16),
+                    verticalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Total Amount", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelMedium)
+                        Text("₹${exp.amount}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.inkPrimary)
+                    }
+                    val myShare = exp.splits[currentUserId] ?: 0.0
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(if (isPayer) "You paid" else "Your share", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelMedium)
+                        Text("₹${if (isPayer) exp.amount - myShare else myShare}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleMedium, color = if (isPayer) colors.inkPrimary else colors.alertRed)
+                    }
+                }
+            }
+
+            Button(
+                onClick = {
+                    onDismiss()
+                    onNavigateToGroup(groupExpense.groupId)
+                },
+                modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                shape = RoundedCornerShape(d.radiusMD),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Open Group")
+                    Text("Open Group (${groupExpense.groupName})", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PersonalExpenseDetailBottomSheet(
+    expense: com.splitsmith.app.data.PersonalExpense,
+    onDismiss: () -> Unit
+) {
+    val d = LocalDimens.current
+    val colors = LocalSplitColors.current
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.canvasChalk,
+        scrimColor = Color.Black.copy(alpha = 0.5f)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = d.space24, vertical = d.space16),
+            verticalArrangement = Arrangement.spacedBy(d.space16)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.AccountBalanceWallet,
+                    contentDescription = "Personal Expense",
+                    tint = colors.inkPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(d.space12))
+                Column {
+                    Text(
+                        text = expense.description.ifEmpty { expense.category },
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = d.textHeadlineMedium,
+                        color = colors.inkPrimary
+                    )
+                    Text(
+                        text = "Personal Spend • ${expense.category}",
+                        fontFamily = OutfitFamily,
+                        fontSize = d.textLabelMedium,
+                        color = colors.inkMuted
+                    )
+                }
+            }
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(d.radiusMD),
+                color = colors.surfaceCard,
+                border = BorderStroke(1.dp, colors.borderWhisper)
+            ) {
+                Column(
+                    modifier = Modifier.padding(d.space16),
+                    verticalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Amount Spent", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelMedium)
+                        Text("₹${expense.amount}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.inkPrimary)
+                    }
+                    if (expense.note.isNotEmpty()) {
+                        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+                        Text("Note: ${expense.note}", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelSmall)
+                    }
+                }
+            }
+
+            OutlinedButton(
+                onClick = {
+                    coroutineScope.launch {
+                        try {
+                            FirebaseManager.deletePersonalExpense(expense.id)
+                            Toast.makeText(context, "Deleted personal expense", Toast.LENGTH_SHORT).show()
+                            onDismiss()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                border = BorderStroke(1.dp, colors.alertRed),
+                shape = RoundedCornerShape(d.radiusMD),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.alertRed)
+            ) {
+                Text("Delete Personal Expense", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold)
+            }
+        }
     }
 }
 
