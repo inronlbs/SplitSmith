@@ -216,6 +216,9 @@ fun SlipImportScreen(
                     transactionId = txnIdParsed
                     parsedDateMillis = dateParsed
                     selectedCategory = parseCategory(receiverName)
+                    if (remarks.isEmpty()) {
+                        remarks = suggestSmartTitle(receiverName, selectedCategory)
+                    }
 
                     // Detect source payment app
                     val appText = localOcrText.ifEmpty { 
@@ -590,15 +593,15 @@ fun SlipImportScreen(
                         }
                     }
 
-                    // Notes / Remarks
+                    // Entry Title / Description
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Description / Remarks", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkMuted)
+                        Text("Entry Title (e.g. Fish and Chips, Petrol, Dinner)", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkMuted)
                         OutlinedTextField(
                             value = remarks,
                             onValueChange = { remarks = it },
                             textStyle = TextStyle(fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = colors.inkPrimary),
                             modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("e.g. Dinner, Rent, Fuel", fontFamily = OutfitFamily, color = colors.inkMuted) },
+                            placeholder = { Text("e.g. Fish and Chips, Dinner, Vegetables, Petrol", fontFamily = OutfitFamily, color = colors.inkMuted) },
                             singleLine = true,
                             shape = RoundedCornerShape(d.radiusSM),
                             colors = OutlinedTextFieldDefaults.colors(
@@ -672,12 +675,14 @@ fun SlipImportScreen(
                     }
                     coroutineScope.launch {
                         try {
+                            val entryTitle = remarks.ifEmpty { suggestSmartTitle(receiverName, selectedCategory) }
                             val personalNote = buildString {
+                                if (receiverName.isNotEmpty()) append("Paid to $receiverName. ")
                                 if (sourcePaymentApp.isNotEmpty()) append("Via $sourcePaymentApp. ")
                                 if (transactionId.isNotEmpty()) append("Txn ID: $transactionId")
-                            }
+                            }.trim()
                             FirebaseManager.addPersonalExpense(
-                                description = receiverName.ifEmpty { remarks },
+                                description = entryTitle,
                                 amount = amt,
                                 category = selectedCategory,
                                 note = personalNote,
@@ -716,9 +721,9 @@ fun SlipImportScreen(
                         Toast.makeText(context, "Please enter a valid amount", Toast.LENGTH_SHORT).show()
                         return@OutlinedButton
                     }
+                    val entryTitle = remarks.ifEmpty { suggestSmartTitle(receiverName, selectedCategory) }
                     FirebaseManager.pendingExpenseAmount = amountStr
-                    val desc = receiverName.ifEmpty { remarks }
-                    FirebaseManager.pendingExpenseDesc = if (sourcePaymentApp.isNotEmpty()) "$desc (via $sourcePaymentApp)" else desc
+                    FirebaseManager.pendingExpenseDesc = if (receiverName.isNotEmpty()) "$entryTitle ($receiverName)" else entryTitle
                     FirebaseManager.pendingExpenseCategory = selectedCategory
                     FirebaseManager.pendingExpenseDate = parsedDateMillis
                     onNavigateToQuickSplit()
@@ -808,9 +813,9 @@ fun SlipImportScreen(
                             Surface(
                                 onClick = {
                                     showGroupSelector = false
+                                    val entryTitle = remarks.ifEmpty { suggestSmartTitle(receiverName, selectedCategory) }
                                     FirebaseManager.pendingExpenseAmount = amountStr
-                                    val desc = receiverName.ifEmpty { remarks }
-                                    FirebaseManager.pendingExpenseDesc = if (sourcePaymentApp.isNotEmpty()) "$desc (via $sourcePaymentApp)" else desc
+                                    FirebaseManager.pendingExpenseDesc = if (receiverName.isNotEmpty()) "$entryTitle ($receiverName)" else entryTitle
                                     FirebaseManager.pendingExpenseCategory = selectedCategory
                                     FirebaseManager.pendingExpenseDate = parsedDateMillis
                                     onNavigateToAddExpense(group.id, null)
@@ -881,6 +886,50 @@ private data class ParsedSlip(
     val txnId: String
 )
 
+private fun cleanReceiverName(raw: String): String {
+    if (raw.isBlank()) return ""
+    var cleaned = raw.trim().replace("\"", "")
+
+    // 1. Instantly reject sender/from/bank/boilerplate lines
+    val rawLower = raw.lowercase().trim()
+    if (rawLower.startsWith("from:") || rawLower.startsWith("from ") || rawLower.startsWith("debited from") || rawLower.startsWith("sent from")) {
+        return ""
+    }
+    if (rawLower.contains("federal bank") || rawLower.contains("punjab national bank") || rawLower.contains("yesbank") || rawLower.contains("hdfc") || rawLower.contains("icici") || rawLower.contains("state bank") || rawLower.contains("fed new")) {
+        return ""
+    }
+
+    // 2. Remove status banners & non-relevant boilerplate prefixes
+    cleaned = cleaned.replace(Regex("(?i)^(transaction|payment|transfer|money|paid|sent)\\s+(successful|completed|success|to|from)\\b"), "")
+    cleaned = cleaned.replace(Regex("(?i)^(paid to|sent to|payment to|pay to|to:|to\\b|from:)\\s*"), "")
+    cleaned = cleaned.replace(Regex("(?i)banking name:?\\s*"), "")
+    cleaned = cleaned.replace(Regex("(?i)merchant name:?\\s*"), "")
+    cleaned = cleaned.replace(Regex("(?i)upi id:?\\s*"), "")
+    cleaned = cleaned.trim(' ', ':', '-', '•', '·')
+
+    val lower = cleaned.lowercase()
+
+    // 3. Reject if string contains status words or non-relevant UPI app boilerplate
+    if (cleaned.length < 2 ||
+        lower.contains("transaction") ||
+        lower.contains("successful") ||
+        lower.contains("completed") ||
+        lower.contains("debited") ||
+        lower.contains("credited") ||
+        lower.contains("balance") ||
+        lower.contains("powered by") ||
+        lower.contains("view details") ||
+        lower.contains("share receipt") ||
+        lower.contains("check balance") ||
+        lower.contains("100% secure") ||
+        lower in setOf("paid to", "sent to", "paid", "sent", "to", "from", "success", "upi", "gpay", "phonepe", "paytm", "cred", "bhim", "amazon pay")
+    ) {
+        return ""
+    }
+
+    return cleaned
+}
+
 private fun parseOCRText(text: String): ParsedSlip {
     val lines = text.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
     
@@ -931,79 +980,106 @@ private fun parseOCRText(text: String): ParsedSlip {
         }
     }
     
-    // 2. Parse Receiver Name
+    // 2. Parse Receiver Name (Sample Screenshots Patterns: GPay, PhonePe, Paytm)
     for (i in lines.indices) {
         val line = lines[i]
-        val lineLower = line.lowercase()
-        
-        // Pattern: "Paid to" (PhonePe style)
-        if (lineLower.startsWith("paid to")) {
-            val rest = line.substring(7).trim()
-            if (rest.length > 2) {
-                receiver = if (rest.contains("@")) rest.split("@").first().trim() else rest
-            } else if (i + 1 < lines.size) {
-                var candidate = lines[i + 1]
-                if (candidate.length <= 2 && i + 2 < lines.size) {
-                    candidate = lines[i + 2]
-                }
-                receiver = if (candidate.contains("@")) candidate.split("@").first().trim() else candidate
-            }
-            break
+        val lineLower = line.lowercase().trim()
+
+        // Ignore Sender / From lines
+        if (lineLower.startsWith("from:") || lineLower.startsWith("from ") || lineLower.startsWith("debited from")) {
+            continue
         }
-        
-        // Pattern: "To: <Name>" or "To <Name>" (GPay style)
-        if (lineLower.startsWith("to:") || lineLower.startsWith("to ")) {
-            val name = line.replace(Regex("(?i)^To:?\\s*"), "").trim()
-            if (name.isNotEmpty() && !name.contains("@") && !name.equals("pay", ignoreCase = true)) {
-                receiver = name
+
+        // Pattern A: Paytm Quotes "Pay To <Name>" or "\"Pay To ...\""
+        val payToMatch = Regex("(?i)Pay\\s+To\\s+([A-Za-z0-9\\s]{2,35})").find(line)
+        if (payToMatch != null) {
+            val candidate = cleanReceiverName(payToMatch.groupValues[1])
+            if (candidate.isNotEmpty()) {
+                receiver = candidate
                 break
             }
         }
-        
-        // Pattern: UPI ID line containing bullet/separator
+
+        // Pattern B: Explicit labels "Banking Name: <Merchant>" or "Merchant: <Name>"
+        if (lineLower.startsWith("banking name") || lineLower.startsWith("merchant name") || lineLower.startsWith("receiver")) {
+            val rest = line.substringAfter(":").trim()
+            val candidate = cleanReceiverName(rest)
+            if (candidate.isNotEmpty()) {
+                receiver = candidate
+                break
+            } else if (i + 1 < lines.size) {
+                val nextCandidate = cleanReceiverName(lines[i + 1])
+                if (nextCandidate.isNotEmpty()) {
+                    receiver = nextCandidate
+                    break
+                }
+            }
+        }
+
+        // Pattern C: "Paid to", "Sent to", "Payment to" (PhonePe / Paytm / Amazon Pay / BHIM)
+        if (lineLower.startsWith("paid to") || lineLower.startsWith("sent to") || lineLower.startsWith("payment to")) {
+            val rest = cleanReceiverName(line)
+            if (rest.isNotEmpty()) {
+                receiver = rest
+                break
+            }
+            // Check lines i+1, i+2, i+3 for actual merchant name
+            for (j in 1..3) {
+                if (i + j < lines.size) {
+                    val candidateLine = lines[i + j]
+                    val candidate = cleanReceiverName(candidateLine)
+                    if (candidate.isNotEmpty() && !candidateLine.contains("@") && !candidateLine.startsWith("₹") && !candidateLine.startsWith("Rs") && !candidateLine.startsWith("INR")) {
+                        receiver = candidate
+                        break
+                    }
+                }
+            }
+            if (receiver.isNotEmpty()) break
+        }
+
+        // Pattern D: "To: <Name>" or "To <Name>" (GPay / Paytm style e.g. "To Amazon Pay on Delivery" or "To: Shyam Yadav")
+        if (lineLower.startsWith("to:") || lineLower.startsWith("to ")) {
+            val candidate = cleanReceiverName(line)
+            if (candidate.isNotEmpty() && !line.contains("@") && !candidate.equals("pay", ignoreCase = true)) {
+                receiver = candidate
+                break
+            }
+        }
+
+        // Pattern E: UPI ID line containing bullet/separator (e.g. "Amazon Pay • amazon-pod@rapl" or "G Pay • binoy...")
         if (line.contains("@")) {
             val parts = line.split("•", "-", "·")
             if (parts.size > 1) {
-                val candidate = parts[0].trim()
-                if (candidate.isNotEmpty() && candidate.length > 2 && !candidate.contains("@")) {
+                val candidate = cleanReceiverName(parts[0])
+                if (candidate.isNotEmpty()) {
                     receiver = candidate
                     break
                 }
             } else if (i > 0) {
-                val prev = lines[i - 1]
-                val prevLower = prev.lowercase()
-                if (prevLower != "paid to" && prevLower != "sent to" && prevLower != "debited from" && prevLower != "completed" && prevLower != "successful" && prevLower != "transaction successful" && !prev.startsWith("₹") && !prev.startsWith("Rs") && prev.length > 2) {
-                    receiver = prev
+                val candidate = cleanReceiverName(lines[i - 1])
+                if (candidate.isNotEmpty()) {
+                    receiver = candidate
                     break
                 }
             }
         }
     }
-    
-    // Fallback: search for first non-numeric name-like line
-    if (receiver.isEmpty() || receiver.lowercase().trim() in setOf("sent to", "debited from", "paid to", "from", "to")) {
-        receiver = ""
+
+    // Fallback: search for first valid non-boilerplate name line
+    if (receiver.isEmpty()) {
         for (line in lines) {
-            val lineLower = line.lowercase().trim()
-            if (line.length > 3 && 
-                !lineLower.contains("transaction") &&
-                !lineLower.contains("successful") &&
-                !lineLower.contains("completed") &&
-                !lineLower.contains("debited") &&
-                !lineLower.contains("balance") &&
-                !lineLower.contains("sent to") &&
-                !lineLower.contains("paid to") &&
-                !lineLower.contains("powered by") &&
-                !lineLower.contains("@") &&
-                !line.matches(Regex(".*\\d{4,}.*")) &&
-                lineLower != "from" &&
-                lineLower != "to"
-            ) {
-                receiver = line
+            val lineLower = line.lowercase()
+            if (lineLower.startsWith("from") || lineLower.contains("bank")) continue
+            val candidate = cleanReceiverName(line)
+            if (candidate.length > 2 && !line.contains("@") && !line.matches(Regex(".*\\d{4,}.*")) && !line.startsWith("₹") && !line.startsWith("Rs") && !line.startsWith("INR")) {
+                receiver = candidate
                 break
             }
         }
     }
+
+    // Final safety check
+    receiver = cleanReceiverName(receiver)
     
     // 3. Parse Transaction ID / UTR
     val utrMatch = Regex("\\b(\\d{12})\\b").find(text)
@@ -1107,6 +1183,24 @@ private fun parseCategory(receiverName: String): String {
         nameLower.contains("food") || nameLower.contains("restaurant") || nameLower.contains("cafe") || nameLower.contains("swiggy") || nameLower.contains("zomato") || nameLower.contains("dhaba") || nameLower.contains("canteen") || nameLower.contains("tea") || nameLower.contains("bakery") || nameLower.contains("juice") -> "Food"
         nameLower.contains("amazon") || nameLower.contains("flipkart") || nameLower.contains("myntra") || nameLower.contains("shop") || nameLower.contains("store") || nameLower.contains("mart") || nameLower.contains("mall") || nameLower.contains("clothing") || nameLower.contains("supermarket") || nameLower.contains("grocer") || nameLower.contains("zepto") || nameLower.contains("blinkit") -> "Other"
         else -> "Other"
+    }
+}
+
+private fun suggestSmartTitle(receiverName: String, category: String): String {
+    val lower = receiverName.lowercase()
+    return when {
+        lower.contains("amazon") || lower.contains("pod") || lower.contains("delivery") -> "Amazon Delivery"
+        lower.contains("printer") || lower.contains("prininter") || lower.contains("print") || lower.contains("press") || lower.contains("xerox") -> "Printing & Stationery"
+        lower.contains("fish") -> "Fish & Chips"
+        lower.contains("coffee") || lower.contains("starbucks") || lower.contains("cafe") || lower.contains("tea") || lower.contains("chai") -> "Coffee & Snacks"
+        lower.contains("swiggy") || lower.contains("zomato") || lower.contains("restaurant") || lower.contains("dhaba") || lower.contains("canteen") || lower.contains("diner") || lower.contains("bistro") || lower.contains("food") -> "Dinner / Meal"
+        lower.contains("petrol") || lower.contains("fuel") || lower.contains("shell") || lower.contains("hp ") || lower.contains("iocl") || lower.contains("bpcl") -> "Petrol"
+        lower.contains("mart") || lower.contains("fresh") || lower.contains("grocer") || lower.contains("zepto") || lower.contains("blinkit") || lower.contains("bigbasket") || lower.contains("veg") -> "Vegetables & Groceries"
+        lower.contains("uber") || lower.contains("ola") || lower.contains("rapido") || lower.contains("cab") || lower.contains("auto") || lower.contains("metro") || lower.contains("rail") -> "Cab / Travel"
+        lower.contains("flipkart") || lower.contains("myntra") -> "Online Shopping"
+        category.isNotEmpty() && category != "Other" -> category
+        receiverName.isNotEmpty() -> "Transfer to $receiverName"
+        else -> "Expense"
     }
 }
 
