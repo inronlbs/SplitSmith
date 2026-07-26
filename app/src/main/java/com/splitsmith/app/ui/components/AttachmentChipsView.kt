@@ -204,26 +204,6 @@ private fun AttachmentChip(
             )
 
             if (isEditable) {
-                if (!item.isPdf) {
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Surface(
-                        shape = CircleShape,
-                        color = colors.surfaceCard.copy(alpha = 0.9f),
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clickable(onClick = onEdit)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Outlined.Edit,
-                                contentDescription = "Edit Receipt",
-                                tint = colors.inkPrimary,
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-                    }
-                }
-
                 Spacer(modifier = Modifier.width(4.dp))
                 Surface(
                     shape = CircleShape,

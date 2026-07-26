@@ -33,13 +33,30 @@ object PendingDriveUploadsManager {
         groupId: String = ""
     ) {
         try {
+            val persistentDir = java.io.File(context.filesDir, "pending_drive_uploads").apply { if (!exists()) mkdirs() }
+            val fileName = "pending_${System.currentTimeMillis()}_${expenseId.take(6)}.tmp"
+            val persistentFile = java.io.File(persistentDir, fileName)
+
+            val copied = try {
+                context.contentResolver.openInputStream(localUri)?.use { input ->
+                    persistentFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                persistentFile.exists()
+            } catch (e: Exception) {
+                false
+            }
+
+            val storedUriPath = if (copied) Uri.fromFile(persistentFile).toString() else localUri.toString()
+
             val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             val existingJson = prefs.getString(KEY_ITEMS, "[]") ?: "[]"
             val array = JSONArray(existingJson)
 
             val itemObj = JSONObject().apply {
                 put("id", java.util.UUID.randomUUID().toString())
-                put("localUriPath", localUri.toString())
+                put("localUriPath", storedUriPath)
                 put("folderCategoryName", folderCategoryName)
                 put("dateMillis", dateMillis)
                 put("expenseId", expenseId)
@@ -106,6 +123,12 @@ object PendingDriveUploadsManager {
 
                 if (driveResult != null) {
                     uploadedCount++
+                    try {
+                        if (uri.scheme == "file" && uri.path != null) {
+                            java.io.File(uri.path!!).delete()
+                        }
+                    } catch (e: Exception) {}
+
                     if (item.isPersonal) {
                         FirebaseManager.attachDriveFileToPersonalExpense(
                             expenseId = item.expenseId,

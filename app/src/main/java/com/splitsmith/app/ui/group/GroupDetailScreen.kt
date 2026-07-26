@@ -762,7 +762,7 @@ private fun StyledBalancesTab(
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = d.space24, vertical = d.space16, ),
+            contentPadding = PaddingValues(start = d.space24, top = d.space16, end = d.space24, bottom = 160.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             // Pending confirmations
@@ -949,7 +949,7 @@ private fun StyledBalancesTab(
             }
 
             // Settle Up + Simplify spacer
-            item { Spacer(modifier = Modifier.height(80.dp)) }
+            item { Spacer(modifier = Modifier.height(160.dp)) }
         }
 
         // Sticky Settle Up button

@@ -1420,6 +1420,16 @@ fun ProfileSettingsView(
                 showUpdateDialog = true
             }
         } catch (e: Exception) {}
+
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                if (com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) {
+                    com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     LaunchedEffect(profile) {

@@ -106,6 +106,8 @@ fun SlipImportScreen(
     var statusMessage by remember { mutableStateOf("Initializing local OCR...") }
     var loadedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var showCropDialog by remember { mutableStateOf(false) }
+    var ocrBlocks by remember { mutableStateOf<List<OcrBlock>>(emptyList()) }
+    var selectedOcrText by remember { mutableStateOf<String?>(null) }
 
     var showGroupSelector by remember { mutableStateOf(false) }
     val groupsState = FirebaseManager.observeGroups().collectAsState(initial = emptyList())
@@ -215,7 +217,9 @@ fun SlipImportScreen(
                     statusMessage = "Extracting text & scanning QR from image..."
                     var localOcrText = ""
                     try {
-                        localOcrText = recognizeTextFromBitmap(finalBmp)
+                        val ocrRes = recognizeTextFromBitmap(finalBmp)
+                        localOcrText = ocrRes.fullText
+                        ocrBlocks = ocrRes.blocks
                     } catch (e: Exception) {
                         android.util.Log.e("SlipImport", "Local OCR failed: ${e.message}")
                     }
@@ -379,12 +383,52 @@ fun SlipImportScreen(
             ) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (loadedBitmap != null) {
-                        Image(
-                            bitmap = loadedBitmap!!.asImageBitmap(),
-                            contentDescription = "Receipt Screenshot",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize().padding(d.space8)
-                        )
+                        val bmp = loadedBitmap!!
+                        BoxWithConstraints(
+                            modifier = Modifier.fillMaxSize().padding(d.space8),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val containerW = constraints.maxWidth.toFloat()
+                            val containerH = constraints.maxHeight.toFloat()
+                            val bmpW = bmp.width.toFloat()
+                            val bmpH = bmp.height.toFloat()
+                            val scale = minOf(containerW / bmpW, containerH / bmpH)
+                            val imgW = bmpW * scale
+                            val imgH = bmpH * scale
+
+                            Box(
+                                modifier = Modifier.size(
+                                    width = with(androidx.compose.ui.platform.LocalDensity.current) { imgW.toDp() },
+                                    height = with(androidx.compose.ui.platform.LocalDensity.current) { imgH.toDp() }
+                                )
+                            ) {
+                                Image(
+                                    bitmap = bmp.asImageBitmap(),
+                                    contentDescription = "Receipt Screenshot",
+                                    contentScale = ContentScale.FillBounds,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+
+                                // Interactive Translucent OCR Text Bounding Box Overlay
+                                ocrBlocks.forEach { b ->
+                                    val leftDp = with(androidx.compose.ui.platform.LocalDensity.current) { (b.boundingBox.left * scale).toDp() }
+                                    val topDp = with(androidx.compose.ui.platform.LocalDensity.current) { (b.boundingBox.top * scale).toDp() }
+                                    val widthDp = with(androidx.compose.ui.platform.LocalDensity.current) { (b.boundingBox.width() * scale).coerceAtLeast(16f).toDp() }
+                                    val heightDp = with(androidx.compose.ui.platform.LocalDensity.current) { (b.boundingBox.height() * scale).coerceAtLeast(12f).toDp() }
+
+                                    Surface(
+                                        modifier = Modifier
+                                            .offset(x = leftDp, y = topDp)
+                                            .size(width = widthDp, height = heightDp)
+                                            .clickable { selectedOcrText = b.text },
+                                        shape = RoundedCornerShape(2.dp),
+                                        color = Color(0xFF6366F1).copy(alpha = 0.22f),
+                                        border = BorderStroke(1.dp, Color(0xFF6366F1).copy(alpha = 0.6f))
+                                    ) {}
+                                }
+                            }
+                        }
+
                         Surface(
                             onClick = { showCropDialog = true },
                             shape = RoundedCornerShape(d.radiusFull),
@@ -433,6 +477,81 @@ fun SlipImportScreen(
                 }
             }
 
+            if (selectedOcrText != null) {
+                val txt = selectedOcrText!!
+                AlertDialog(
+                    onDismissRequest = { selectedOcrText = null },
+                    title = {
+                        Text("Assign Selected Text", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.inkPrimary)
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Tapped receipt text:", fontFamily = OutfitFamily, fontSize = 12.sp, color = colors.inkMuted)
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = colors.canvasChalk,
+                                border = BorderStroke(1.dp, colors.borderWhisper),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                Text(txt, fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colors.inkPrimary, modifier = Modifier.padding(12.dp))
+                            }
+                            Text("Select field to populate:", fontFamily = OutfitFamily, fontSize = 12.sp, color = colors.inkMuted)
+                        }
+                    },
+                    confirmButton = {
+                        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = {
+                                        val digits = txt.replace(Regex("[^0-9.]"), "")
+                                        if (digits.isNotEmpty()) amountStr = digits
+                                        selectedOcrText = null
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
+                                ) {
+                                    Text("Set Amount", fontFamily = OutfitFamily, fontSize = 12.sp)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        receiverName = cleanReceiverName(txt)
+                                        selectedOcrText = null
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
+                                ) {
+                                    Text("Set Merchant", fontFamily = OutfitFamily, fontSize = 12.sp)
+                                }
+                            }
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        transactionId = txt.trim()
+                                        selectedOcrText = null
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("Set Txn ID", fontFamily = OutfitFamily, fontSize = 12.sp)
+                                }
+
+                                TextButton(
+                                    onClick = { selectedOcrText = null },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Cancel", fontFamily = OutfitFamily, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    },
+                    dismissButton = null
+                )
+            }
+
             if (showCropDialog) {
                 com.splitsmith.app.ui.components.attachments.ReceiptEditorModal(
                     imageUri = imageUri,
@@ -448,10 +567,11 @@ fun SlipImportScreen(
                                 stream?.close()
                                 if (bmp != null) {
                                     loadedBitmap = bmp
-                                    val localOcrText = recognizeTextFromBitmap(bmp)
-                                    if (localOcrText.isNotEmpty()) {
-                                        val parsed = parseOCRText(localOcrText)
+                                    val ocrRes = recognizeTextFromBitmap(bmp)
+                                    if (ocrRes.fullText.isNotEmpty()) {
+                                        val parsed = parseOCRText(ocrRes.fullText)
                                         withContext(Dispatchers.Main) {
+                                            ocrBlocks = ocrRes.blocks
                                             if (parsed.amount.isNotEmpty()) amountStr = parsed.amount
                                             if (parsed.receiver.isNotEmpty()) receiverName = parsed.receiver
                                             if (parsed.txnId.isNotEmpty()) transactionId = parsed.txnId
@@ -1096,13 +1216,29 @@ fun SlipImportScreen(
     }
 }
 
-private suspend fun recognizeTextFromBitmap(bitmap: Bitmap): String = suspendCancellableCoroutine { continuation ->
+private data class OcrBlock(
+    val text: String,
+    val boundingBox: android.graphics.Rect
+)
+
+private data class OcrResult(
+    val fullText: String,
+    val blocks: List<OcrBlock>
+)
+
+private suspend fun recognizeTextFromBitmap(bitmap: Bitmap): OcrResult = suspendCancellableCoroutine { continuation ->
     try {
         val image = InputImage.fromBitmap(bitmap, 0)
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
-                continuation.resume(visionText.text)
+                val blockList = visionText.textBlocks.mapNotNull { block ->
+                    val box = block.boundingBox
+                    if (box != null && block.text.isNotBlank()) {
+                        OcrBlock(block.text.trim(), box)
+                    } else null
+                }
+                continuation.resume(OcrResult(visionText.text, blockList))
             }
             .addOnFailureListener { e ->
                 continuation.resumeWithException(e)

@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -277,14 +278,20 @@ fun ReceiptEditorModal(
                 HorizontalDivider(color = colors.borderWhisper, thickness = 1.dp)
 
                 // ── Preview Viewport with Crop & Rotation ──────────────
-                Box(
+                // ── Preview Viewport with Image-Bounded Crop & Rotation ──────────────
+                BoxWithConstraints(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.04f)),
+                        .background(Color.Black.copy(alpha = 0.04f))
+                        .padding(16.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (isLoading || previewBitmap == null) {
+                    val containerW = constraints.maxWidth.toFloat()
+                    val containerH = constraints.maxHeight.toFloat()
+                    val bmp = previewBitmap
+
+                    if (isLoading || bmp == null) {
                         CircularProgressIndicator(color = colors.inkPrimary)
                     } else {
                         val colorMatrix = remember(brightness, contrast) {
@@ -299,49 +306,91 @@ fun ReceiptEditorModal(
                             ))
                         }
 
+                        val bmpW = bmp.width.toFloat()
+                        val bmpH = bmp.height.toFloat()
+                        val scale = minOf(containerW / bmpW, containerH / bmpH)
+                        val imgW = bmpW * scale
+                        val imgH = bmpH * scale
+
+                        // Strict Image Box Container: Crop & image stay 100% matched to image rect only
                         Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
+                                .size(
+                                    width = with(androidx.compose.ui.platform.LocalDensity.current) { imgW.toDp() },
+                                    height = with(androidx.compose.ui.platform.LocalDensity.current) { imgH.toDp() }
+                                )
                         ) {
                             Image(
-                                bitmap = previewBitmap!!.asImageBitmap(),
+                                bitmap = bmp.asImageBitmap(),
                                 contentDescription = "Receipt Preview",
                                 colorFilter = ColorFilter.colorMatrix(colorMatrix),
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        rotationZ = rotationDegrees
-                                    }
+                                contentScale = ContentScale.FillBounds,
+                                modifier = Modifier.fillMaxSize()
                             )
 
-                            // Interactive Crop Overlay Box when CROP tool active
+                            // Interactive Crop Overlay Box strictly inside the Image Box
                             if (activeTool == EditTool.CROP) {
+                                var activeHandle by remember { mutableStateOf<String?>(null) }
+
                                 Canvas(
-                                    modifier = Modifier.fillMaxSize()
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .pointerInput(Unit) {
+                                            detectTransformGestures { _, pan, _, _ ->
+                                                val dx = pan.x / imgW
+                                                val dy = pan.y / imgH
+
+                                                if (activeHandle == null) {
+                                                    // Move entire crop box
+                                                    val bw = cropRight - cropLeft
+                                                    val bh = cropBottom - cropTop
+                                                    var nLeft = (cropLeft + dx).coerceIn(0f, 1f - bw)
+                                                    var nTop = (cropTop + dy).coerceIn(0f, 1f - bh)
+                                                    cropLeft = nLeft
+                                                    cropTop = nTop
+                                                    cropRight = nLeft + bw
+                                                    cropBottom = nTop + bh
+                                                } else {
+                                                    when (activeHandle) {
+                                                        "TL" -> {
+                                                            cropLeft = (cropLeft + dx).coerceIn(0f, cropRight - 0.1f)
+                                                            cropTop = (cropTop + dy).coerceIn(0f, cropBottom - 0.1f)
+                                                        }
+                                                        "TR" -> {
+                                                            cropRight = (cropRight + dx).coerceIn(cropLeft + 0.1f, 1f)
+                                                            cropTop = (cropTop + dy).coerceIn(0f, cropBottom - 0.1f)
+                                                        }
+                                                        "BL" -> {
+                                                            cropLeft = (cropLeft + dx).coerceIn(0f, cropRight - 0.1f)
+                                                            cropBottom = (cropBottom + dy).coerceIn(cropTop + 0.1f, 1f)
+                                                        }
+                                                        "BR" -> {
+                                                            cropRight = (cropRight + dx).coerceIn(cropLeft + 0.1f, 1f)
+                                                            cropBottom = (cropBottom + dy).coerceIn(cropTop + 0.1f, 1f)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                 ) {
-                                    val w = size.width
-                                    val h = size.height
-                                    val leftPx = cropLeft * w
-                                    val topPx = cropTop * h
-                                    val rightPx = cropRight * w
-                                    val bottomPx = cropBottom * h
+                                    val leftPx = cropLeft * imgW
+                                    val topPx = cropTop * imgH
+                                    val rightPx = cropRight * imgW
+                                    val bottomPx = cropBottom * imgH
 
-                                    // Darkened dim background outside crop box
-                                    drawRect(Color.Black.copy(alpha = 0.45f))
+                                    // Darkened dim background strictly over outer image parts
+                                    // Top rect
+                                    drawRect(color = Color.Black.copy(alpha = 0.5f), topLeft = Offset(0f, 0f), size = Size(imgW, topPx))
+                                    // Bottom rect
+                                    drawRect(color = Color.Black.copy(alpha = 0.5f), topLeft = Offset(0f, bottomPx), size = Size(imgW, imgH - bottomPx))
+                                    // Left rect
+                                    drawRect(color = Color.Black.copy(alpha = 0.5f), topLeft = Offset(0f, topPx), size = Size(leftPx, bottomPx - topPx))
+                                    // Right rect
+                                    drawRect(color = Color.Black.copy(alpha = 0.5f), topLeft = Offset(rightPx, topPx), size = Size(imgW - rightPx, bottomPx - topPx))
 
-                                    // Clear crop rectangle
+                                    // 1px Crop Border
                                     drawRect(
-                                        color = Color.Transparent,
-                                        topLeft = Offset(leftPx, topPx),
-                                        size = Size(rightPx - leftPx, bottomPx - topPx),
-                                        blendMode = androidx.compose.ui.graphics.BlendMode.Clear
-                                    )
-
-                                    // Flat 1px crop border
-                                    drawRect(
-                                        color = colors.inkPrimary,
+                                        color = Color.White,
                                         topLeft = Offset(leftPx, topPx),
                                         size = Size(rightPx - leftPx, bottomPx - topPx),
                                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
@@ -352,22 +401,22 @@ fun ReceiptEditorModal(
                                     val thirdH = (bottomPx - topPx) / 3f
                                     for (i in 1..2) {
                                         drawLine(
-                                            color = Color.White.copy(alpha = 0.6f),
+                                            color = Color.White.copy(alpha = 0.5f),
                                             start = Offset(leftPx + thirdW * i, topPx),
                                             end = Offset(leftPx + thirdW * i, bottomPx),
                                             strokeWidth = 1.dp.toPx()
                                         )
                                         drawLine(
-                                            color = Color.White.copy(alpha = 0.6f),
+                                            color = Color.White.copy(alpha = 0.5f),
                                             start = Offset(leftPx, topPx + thirdH * i),
                                             end = Offset(rightPx, topPx + thirdH * i),
                                             strokeWidth = 1.dp.toPx()
                                         )
                                     }
 
-                                    // Corner handles
-                                    val handleSize = 16.dp.toPx()
-                                    val handleStroke = 3.dp.toPx()
+                                    // Corner Handles
+                                    val handleSize = 18.dp.toPx()
+                                    val handleStroke = 3.5.dp.toPx()
                                     // Top-Left
                                     drawLine(Color.White, Offset(leftPx, topPx), Offset(leftPx + handleSize, topPx), strokeWidth = handleStroke)
                                     drawLine(Color.White, Offset(leftPx, topPx), Offset(leftPx, topPx + handleSize), strokeWidth = handleStroke)
@@ -470,7 +519,17 @@ fun ReceiptEditorModal(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 IconButton(
-                                    onClick = { rotationDegrees = (rotationDegrees + 90f) % 360f }
+                                    onClick = {
+                                        if (previewBitmap != null) {
+                                            val bmp = previewBitmap!!
+                                            val matrix = android.graphics.Matrix().apply { postRotate(90f) }
+                                            previewBitmap = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+                                            cropLeft = 0.05f
+                                            cropTop = 0.05f
+                                            cropRight = 0.95f
+                                            cropBottom = 0.95f
+                                        }
+                                    }
                                 ) {
                                     Icon(Icons.Outlined.RotateRight, contentDescription = "Rotate 90°", tint = colors.inkPrimary)
                                 }
@@ -516,21 +575,30 @@ fun ReceiptEditorModal(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Paper Optimizer (+25% Contrast, +10% Brightness)", fontFamily = OutfitFamily, fontSize = 13.sp, color = colors.inkMuted)
+                                Text(
+                                    text = "Paper Optimizer (+25% Contrast, +10% Brightness)",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = 13.sp,
+                                    color = colors.inkMuted,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
+                                )
                                 Button(
                                     onClick = {
                                         contrast = 25f
                                         brightness = 10f
                                     },
                                     shape = RoundedCornerShape(d.radiusFull),
-                                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk),
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                                 ) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         Icon(Icons.Outlined.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Text("Apply", fontFamily = OutfitFamily, fontSize = 13.sp)
+                                        Text("Apply", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
                                     }
                                 }
                             }

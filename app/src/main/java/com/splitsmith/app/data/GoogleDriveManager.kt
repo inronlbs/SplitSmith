@@ -37,6 +37,7 @@ object GoogleDriveManager {
         val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
             com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
         )
+            .requestEmail()
             .requestScopes(com.google.android.gms.common.api.Scope(DriveScopes.DRIVE_FILE))
             .build()
         val intent = GoogleSignIn.getClient(context, gso).signInIntent
@@ -45,11 +46,16 @@ object GoogleDriveManager {
 
     private fun getDriveService(context: Context): Drive? {
         val account = GoogleSignIn.getLastSignedInAccount(context) ?: return null
+        val accountName = account.email ?: account.account?.name
         val credential = GoogleAccountCredential.usingOAuth2(
             context,
             Collections.singleton(DriveScopes.DRIVE_FILE)
         )
-        credential.selectedAccount = account.account
+        if (accountName != null) {
+            credential.selectedAccountName = accountName
+        } else if (account.account != null) {
+            credential.selectedAccount = account.account
+        }
 
         return Drive.Builder(
             NetHttpTransport(),
@@ -67,17 +73,19 @@ object GoogleDriveManager {
             var query = "mimeType = 'application/vnd.google-apps.folder' and name = '$folderName' and trashed = false"
             if (parentId != null) {
                 query += " and '$parentId' in parents"
-            } else {
-                query += " and 'root' in parents"
             }
 
-            val resultList = driveService.files().list()
-                .setQ(query)
-                .setSpaces("drive")
-                .setFields("files(id, name)")
-                .execute()
+            val resultList = try {
+                driveService.files().list()
+                    .setQ(query)
+                    .setSpaces("drive")
+                    .setFields("files(id, name)")
+                    .execute()
+            } catch (e: Exception) {
+                null
+            }
 
-            val existingFolder = resultList.files.firstOrNull()
+            val existingFolder = resultList?.files?.firstOrNull()
             if (existingFolder != null) {
                 return@withContext existingFolder.id
             }
@@ -95,7 +103,7 @@ object GoogleDriveManager {
                 .setFields("id")
                 .execute()
 
-            return@withContext createdFolder.id
+            return@withContext createdFolder?.id
         } catch (e: Exception) {
             e.printStackTrace()
             null
