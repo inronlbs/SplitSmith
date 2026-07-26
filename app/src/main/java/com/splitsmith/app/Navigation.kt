@@ -78,6 +78,9 @@ fun MainNavigation() {
                     onNavigateToAddExpense = { gid, eid ->
                         backStack.add(AddExpense(gid, eid))
                     },
+                    onNavigateToSlipImport = { uriStr ->
+                        backStack.add(SlipImportKey(uriStr))
+                    },
                     onSignOut = {
                         backStack.removeLastOrNull()
                         backStack.add(Auth)

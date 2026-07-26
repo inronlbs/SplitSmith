@@ -365,11 +365,14 @@ object FirebaseManager {
         category: String,
         splitMode: String,
         splits: Map<String, Double>,
-        receiptUrl: String,
+        receiptUrl: String = "",
+        receiptUrls: List<String> = emptyList(),
+        receiptDriveFileIds: List<String> = emptyList(),
         date: Long = System.currentTimeMillis()
     ) {
         val uid = currentUserId ?: return
         val expenseRef = db.collection("groups").document(groupId).collection("expenses").document()
+        val finalUrls = if (receiptUrls.isNotEmpty()) receiptUrls else if (receiptUrl.isNotBlank()) listOf(receiptUrl) else emptyList()
         val expense = Expense(
             id = expenseRef.id,
             description = description,
@@ -379,7 +382,9 @@ object FirebaseManager {
             category = category,
             splitMode = splitMode,
             splits = splits,
-            receiptUrl = receiptUrl,
+            receiptUrl = finalUrls.firstOrNull() ?: "",
+            receiptUrls = finalUrls,
+            receiptDriveFileIds = receiptDriveFileIds,
             createdBy = uid
         )
         expenseRef.set(expense).await()
@@ -466,8 +471,21 @@ object FirebaseManager {
         db.collection("users").document(uid).set(mapOf("budget" to budget), com.google.firebase.firestore.SetOptions.merge()).await()
     }
 
+    suspend fun updateDriveSyncSetting(enabled: Boolean) {
+        val uid = currentUserId ?: return
+        db.collection("users").document(uid).set(mapOf("driveSyncEnabled" to enabled), com.google.firebase.firestore.SetOptions.merge()).await()
+    }
+
     // PERSONAL EXPENSE ACTIONS
-    suspend fun addPersonalExpense(description: String, amount: Double, category: String, note: String, date: Long = System.currentTimeMillis()) {
+    suspend fun addPersonalExpense(
+        description: String,
+        amount: Double,
+        category: String,
+        note: String,
+        date: Long = System.currentTimeMillis(),
+        receiptUrls: List<String> = emptyList(),
+        receiptDriveFileIds: List<String> = emptyList()
+    ) {
         val uid = currentUserId ?: return
         val expenseRef = db.collection("users").document(uid).collection("personal_expenses").document()
         val expense = PersonalExpense(
@@ -476,7 +494,9 @@ object FirebaseManager {
             amount = amount,
             category = category,
             note = note,
-            date = date
+            date = date,
+            receiptUrls = receiptUrls,
+            receiptDriveFileIds = receiptDriveFileIds
         )
         expenseRef.set(expense).await()
     }
@@ -612,7 +632,17 @@ object FirebaseManager {
     }
 
     // DIRECT P2P SPLIT ACTIONS
-    suspend fun createDirectSplit(withUserId: String, description: String, amount: Double, myShare: Double, paidBy: String, category: String, date: Long = System.currentTimeMillis()) {
+    suspend fun createDirectSplit(
+        withUserId: String,
+        description: String,
+        amount: Double,
+        myShare: Double,
+        paidBy: String,
+        category: String,
+        date: Long = System.currentTimeMillis(),
+        receiptUrls: List<String> = emptyList(),
+        receiptDriveFileIds: List<String> = emptyList()
+    ) {
         val uid = currentUserId ?: return
         val splitRef = db.collection("direct_splits").document()
         val split = DirectSplit(
@@ -625,7 +655,9 @@ object FirebaseManager {
             category = category,
             status = "PENDING",
             date = date,
-            createdBy = uid
+            createdBy = uid,
+            receiptUrls = receiptUrls,
+            receiptDriveFileIds = receiptDriveFileIds
         )
         splitRef.set(split).await()
     }

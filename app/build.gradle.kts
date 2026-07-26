@@ -12,8 +12,8 @@ android {
         applicationId = "com.splitsmith.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 19
-        versionName = "0.3.0.7"
+        versionCode = 23
+        versionName = "0.3.1.0"
     }
 
     signingConfigs {
@@ -81,6 +81,7 @@ dependencies {
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.activity.compose)
+  implementation("androidx.biometric:biometric:1.1.0")
 
   // Arch Components
   implementation(libs.androidx.lifecycle.runtime.compose)
@@ -123,6 +124,18 @@ dependencies {
 
   // Google ML Kit on-device Text Recognition for offline fallback OCR
   implementation("com.google.mlkit:text-recognition:16.0.1")
+
+  // Google Drive API
+  implementation("com.google.apis:google-api-services-drive:v3-rev20230822-2.0.0") {
+      exclude(group = "org.apache.httpcomponents")
+  }
+  implementation("com.google.api-client:google-api-client-android:2.2.0") {
+      exclude(group = "org.apache.httpcomponents")
+  }
+  implementation("com.google.http-client:google-http-client-gson:1.43.3") {
+      exclude(group = "org.apache.httpcomponents")
+  }
 }
+
 
 

@@ -11,7 +11,8 @@ data class UserProfile(
     val upiId: String = "",
     val customCategories: List<String> = emptyList(),
     val shortCode: String = "",
-    val budget: BudgetConfig = BudgetConfig(limit = 15000.0, type = "MONTHLY", threshold = 80)
+    val budget: BudgetConfig = BudgetConfig(limit = 15000.0, type = "MONTHLY", threshold = 80),
+    val driveSyncEnabled: Boolean = false
 )
 
 @Serializable
@@ -46,8 +47,16 @@ data class Expense(
     val splitMode: String = "EQUAL", // EQUAL, EXACT, PERCENTAGE, SHARES
     val splits: Map<String, Double> = emptyMap(), // uid -> amount
     val receiptUrl: String = "",
+    val receiptUrls: List<String> = emptyList(),
+    val receiptDriveFileIds: List<String> = emptyList(),
     val createdBy: String = ""
-)
+) {
+    fun getEffectiveReceiptUrls(): List<String> {
+        if (receiptUrls.isNotEmpty()) return receiptUrls
+        if (receiptUrl.isNotBlank()) return listOf(receiptUrl)
+        return emptyList()
+    }
+}
 
 @Serializable
 data class Settlement(
@@ -68,7 +77,9 @@ data class PersonalExpense(
     val amount: Double = 0.0,
     val category: String = "Other",
     val note: String = "",
-    val date: Long = 0
+    val date: Long = 0,
+    val receiptUrls: List<String> = emptyList(),
+    val receiptDriveFileIds: List<String> = emptyList()
 )
 
 @Serializable
@@ -83,7 +94,9 @@ data class DirectSplit(
     val status: String = "PENDING",    // PENDING, WAITING_APPROVAL, or SETTLED
     val method: String = "UPI",        // UPI or CASH
     val date: Long = 0,
-    val createdBy: String = ""
+    val createdBy: String = "",
+    val receiptUrls: List<String> = emptyList(),
+    val receiptDriveFileIds: List<String> = emptyList()
 )
 
 data class Debt(

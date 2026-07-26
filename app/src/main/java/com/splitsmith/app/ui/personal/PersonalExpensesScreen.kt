@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun PersonalExpensesScreen(
     showAddPersonalInitially: Boolean = false,
+    initialSelectedExpenseId: String? = null,
     onNavigateToQuickSplit: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -78,6 +79,16 @@ fun PersonalExpensesScreen(
     LaunchedEffect(showAddPersonalInitially) {
         if (showAddPersonalInitially) {
             showAddPersonalSheet = true
+        }
+    }
+
+    // Auto-select expense if initialSelectedExpenseId was passed from Recent Activity
+    LaunchedEffect(initialSelectedExpenseId, personalExpenses) {
+        if (!initialSelectedExpenseId.isNullOrEmpty() && personalExpenses.isNotEmpty()) {
+            val target = personalExpenses.firstOrNull { it.id == initialSelectedExpenseId }
+            if (target != null) {
+                selectedExpenseDetail = target
+            }
         }
     }
 
@@ -115,36 +126,24 @@ fun PersonalExpensesScreen(
     var expenseToDelete by remember { mutableStateOf<PersonalExpense?>(null) }
 
     if (expenseToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { expenseToDelete = null },
-            title = { Text("Delete Expense", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to delete '${expenseToDelete?.description}'?", fontFamily = OutfitFamily) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val exp = expenseToDelete
-                        if (exp != null) {
-                            coroutineScope.launch {
-                                try {
-                                    FirebaseManager.deletePersonalExpense(exp.id)
-                                    Toast.makeText(context, "Expense deleted", Toast.LENGTH_SHORT).show()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                }
-                            }
+        val exp = expenseToDelete!!
+        com.splitsmith.app.ui.components.DeleteExpenseDialog(
+            hasAttachments = exp.receiptDriveFileIds.isNotEmpty() || exp.receiptUrls.isNotEmpty(),
+            onDismiss = { expenseToDelete = null },
+            onConfirmDelete = { deleteFromDrive ->
+                coroutineScope.launch {
+                    try {
+                        FirebaseManager.deletePersonalExpense(exp.id)
+                        if (deleteFromDrive && exp.receiptDriveFileIds.isNotEmpty()) {
+                            com.splitsmith.app.data.GoogleDriveManager.deleteFiles(context, exp.receiptDriveFileIds)
                         }
-                        expenseToDelete = null
+                        Toast.makeText(context, "Expense deleted", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
-                ) {
-                    Text("Delete", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.alertRed)
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { expenseToDelete = null }) {
-                    Text("Cancel", fontFamily = OutfitFamily, color = colors.inkMuted)
-                }
-            },
-            containerColor = colors.canvasChalk
+                expenseToDelete = null
+            }
         )
     }
 
@@ -359,6 +358,10 @@ fun PersonalExpensesScreen(
             var newCategory by remember(currentEdit, showAddPersonalSheet) { mutableStateOf(initialCategory) }
             var newNote by remember(currentEdit, showAddPersonalSheet) { mutableStateOf(initialNote) }
             var newDateMillis by remember(currentEdit, showAddPersonalSheet) { mutableStateOf(initialDate) }
+            var showAttachmentPickerSheet by remember { mutableStateOf(false) }
+            var selectedAttachmentUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
+            var existingAttachmentUrls by remember(currentEdit) { mutableStateOf(currentEdit?.receiptUrls ?: emptyList()) }
+            var existingDriveFileIds by remember(currentEdit) { mutableStateOf(currentEdit?.receiptDriveFileIds ?: emptyList()) }
             var isPersonalLoading by remember { mutableStateOf(false) }
 
             ModalBottomSheet(
@@ -576,6 +579,16 @@ fun PersonalExpensesScreen(
                         }
                     }
 
+                    // ── Receipts & Attachments Section ─────────────────
+                    com.splitsmith.app.ui.components.attachments.AttachmentComponent(
+                        selectedUris = selectedAttachmentUris,
+                        existingUrls = existingAttachmentUrls,
+                        existingDriveFileIds = existingDriveFileIds,
+                        onUrisChanged = { selectedAttachmentUris = it },
+                        onExistingUrlsChanged = { existingAttachmentUrls = it },
+                        onDriveFileIdsChanged = { existingDriveFileIds = it }
+                    )
+
                     Button(
                         onClick = {
                             val amt = newAmountStr.toDoubleOrNull() ?: 0.0
@@ -586,6 +599,27 @@ fun PersonalExpensesScreen(
                             isPersonalLoading = true
                             coroutineScope.launch {
                                 try {
+                                    val finalUploadedUrls = existingAttachmentUrls.toMutableList()
+                                    val finalDriveFileIds = existingDriveFileIds.toMutableList()
+
+                                    if (selectedAttachmentUris.isNotEmpty()) {
+                                        selectedAttachmentUris.forEach { uri ->
+                                            if (profile?.driveSyncEnabled == true) {
+                                                val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
+                                                    context = context,
+                                                    inputUri = uri,
+                                                    folderCategoryName = "Personal Expenses",
+                                                    dateMillis = newDateMillis,
+                                                    expenseId = currentEdit?.id ?: ""
+                                                )
+                                                if (driveResult != null) {
+                                                    finalUploadedUrls.add(driveResult.webViewLink)
+                                                    finalDriveFileIds.add(driveResult.fileId)
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     if (currentEdit != null) {
                                         FirebaseManager.updatePersonalExpense(
                                             id = currentEdit.id,
@@ -602,7 +636,9 @@ fun PersonalExpensesScreen(
                                             amount = amt,
                                             category = newCategory,
                                             note = newNote.trim(),
-                                            date = newDateMillis
+                                            date = newDateMillis,
+                                            receiptUrls = finalUploadedUrls,
+                                            receiptDriveFileIds = finalDriveFileIds
                                         )
                                         Toast.makeText(context, "Expense saved to wallet", Toast.LENGTH_SHORT).show()
                                     }
@@ -810,6 +846,20 @@ fun PersonalExpensesScreen(
                                 Text("Note", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
                                 Text(exp.note, fontFamily = OutfitFamily, color = colors.inkPrimary, fontSize = d.textBodyLarge)
                             }
+                        }
+
+                        if (exp.receiptUrls.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(d.space8))
+                            Text("ATTACHED RECEIPTS & INVOICES", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.2.sp)
+                            val displayAttachments = exp.receiptUrls.map { url ->
+                                val name = url.substringAfterLast("/").substringBefore("?").ifBlank { "Receipt Document" }
+                                val isPdf = url.contains(".pdf", ignoreCase = true)
+                                com.splitsmith.app.ui.components.DisplayAttachment(url = url, name = name, isPdf = isPdf)
+                            }
+                            com.splitsmith.app.ui.components.AttachmentChipsView(
+                                attachments = displayAttachments,
+                                isEditable = false
+                            )
                         }
                     }
 

@@ -1,7 +1,12 @@
 package com.splitsmith.app.ui.quicksplit
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,6 +18,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,14 +33,16 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.splitsmith.app.theme.LocalSplitColors
-import com.splitsmith.app.ui.components.dotGridBackground
 import com.splitsmith.app.data.FirebaseManager
 import com.splitsmith.app.data.UserProfile
 import com.splitsmith.app.theme.JetBrainsMonoFamily
 import com.splitsmith.app.theme.LocalDimens
+import com.splitsmith.app.theme.LocalSplitColors
 import com.splitsmith.app.theme.OutfitFamily
+import com.splitsmith.app.ui.components.dotGridBackground
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,16 +56,19 @@ fun QuickSplitScreen(
     var searchQuery by remember { mutableStateOf("") }
     var targetUser by remember { mutableStateOf<UserProfile?>(null) }
     var recentContacts by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
-    var searchResults by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
 
     var amountStr by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("Food") }
     var selectedDateMillis by remember { mutableStateOf(System.currentTimeMillis()) }
-    var splitMode by remember { mutableStateOf("EQUAL") } // EQUAL (50/50), OWE_ALL, OWED_ALL, CUSTOM
+    var splitMode by remember { mutableStateOf("EQUAL") }
     var customOweAmount by remember { mutableStateOf("") }
     var paidByMe by remember { mutableStateOf(true) }
     var isLoading by remember { mutableStateOf(false) }
+
+    var selectedAttachmentUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var existingAttachmentUrls by remember { mutableStateOf<List<String>>(emptyList()) }
+    var existingDriveFileIds by remember { mutableStateOf<List<String>>(emptyList()) }
 
     LaunchedEffect(Unit) {
         val pAmt = FirebaseManager.pendingExpenseAmount
@@ -83,38 +95,99 @@ fun QuickSplitScreen(
 
     val colors = LocalSplitColors.current
     val canvasChalk = colors.canvasChalk
-    val accentIndigo = colors.inkPrimary // shift highlights to inkPrimary for B&W minimalist look
+    val accentIndigo = colors.inkPrimary
     val inkPrimary = colors.inkPrimary
     val inkMuted = colors.inkMuted
     val borderWhisper = colors.borderWhisper
-    val positiveGreen = colors.positiveGreen
     val alertRed = colors.alertRed
 
-    // Load recent contacts on startup
+    // Observe connected users and merge with recent contacts (deduplicated)
+    val connectionsState = FirebaseManager.observeConnections().collectAsState(initial = emptyList())
+    val connectedUsers = connectionsState.value
+
     LaunchedEffect(Unit) {
         recentContacts = FirebaseManager.getRecentDirectContacts()
     }
 
-    LaunchedEffect(searchQuery) {
-        if (searchQuery.isNotEmpty()) {
-            searchResults = FirebaseManager.searchUsersInstantly(searchQuery)
+    val allContacts = remember(connectedUsers, recentContacts) {
+        (connectedUsers + recentContacts).distinctBy { it.uid }
+    }
+
+    // Filter contacts strictly by displayName locally
+    val filteredLocalContacts = remember(searchQuery, allContacts) {
+        val trimmed = searchQuery.trim()
+        if (trimmed.isEmpty()) {
+            allContacts
         } else {
-            searchResults = emptyList()
+            allContacts.filter {
+                it.displayName.contains(trimmed, ignoreCase = true)
+            }
         }
     }
 
-    // QR scanner launcher
+    // Process scanned or decoded QR payload
+    fun handleQrPayload(payload: String) {
+        if (payload.isBlank()) return
+        coroutineScope.launch {
+            isLoading = true
+            try {
+                val resolvedCode = if (payload.startsWith("splitsmith://user?")) {
+                    val uri = Uri.parse(payload)
+                    uri.getQueryParameter("code") ?: uri.getQueryParameter("uid") ?: payload
+                } else {
+                    payload
+                }
+                val resolvedUser = FirebaseManager.searchUserByCode(resolvedCode)
+                    ?: (if (resolvedCode.contains("@")) FirebaseManager.searchUserByEmail(resolvedCode) else null)
+
+                if (resolvedUser != null) {
+                    targetUser = resolvedUser
+                    Toast.makeText(context, "Resolved: ${resolvedUser.displayName}", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "QR code user not found", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error reading QR: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    // QR camera scan launcher
     val qrScanLauncher = rememberLauncherForActivityResult(
         contract = com.journeyapps.barcodescanner.ScanContract(),
         onResult = { result ->
             if (result.contents != null) {
-                coroutineScope.launch {
-                    val user = FirebaseManager.searchUserByCode(result.contents)
-                    if (user != null) {
-                        targetUser = user
-                        Toast.makeText(context, "Resolved user: ${user.displayName}", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "User QR code not found in database", Toast.LENGTH_LONG).show()
+                handleQrPayload(result.contents)
+            }
+        }
+    )
+
+    // Gallery QR screenshot picker
+    val galleryQrLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            if (uri != null) {
+                coroutineScope.launch(Dispatchers.IO) {
+                    try {
+                        val stream = context.contentResolver.openInputStream(uri)
+                        val bitmap = BitmapFactory.decodeStream(stream)
+                        stream?.close()
+                        if (bitmap != null) {
+                            val decodedText = decodeQrFromBitmap(bitmap)
+                            withContext(Dispatchers.Main) {
+                                if (!decodedText.isNullOrEmpty()) {
+                                    handleQrPayload(decodedText)
+                                } else {
+                                    Toast.makeText(context, "No valid SplitSmith QR code found in screenshot", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Could not process image: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             }
@@ -123,8 +196,6 @@ fun QuickSplitScreen(
 
     val amountVal = amountStr.toDoubleOrNull() ?: 0.0
 
-    // Calculate myShare (how much they owe me/I owe them)
-    // If positive: they owe me. If negative: I owe them.
     val p2pOwedShare = remember(amountVal, splitMode, customOweAmount, paidByMe) {
         val shareVal = when (splitMode) {
             "EQUAL" -> amountVal / 2.0
@@ -168,97 +239,145 @@ fun QuickSplitScreen(
                     item {
                         Spacer(modifier = Modifier.height(d.space8))
                         Text(
-                            text = "Split directly with anyone by email, user code, or QR scan.",
+                            text = "Split directly with connected friends, or lookup by email/code.",
                             fontFamily = OutfitFamily,
                             fontSize = d.textBodyMedium,
                             color = inkMuted
                         )
-                        Spacer(modifier = Modifier.height(d.space8))
+                        Spacer(modifier = Modifier.height(d.space4))
                     }
 
-                    // Search / Lookup input
+                    // Search / Lookup input & QR options
                     item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(d.space8)
-                        ) {
-                            OutlinedTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(d.radiusSM),
-                                placeholder = { Text("Enter email or user code", fontFamily = OutfitFamily, fontSize = d.textBodyMedium) },
-                                singleLine = true,
-                                trailingIcon = {
-                                    IconButton(
-                                        onClick = {
-                                            if (searchQuery.trim().isEmpty()) return@IconButton
-                                            coroutineScope.launch {
-                                                isLoading = true
-                                                val resolved = if (searchQuery.contains("@")) {
-                                                    FirebaseManager.searchUserByEmail(searchQuery)
-                                                } else {
-                                                    FirebaseManager.searchUserByCode(searchQuery)
-                                                }
-                                                isLoading = false
-                                                if (resolved != null) {
-                                                    targetUser = resolved
-                                                } else {
-                                                    Toast.makeText(context, "User not found. Check query.", Toast.LENGTH_SHORT).show()
-                                                }
+                        Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(d.space8)
+                            ) {
+                                OutlinedTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(d.radiusSM),
+                                    placeholder = { Text("Search connected friends by name...", fontFamily = OutfitFamily, fontSize = 13.sp) },
+                                    singleLine = true,
+                                    trailingIcon = {
+                                        if (searchQuery.isNotEmpty()) {
+                                            IconButton(onClick = { searchQuery = "" }) {
+                                                Icon(Icons.Default.Search, contentDescription = "Search", tint = inkMuted)
                                             }
                                         }
-                                    ) {
-                                        Icon(Icons.Default.Search, contentDescription = "Search", tint = colors.inkMuted)
-                                    }
-                                },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = accentIndigo,
-                                    unfocusedBorderColor = borderWhisper,
-                                    focusedContainerColor = colors.surfaceCard,
-                                    unfocusedContainerColor = colors.surfaceCard,
-                                    focusedTextColor = colors.inkPrimary,
-                                    unfocusedTextColor = colors.inkPrimary
+                                    },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = accentIndigo,
+                                        unfocusedBorderColor = borderWhisper,
+                                        focusedContainerColor = colors.surfaceCard,
+                                        unfocusedContainerColor = colors.surfaceCard,
+                                        focusedTextColor = inkPrimary,
+                                        unfocusedTextColor = inkPrimary
+                                    )
                                 )
-                            )
 
-                            // QR Scan Button
-                            Button(
-                                onClick = {
-                                    val options = com.journeyapps.barcodescanner.ScanOptions()
-                                    options.setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
-                                    options.setPrompt("Scan a SplitSmith User QR Code")
-                                    options.setCameraId(0)
-                                    options.setBeepEnabled(false)
-                                    options.setBarcodeImageEnabled(true)
-                                    qrScanLauncher.launch(options)
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = inkPrimary),
-                                shape = RoundedCornerShape(d.radiusSM),
-                                modifier = Modifier.size(52.dp),
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Text("[QR]", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
+                                // High-Contrast QR Camera Scan Button
+                                Button(
+                                    onClick = {
+                                        val options = com.journeyapps.barcodescanner.ScanOptions()
+                                        options.setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
+                                        options.setPrompt("Scan a SplitSmith User QR Code")
+                                        options.setCameraId(0)
+                                        options.setBeepEnabled(false)
+                                        options.setBarcodeImageEnabled(true)
+                                        qrScanLauncher.launch(options)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = inkPrimary, contentColor = canvasChalk),
+                                    shape = RoundedCornerShape(d.radiusSM),
+                                    modifier = Modifier.size(52.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.QrCodeScanner,
+                                        contentDescription = "Scan QR",
+                                        tint = canvasChalk,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+
+                                // Gallery QR Screenshot Import Button
+                                OutlinedButton(
+                                    onClick = { galleryQrLauncher.launch("image/*") },
+                                    shape = RoundedCornerShape(d.radiusSM),
+                                    border = BorderStroke(1.dp, borderWhisper),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = inkPrimary),
+                                    modifier = Modifier.size(52.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.PhotoLibrary,
+                                        contentDescription = "Import QR Screenshot",
+                                        tint = inkPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+
+                            // Remote Database Search Trigger (If email or code typed)
+                            val trimmedQuery = searchQuery.trim()
+                            if (trimmedQuery.isNotEmpty() && (trimmedQuery.contains("@") || trimmedQuery.length == 6)) {
+                                Surface(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            isLoading = true
+                                            val resolved = if (trimmedQuery.contains("@")) {
+                                                FirebaseManager.searchUserByEmail(trimmedQuery)
+                                            } else {
+                                                FirebaseManager.searchUserByCode(trimmedQuery)
+                                            }
+                                            isLoading = false
+                                            if (resolved != null) {
+                                                targetUser = resolved
+                                            } else {
+                                                Toast.makeText(context, "No user found for '$trimmedQuery'", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(d.radiusSM),
+                                    color = colors.surfaceCard,
+                                    border = BorderStroke(1.dp, borderWhisper),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = d.space16, vertical = d.space12),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Search database for '$trimmedQuery'",
+                                            fontFamily = OutfitFamily,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = d.textBodyMedium,
+                                            color = inkPrimary
+                                        )
+                                        Icon(Icons.Default.Search, contentDescription = null, tint = inkMuted, modifier = Modifier.size(16.dp))
+                                    }
+                                }
                             }
                         }
                     }
 
-                    // Contacts / Recent list
-                    val displayContacts = if (searchQuery.isEmpty()) recentContacts else searchResults
+                    // Contacts / Connected Users List
+                    item {
+                        Text(
+                            text = if (searchQuery.isEmpty()) "CONNECTED FRIENDS (${filteredLocalContacts.size})" else "MATCHING FRIENDS (${filteredLocalContacts.size})",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelSmall,
+                            color = inkMuted,
+                            letterSpacing = 1.5.sp
+                        )
+                    }
 
-                    if (displayContacts.isNotEmpty()) {
-                        item {
-                            Text(
-                                text = if (searchQuery.isEmpty()) "RECENT CONTACTS" else "SEARCH RESULTS",
-                                fontFamily = OutfitFamily,
-                                fontSize = d.textLabelSmall,
-                                color = inkMuted,
-                                letterSpacing = 1.5.sp
-                            )
-                        }
-
-                        items(displayContacts) { contact ->
+                    if (filteredLocalContacts.isNotEmpty()) {
+                        items(filteredLocalContacts) { contact ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -270,7 +389,7 @@ fun QuickSplitScreen(
                                     modifier = Modifier
                                         .size(d.avatarMd)
                                         .clip(CircleShape)
-                                        .background(accentIndigo),
+                                        .background(inkPrimary),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
@@ -278,16 +397,33 @@ fun QuickSplitScreen(
                                         fontFamily = OutfitFamily,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = d.textBodyMedium,
-                                        color = Color.White
+                                        color = canvasChalk
                                     )
                                 }
                                 Spacer(modifier = Modifier.width(d.space12))
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(contact.displayName, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
                                     Text(contact.email, fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
                                 }
                             }
                             HorizontalDivider(color = borderWhisper)
+                        }
+                    } else {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = d.space24),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (searchQuery.isEmpty()) "No connected friends yet.\nScan a QR code or search by email/user code above." else "No connected friends match '$searchQuery'.\nUse search icon above for global email/code lookup.",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textBodyMedium,
+                                    color = inkMuted,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
                     }
                 }
@@ -296,93 +432,75 @@ fun QuickSplitScreen(
                 val user = targetUser!!
                 LazyColumn(
                     modifier = Modifier
-                        .fillMaxSize()
                         .weight(1f)
                         .padding(horizontal = d.space16),
                     verticalArrangement = Arrangement.spacedBy(d.space16)
                 ) {
+                    // Target User Header Chip
                     item {
-                        // User Profile Header
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = d.space8),
-                            verticalAlignment = Alignment.CenterVertically
+                        Spacer(modifier = Modifier.height(d.space4))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(d.radiusMD),
+                            color = colors.surfaceCard,
+                            border = BorderStroke(1.dp, borderWhisper)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(d.avatarMd)
-                                    .clip(CircleShape)
-                                    .background(accentIndigo),
-                                contentAlignment = Alignment.Center
+                            Row(
+                                modifier = Modifier.padding(d.space16),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text(
-                                    text = user.displayName.firstOrNull()?.uppercase() ?: "?",
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = d.textBodyMedium,
-                                    color = Color.White
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(d.space12))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(user.displayName, fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
-                                Text("Direct Split", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
-                            }
-                            TextButton(onClick = { targetUser = null }) {
-                                Text("Change", fontFamily = OutfitFamily, fontSize = d.textLabelLarge, color = accentIndigo)
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space12)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(d.avatarLg)
+                                            .clip(CircleShape)
+                                            .background(inkPrimary),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = user.displayName.firstOrNull()?.uppercase() ?: "?",
+                                            fontFamily = OutfitFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = d.textTitleMedium,
+                                            color = canvasChalk
+                                        )
+                                    }
+                                    Column {
+                                        Text(user.displayName, fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
+                                        Text(user.email, fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                                    }
+                                }
+                                TextButton(onClick = { targetUser = null }) {
+                                    Text("Change", fontFamily = OutfitFamily, color = inkMuted, fontSize = d.textLabelMedium)
+                                }
                             }
                         }
-                        HorizontalDivider(color = borderWhisper)
                     }
 
-                    // Amount input hero
+                    // Amount input field
                     item {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = d.space16),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Row(verticalAlignment = Alignment.Bottom) {
-                                Text(
-                                    text = "\u20b9",
-                                    fontFamily = OutfitFamily,
-                                    fontSize = d.textHeadlineMedium,
-                                    color = inkMuted,
-                                    modifier = Modifier.padding(bottom = 4.dp)
-                                )
-                                OutlinedTextField(
-                                    value = amountStr,
-                                    onValueChange = { amountStr = it },
-                                    modifier = Modifier.width(180.dp),
-                                    textStyle = TextStyle(
-                                        fontFamily = JetBrainsMonoFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = d.textDisplayLarge,
-                                        color = inkPrimary,
-                                        textAlign = TextAlign.Center
-                                    ),
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    placeholder = {
-                                        Text(
-                                            "0",
-                                            fontFamily = JetBrainsMonoFamily,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = d.textDisplayLarge,
-                                            color = borderWhisper,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    },
-                                    singleLine = true,
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color.Transparent,
-                                        unfocusedBorderColor = Color.Transparent,
-                                        focusedContainerColor = Color.Transparent,
-                                        unfocusedContainerColor = Color.Transparent
-                                    )
-                                )
-                            }
-                        }
+                        Text("TOTAL AMOUNT", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
+                        Spacer(modifier = Modifier.height(d.space8))
+                        OutlinedTextField(
+                            value = amountStr,
+                            onValueChange = { amountStr = it },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = d.inputHeight),
+                            shape = RoundedCornerShape(d.radiusSM),
+                            prefix = { Text("\u20b9", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary) },
+                            placeholder = { Text("0.00", fontFamily = JetBrainsMonoFamily, fontSize = d.textTitleLarge) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = accentIndigo,
+                                unfocusedBorderColor = borderWhisper,
+                                focusedContainerColor = colors.surfaceCard,
+                                unfocusedContainerColor = colors.surfaceCard,
+                                focusedTextColor = inkPrimary,
+                                unfocusedTextColor = inkPrimary
+                            ),
+                            textStyle = TextStyle(fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
+                        )
                     }
 
                     // Description field
@@ -399,10 +517,10 @@ fun QuickSplitScreen(
                                 unfocusedBorderColor = borderWhisper,
                                 focusedContainerColor = colors.surfaceCard,
                                 unfocusedContainerColor = colors.surfaceCard,
-                                focusedTextColor = colors.inkPrimary,
-                                unfocusedTextColor = colors.inkPrimary
+                                focusedTextColor = inkPrimary,
+                                unfocusedTextColor = inkPrimary
                             ),
-                            textStyle = TextStyle(fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = colors.inkPrimary)
+                            textStyle = TextStyle(fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = inkPrimary)
                         )
                     }
 
@@ -417,7 +535,7 @@ fun QuickSplitScreen(
                                     onClick = { paidByMe = isMe },
                                     shape = RoundedCornerShape(d.radiusFull),
                                     color = if (isSelected) accentIndigo else colors.surfaceCard,
-                                    border = if (!isSelected) androidx.compose.foundation.BorderStroke(1.dp, borderWhisper) else null,
+                                    border = if (!isSelected) BorderStroke(1.dp, borderWhisper) else null,
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Text(
@@ -425,7 +543,7 @@ fun QuickSplitScreen(
                                         fontFamily = OutfitFamily,
                                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                         fontSize = d.textLabelLarge,
-                                        color = if (isSelected) colors.canvasChalk else inkMuted,
+                                        color = if (isSelected) canvasChalk else inkMuted,
                                         modifier = Modifier.padding(vertical = d.space12),
                                         textAlign = TextAlign.Center
                                     )
@@ -445,15 +563,15 @@ fun QuickSplitScreen(
                                     onClick = { splitMode = mode },
                                     shape = RoundedCornerShape(d.radiusFull),
                                     color = if (isSelected) inkPrimary else colors.surfaceCard,
-                                    border = if (!isSelected) androidx.compose.foundation.BorderStroke(1.dp, borderWhisper) else null,
+                                    border = if (!isSelected) BorderStroke(1.dp, borderWhisper) else null,
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Text(
                                         text = label,
                                         fontFamily = OutfitFamily,
                                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                        fontSize = d.textLabelMedium,
-                                        color = if (isSelected) colors.canvasChalk else inkMuted,
+                                        fontSize = d.textLabelLarge,
+                                        color = if (isSelected) canvasChalk else inkMuted,
                                         modifier = Modifier.padding(vertical = d.space12),
                                         textAlign = TextAlign.Center
                                     )
@@ -462,14 +580,14 @@ fun QuickSplitScreen(
                         }
 
                         if (splitMode == "CUSTOM") {
-                            Spacer(modifier = Modifier.height(d.space12))
+                            Spacer(modifier = Modifier.height(d.space8))
                             OutlinedTextField(
                                 value = customOweAmount,
                                 onValueChange = { customOweAmount = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text(if (paidByMe) "Amount they owe you (\u20b9)" else "Amount you owe them (\u20b9)", fontFamily = OutfitFamily) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = d.inputHeight),
                                 shape = RoundedCornerShape(d.radiusSM),
+                                placeholder = { Text("Amount they owe you (\u20b9)", fontFamily = OutfitFamily) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = accentIndigo,
                                     unfocusedBorderColor = borderWhisper
@@ -478,13 +596,25 @@ fun QuickSplitScreen(
                         }
                     }
 
+                    // ── Receipts & Attachments Section ─────────────────
+                    item {
+                        com.splitsmith.app.ui.components.attachments.AttachmentComponent(
+                            selectedUris = selectedAttachmentUris,
+                            existingUrls = existingAttachmentUrls,
+                            existingDriveFileIds = existingDriveFileIds,
+                            onUrisChanged = { selectedAttachmentUris = it },
+                            onExistingUrlsChanged = { existingAttachmentUrls = it },
+                            onDriveFileIdsChanged = { existingDriveFileIds = it }
+                        )
+                    }
+
                     // Live Preview Alert card
                     item {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(d.radiusMD),
-                            color = if (p2pOwedShare > 0) colors.surfaceCard else colors.alertRed.copy(alpha = 0.1f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, if (p2pOwedShare > 0) borderWhisper else alertRed.copy(alpha = 0.3f))
+                            color = if (p2pOwedShare > 0) colors.surfaceCard else alertRed.copy(alpha = 0.1f),
+                            border = BorderStroke(1.dp, if (p2pOwedShare > 0) borderWhisper else alertRed.copy(alpha = 0.3f))
                         ) {
                             Row(
                                 modifier = Modifier.padding(d.space16),
@@ -527,6 +657,25 @@ fun QuickSplitScreen(
                             isLoading = true
                             coroutineScope.launch {
                                 try {
+                                    val finalUploadedUrls = existingAttachmentUrls.toMutableList()
+                                    val finalDriveFileIds = existingDriveFileIds.toMutableList()
+
+                                    if (selectedAttachmentUris.isNotEmpty()) {
+                                        selectedAttachmentUris.forEach { uri ->
+                                            val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
+                                                context = context,
+                                                inputUri = uri,
+                                                folderCategoryName = "Quick Splits",
+                                                dateMillis = selectedDateMillis,
+                                                expenseId = ""
+                                            )
+                                            if (driveResult != null) {
+                                                finalUploadedUrls.add(driveResult.webViewLink)
+                                                finalDriveFileIds.add(driveResult.fileId)
+                                            }
+                                        }
+                                    }
+
                                     FirebaseManager.createDirectSplit(
                                         withUserId = user.uid,
                                         description = description.trim(),
@@ -534,7 +683,9 @@ fun QuickSplitScreen(
                                         myShare = calculatedOwed,
                                         paidBy = finalPaidBy,
                                         category = selectedCategory,
-                                        date = selectedDateMillis
+                                        date = selectedDateMillis,
+                                        receiptUrls = finalUploadedUrls,
+                                        receiptDriveFileIds = finalDriveFileIds
                                     )
                                     Toast.makeText(context, "Quick Split saved!", Toast.LENGTH_SHORT).show()
                                     onBack()
@@ -548,17 +699,15 @@ fun QuickSplitScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(d.buttonHeight)
-                            .padding(horizontal = d.space16)
-                            .navigationBarsPadding()
-                            .padding(vertical = d.space12),
+                            .padding(horizontal = d.space16),
                         shape = RoundedCornerShape(d.radiusMD),
-                        colors = ButtonDefaults.buttonColors(containerColor = inkPrimary),
+                        colors = ButtonDefaults.buttonColors(containerColor = inkPrimary, contentColor = canvasChalk),
                         enabled = !isLoading
                     ) {
                         if (isLoading) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(color = canvasChalk, modifier = Modifier.size(20.dp))
                         } else {
-                            Text("Create Quick Split", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge, color = Color.White)
+                            Text("Save Quick Split", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
                         }
                     }
                 }
@@ -567,3 +716,31 @@ fun QuickSplitScreen(
     }
 }
 
+// Multi-pass ZXing QR Decoder for Gallery Screenshots
+private fun decodeQrFromBitmap(bitmap: Bitmap): String? {
+    return try {
+        // Downscale bitmap if too large for ZXing processing
+        val maxDim = 1024
+        val scaledBitmap = if (bitmap.width > maxDim || bitmap.height > maxDim) {
+            val ratio = bitmap.width.toFloat() / bitmap.height.toFloat()
+            val targetW = if (bitmap.width > bitmap.height) maxDim else (maxDim * ratio).toInt()
+            val targetH = if (bitmap.height > bitmap.width) maxDim else (maxDim / ratio).toInt()
+            Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+        } else {
+            bitmap
+        }
+
+        val width = scaledBitmap.width
+        val height = scaledBitmap.height
+        val pixels = IntArray(width * height)
+        scaledBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        val source = com.google.zxing.RGBLuminanceSource(width, height, pixels)
+        val binaryBitmap = com.google.zxing.BinaryBitmap(com.google.zxing.common.HybridBinarizer(source))
+        val reader = com.google.zxing.MultiFormatReader()
+        val result = reader.decode(binaryBitmap)
+        result.text
+    } catch (e: Exception) {
+        null
+    }
+}

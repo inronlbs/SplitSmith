@@ -69,11 +69,18 @@ fun AddExpenseScreen(
     var selectedPayerId by remember { mutableStateOf("") }
     var splitMode by remember { mutableStateOf("EQUAL") }
     var customSplitInputs by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var explicitlyEditedUids by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedMembers by remember { mutableStateOf<Set<String>>(emptySet()) }
     var userNamesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var selectedDateMillis by remember { mutableStateOf(System.currentTimeMillis()) }
 
     var showAdvancedSplitSheet by remember { mutableStateOf(false) }
+    var showAttachmentPickerSheet by remember { mutableStateOf(false) }
+    var selectedAttachmentUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
+    var existingAttachmentUrls by remember { mutableStateOf<List<String>>(emptyList()) }
+    var existingDriveFileIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    val userProfileState = FirebaseManager.observeUserProfile().collectAsState(initial = null)
+    val userProfile = userProfileState.value
     var isLoading by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
@@ -278,6 +285,28 @@ fun AddExpenseScreen(
                         isLoading = true
                         coroutineScope.launch {
                             try {
+                                val finalUploadedUrls = existingAttachmentUrls.toMutableList()
+                                val finalDriveFileIds = existingDriveFileIds.toMutableList()
+
+                                if (selectedAttachmentUris.isNotEmpty()) {
+                                    val folderCategory = currentGroup?.name ?: "Group Expenses"
+                                    selectedAttachmentUris.forEach { uri ->
+                                        if (userProfile?.driveSyncEnabled == true) {
+                                            val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
+                                                context = context,
+                                                inputUri = uri,
+                                                folderCategoryName = folderCategory,
+                                                dateMillis = selectedDateMillis,
+                                                expenseId = expenseId ?: ""
+                                            )
+                                            if (driveResult != null) {
+                                                finalUploadedUrls.add(driveResult.webViewLink)
+                                                finalDriveFileIds.add(driveResult.fileId)
+                                            }
+                                        }
+                                    }
+                                }
+
                                 if (expenseId != null) {
                                     FirebaseManager.updateExpense(
                                         groupId = groupId,
@@ -300,7 +329,9 @@ fun AddExpenseScreen(
                                         category = selectedCategory,
                                         splitMode = splitMode,
                                         splits = computedSplits,
-                                        receiptUrl = "",
+                                        receiptUrl = finalUploadedUrls.firstOrNull() ?: "",
+                                        receiptUrls = finalUploadedUrls,
+                                        receiptDriveFileIds = finalDriveFileIds,
                                         date = selectedDateMillis
                                     )
                                     Toast.makeText(context, "Expense saved!", Toast.LENGTH_SHORT).show()
@@ -588,6 +619,18 @@ fun AddExpenseScreen(
                     }
                 }
 
+                // ── Receipts & Attachments Section ─────────────────
+                item {
+                    com.splitsmith.app.ui.components.attachments.AttachmentComponent(
+                        selectedUris = selectedAttachmentUris,
+                        existingUrls = existingAttachmentUrls,
+                        existingDriveFileIds = existingDriveFileIds,
+                        onUrisChanged = { selectedAttachmentUris = it },
+                        onExistingUrlsChanged = { existingAttachmentUrls = it },
+                        onDriveFileIdsChanged = { existingDriveFileIds = it }
+                    )
+                }
+
                 // ── Paid By Selector ───────────────────────────
                 item {
                     Text("PAID BY", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
@@ -659,6 +702,7 @@ fun AddExpenseScreen(
                             Surface(
                                 onClick = {
                                     splitMode = mode
+                                    explicitlyEditedUids = emptySet()
                                     if (mode != "EQUAL") showAdvancedSplitSheet = true
                                 },
                                 shape = RoundedCornerShape(d.radiusFull),
@@ -714,10 +758,11 @@ fun AddExpenseScreen(
                 if (splitMode == "EXACT" || splitMode == "PERCENTAGE") {
                     val unitStr = if (splitMode == "EXACT") "\u20b9" else "%"
                     val label = if (splitMode == "EXACT") "Remaining cash" else "Remaining percent"
+                    val isBalanced = Math.abs(liveRemainder) < 0.05
                     Surface(
                         shape = RoundedCornerShape(d.radiusSM),
-                        color = if (Math.abs(liveRemainder) < 0.05) colors.canvasChalk else colors.alertRed.copy(alpha = 0.1f),
-                        border = BorderStroke(1.dp, colors.borderWhisper),
+                        color = if (isBalanced) colors.canvasChalk else colors.alertRed.copy(alpha = 0.1f),
+                        border = BorderStroke(1.dp, if (isBalanced) colors.borderWhisper else colors.alertRed.copy(alpha = 0.3f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
@@ -725,14 +770,55 @@ fun AddExpenseScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(label, fontFamily = OutfitFamily, fontSize = d.textLabelLarge, color = colors.inkPrimary)
-                            Text(
-                                text = "$unitStr${"%.2f".format(liveRemainder)}",
-                                fontFamily = JetBrainsMonoFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = d.textLabelLarge,
-                                color = if (Math.abs(liveRemainder) < 0.05) colors.positiveGreen else colors.alertRed
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(label, fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkPrimary)
+                                Text(
+                                    text = "$unitStr${"%.2f".format(liveRemainder)}",
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = d.textLabelLarge,
+                                    color = if (isBalanced) colors.positiveGreen else colors.alertRed
+                                )
+                            }
+                            if (!isBalanced) {
+                                Surface(
+                                    onClick = {
+                                        val membersList = selectedMembers.toList()
+                                        val unsetMembers = membersList.filter { it !in explicitlyEditedUids }
+                                        val targetMembers = if (unsetMembers.isNotEmpty()) unsetMembers else membersList
+                                        val newInputs = customSplitInputs.toMutableMap()
+                                        val totalAmt = amountStr.toDoubleOrNull() ?: 0.0
+
+                                        if (splitMode == "PERCENTAGE") {
+                                            val sumLockedPct = explicitlyEditedUids.sumOf { newInputs[it]?.toDoubleOrNull() ?: 0.0 }
+                                            val remainingPct = (100.0 - sumLockedPct).coerceAtLeast(0.0)
+                                            val perTarget = if (targetMembers.isNotEmpty()) remainingPct / targetMembers.size else 0.0
+                                            targetMembers.forEach { targetUid ->
+                                                newInputs[targetUid] = if (perTarget == 0.0) "" else if (perTarget % 1.0 == 0.0) perTarget.toInt().toString() else String.format("%.1f", perTarget)
+                                            }
+                                        } else if (splitMode == "EXACT" && totalAmt > 0) {
+                                            val sumLockedAmt = explicitlyEditedUids.sumOf { newInputs[it]?.toDoubleOrNull() ?: 0.0 }
+                                            val remainingAmt = (totalAmt - sumLockedAmt).coerceAtLeast(0.0)
+                                            val perTarget = if (targetMembers.isNotEmpty()) remainingAmt / targetMembers.size else 0.0
+                                            targetMembers.forEach { targetUid ->
+                                                newInputs[targetUid] = if (perTarget == 0.0) "" else if (perTarget % 1.0 == 0.0) perTarget.toInt().toString() else String.format("%.2f", perTarget)
+                                            }
+                                        }
+                                        customSplitInputs = newInputs
+                                    },
+                                    shape = RoundedCornerShape(d.radiusFull),
+                                    color = colors.inkPrimary,
+                                    contentColor = colors.canvasChalk
+                                ) {
+                                    Text(
+                                        text = "Distribute",
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = d.textLabelSmall,
+                                        modifier = Modifier.padding(horizontal = d.space12, vertical = d.space4 + 2.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -757,25 +843,36 @@ fun AddExpenseScreen(
                                 onValueChange = { inputVal ->
                                     val newInputs = customSplitInputs.toMutableMap()
                                     newInputs[uid] = inputVal
-                                    
+
+                                    val newEditedUids = if (inputVal.trim().isNotEmpty() && (inputVal.toDoubleOrNull() ?: 0.0) >= 0.0) {
+                                        explicitlyEditedUids + uid
+                                    } else {
+                                        explicitlyEditedUids - uid
+                                    }
+                                    explicitlyEditedUids = newEditedUids
+
                                     val membersList = selectedMembers.toList()
                                     if (membersList.size > 1) {
                                         val totalAmt = amountStr.toDoubleOrNull() ?: 0.0
-                                        if (splitMode == "PERCENTAGE") {
-                                            val editedPct = inputVal.toDoubleOrNull() ?: 0.0
-                                            val remainingPct = (100.0 - editedPct).coerceAtLeast(0.0)
-                                            val otherMembers = membersList.filter { it != uid }
-                                            val perOtherPct = if (otherMembers.isNotEmpty()) remainingPct / otherMembers.size else 0.0
-                                            otherMembers.forEach { otherUid ->
-                                                newInputs[otherUid] = if (perOtherPct % 1.0 == 0.0) perOtherPct.toInt().toString() else String.format("%.1f", perOtherPct)
-                                            }
-                                        } else if (splitMode == "EXACT" && totalAmt > 0) {
-                                            val editedAmt = inputVal.toDoubleOrNull() ?: 0.0
-                                            val remainingAmt = (totalAmt - editedAmt).coerceAtLeast(0.0)
-                                            val otherMembers = membersList.filter { it != uid }
-                                            val perOtherAmt = if (otherMembers.isNotEmpty()) remainingAmt / otherMembers.size else 0.0
-                                            otherMembers.forEach { otherUid ->
-                                                newInputs[otherUid] = if (perOtherAmt % 1.0 == 0.0) perOtherAmt.toInt().toString() else String.format("%.2f", perOtherAmt)
+                                        val unsetMembers = membersList.filter { it !in newEditedUids }
+
+                                        if (unsetMembers.isNotEmpty()) {
+                                            if (splitMode == "PERCENTAGE") {
+                                                val sumLockedPct = newEditedUids.sumOf { newInputs[it]?.toDoubleOrNull() ?: 0.0 }
+                                                val remainingPct = (100.0 - sumLockedPct).coerceAtLeast(0.0)
+                                                val perUnsetPct = remainingPct / unsetMembers.size
+
+                                                unsetMembers.forEach { unsetUid ->
+                                                    newInputs[unsetUid] = if (perUnsetPct == 0.0) "" else if (perUnsetPct % 1.0 == 0.0) perUnsetPct.toInt().toString() else String.format("%.1f", perUnsetPct)
+                                                }
+                                            } else if (splitMode == "EXACT" && totalAmt > 0) {
+                                                val sumLockedAmt = newEditedUids.sumOf { newInputs[it]?.toDoubleOrNull() ?: 0.0 }
+                                                val remainingAmt = (totalAmt - sumLockedAmt).coerceAtLeast(0.0)
+                                                val perUnsetAmt = remainingAmt / unsetMembers.size
+
+                                                unsetMembers.forEach { unsetUid ->
+                                                    newInputs[unsetUid] = if (perUnsetAmt == 0.0) "" else if (perUnsetAmt % 1.0 == 0.0) perUnsetAmt.toInt().toString() else String.format("%.2f", perUnsetAmt)
+                                                }
                                             }
                                         }
                                     }

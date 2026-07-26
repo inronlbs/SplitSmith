@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.border
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -72,8 +74,7 @@ fun GroupDetailScreen(
     onNavigateToReports: ((String) -> Unit)? = null
 ) {
     val d = LocalDimens.current
-    // Expenses (0) is DEFAULT selected
-    var selectedTab by remember { mutableIntStateOf(0) }
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     var selectedDebtForSettlement by remember { mutableStateOf<Debt?>(null) }
     var userNamesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var memberProfilesMap by remember { mutableStateOf<Map<String, UserProfile>>(emptyMap()) }
@@ -131,36 +132,24 @@ fun GroupDetailScreen(
     val alertRed      = colors.alertRed
 
     if (expenseToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { expenseToDelete = null },
-            title = { Text("Delete Expense", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to delete '${expenseToDelete?.description}'?", fontFamily = OutfitFamily) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val exp = expenseToDelete
-                        if (exp != null) {
-                            coroutineScope.launch {
-                                try {
-                                    FirebaseManager.deleteExpense(groupId, exp.id)
-                                    Toast.makeText(context, "Expense deleted", Toast.LENGTH_SHORT).show()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                }
-                            }
+        val exp = expenseToDelete!!
+        com.splitsmith.app.ui.components.DeleteExpenseDialog(
+            hasAttachments = exp.receiptDriveFileIds.isNotEmpty() || exp.receiptUrls.isNotEmpty(),
+            onDismiss = { expenseToDelete = null },
+            onConfirmDelete = { deleteFromDrive ->
+                coroutineScope.launch {
+                    try {
+                        FirebaseManager.deleteExpense(groupId, exp.id)
+                        if (deleteFromDrive && exp.receiptDriveFileIds.isNotEmpty()) {
+                            com.splitsmith.app.data.GoogleDriveManager.deleteFiles(context, exp.receiptDriveFileIds)
                         }
-                        expenseToDelete = null
+                        Toast.makeText(context, "Expense deleted", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
-                ) {
-                    Text("Delete", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = alertRed)
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { expenseToDelete = null }) {
-                    Text("Cancel", fontFamily = OutfitFamily, color = inkMuted)
-                }
-            },
-            containerColor = canvasChalk
+                expenseToDelete = null
+            }
         )
     }
 
@@ -168,7 +157,7 @@ fun GroupDetailScreen(
         containerColor = canvasChalk,
         contentWindowInsets = WindowInsets(0), // Ignore default window insets to lay out correctly
         floatingActionButton = {
-            if (selectedTab == 0 && isMember) {
+            if (pagerState.currentPage == 0 && isMember) {
                 FloatingActionButton(
                     onClick = { onNavigateToAddExpense(groupId, null) },
                     containerColor = inkPrimary,
@@ -352,64 +341,73 @@ fun GroupDetailScreen(
                     }
                 }
 
-                // ── Minimal Group Budget Header Line (Only if budget limit > 0) ───
+                // ── Minimal Group & User Spend Header Line ───
                 val groupBudgetLimit = currentGroup.budget.limit
-                if (groupBudgetLimit > 0.0) {
-                    val budgetType = currentGroup.budget.type
-                    val groupSpent = remember(expenses, budgetType) {
-                        val cal = java.util.Calendar.getInstance()
-                        val startTime = when (budgetType) {
-                            "YEARLY" -> {
-                                cal.set(java.util.Calendar.DAY_OF_YEAR, 1)
-                                cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-                                cal.set(java.util.Calendar.MINUTE, 0)
-                                cal.set(java.util.Calendar.SECOND, 0)
-                                cal.set(java.util.Calendar.MILLISECOND, 0)
-                                cal.timeInMillis
-                            }
-                            "EVENT" -> 0L
-                            else -> { // MONTHLY
-                                cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
-                                cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-                                cal.set(java.util.Calendar.MINUTE, 0)
-                                cal.set(java.util.Calendar.SECOND, 0)
-                                cal.set(java.util.Calendar.MILLISECOND, 0)
-                                cal.timeInMillis
-                            }
+                val totalGroupSpend = remember(expenses) { expenses.sumOf { it.amount } }
+                val myUid = FirebaseManager.currentUserId
+                val currentUserSpend = remember(expenses, myUid) { expenses.sumOf { it.splits[myUid ?: ""] ?: 0.0 } }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = d.space24),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Group Total:",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelMedium,
+                                color = inkMuted
+                            )
+                            Text(
+                                text = "₹${"%.0f".format(totalGroupSpend)}",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontSize = d.textLabelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = inkPrimary
+                            )
                         }
-                        expenses.filter { it.date >= startTime }.sumOf { it.amount }
-                    }
-                    val groupBudgetProgress = (groupSpent / groupBudgetLimit).coerceIn(0.0, 1.0)
-                    val typeLabel = when (budgetType) {
-                        "YEARLY" -> "Yearly"
-                        "EVENT" -> "Event"
-                        else -> "Monthly"
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Your Share:",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelMedium,
+                                color = inkMuted
+                            )
+                            Text(
+                                text = "₹${"%.0f".format(currentUserSpend)}",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontSize = d.textLabelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = inkPrimary
+                            )
+                        }
                     }
 
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = d.space24),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
+                    if (groupBudgetLimit > 0.0) {
+                        val groupBudgetProgress = (totalGroupSpend / groupBudgetLimit).coerceIn(0.0, 1.0)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "$typeLabel Budget",
+                                text = "Budget Limit",
                                 fontFamily = OutfitFamily,
-                                fontSize = d.textLabelMedium,
-                                fontWeight = FontWeight.SemiBold,
+                                fontSize = d.textLabelSmall,
                                 color = inkMuted
                             )
                             Text(
-                                text = "₹${"%.0f".format(groupSpent)} / ₹${"%.0f".format(groupBudgetLimit)}",
+                                text = "₹${"%.0f".format(totalGroupSpend)} / ₹${"%.0f".format(groupBudgetLimit)}",
                                 fontFamily = JetBrainsMonoFamily,
-                                fontSize = d.textLabelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = inkPrimary
+                                fontSize = d.textLabelSmall,
+                                color = inkMuted
                             )
                         }
                         Box(
@@ -436,7 +434,6 @@ fun GroupDetailScreen(
                     }
                 }
 
-                val myUid = FirebaseManager.currentUserId
                 val currentUserIsAdmin = currentGroup.adminId == myUid || currentGroup.admins[myUid] == true
                 val pendingApplicants = currentGroup.joinRequests.keys.toList()
                 android.util.Log.d("SplitSmith_JR", "GroupDetail: myUid=$myUid isAdmin=$currentUserIsAdmin groupAdminId=${currentGroup.adminId} adminsMap=${currentGroup.admins} pendingApplicants=$pendingApplicants")
@@ -487,7 +484,7 @@ fun GroupDetailScreen(
                     }
                 }
 
-                // ── Custom pill tab bar (compact 2-tab layout with 50% reduced vertical distance) ────
+                // ── Custom pill tab bar (compact 2-tab layout) ────
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -496,7 +493,7 @@ fun GroupDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(d.space8)
                 ) {
                     listOf("Expenses", "Balances").forEachIndexed { index, label ->
-                        val isActive = selectedTab == index
+                        val isActive = pagerState.currentPage == index
                         val bgColor by animateColorAsState(
                             targetValue = if (isActive) accentIndigo else Color.Transparent,
                             label = "tabBg$index"
@@ -506,7 +503,11 @@ fun GroupDetailScreen(
                             label = "tabText$index"
                         )
                         Surface(
-                            onClick = { selectedTab = index },
+                            onClick = {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(index)
+                                }
+                            },
                             shape = RoundedCornerShape(d.radiusFull),
                             color = bgColor,
                             modifier = Modifier.height(d.space32 + d.space4)
@@ -525,9 +526,12 @@ fun GroupDetailScreen(
 
                 HorizontalDivider(color = borderWhisper)
 
-                // ── Tab content ───────────────────────────────────
-                Box(modifier = Modifier.weight(1f)) {
-                    when (selectedTab) {
+                // ── Swipeable Tab content ───────────────────────────────────
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.weight(1f)
+                ) { page ->
+                    when (page) {
                         0 -> StyledExpensesTab(
                             expenses = expenses,
                             userNames = userNamesMap,
@@ -1898,7 +1902,7 @@ private fun StyledSettingsTab(
                             color = colors.inkPrimary
                         )
                     }
-                } else if (isCoAdmin && (group.adminId == myUid || group.adminId.isEmpty())) {
+                } else if (!isOwner && isCoAdmin && (group.adminId == myUid || group.adminId.isEmpty())) {
                     TextButton(
                         onClick = {
                             coroutineScope.launch {
@@ -2170,6 +2174,21 @@ fun GroupExpenseDetailBottomSheet(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Paid By", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
                     Text(userNames[expense.paidBy] ?: "Member", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary, fontSize = d.textBodyLarge)
+                }
+
+                val attachmentUrls = remember(expense) { expense.getEffectiveReceiptUrls() }
+                if (attachmentUrls.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(d.space8))
+                    Text("ATTACHED RECEIPTS & INVOICES", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.2.sp)
+                    val displayAttachments = attachmentUrls.map { url ->
+                        val name = url.substringAfterLast("/").substringBefore("?").ifBlank { "Receipt Document" }
+                        val isPdf = url.contains(".pdf", ignoreCase = true)
+                        com.splitsmith.app.ui.components.DisplayAttachment(url = url, name = name, isPdf = isPdf)
+                    }
+                    com.splitsmith.app.ui.components.AttachmentChipsView(
+                        attachments = displayAttachments,
+                        isEditable = false
+                    )
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Date", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)

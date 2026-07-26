@@ -14,7 +14,11 @@ import com.splitsmith.app.theme.LocalThemeController
 import com.splitsmith.app.theme.SplitSmithTheme
 import com.splitsmith.app.theme.ThemeController
 
-class MainActivity : ComponentActivity() {
+import com.splitsmith.app.ui.components.BiometricLockOverlay
+
+class MainActivity : androidx.fragment.app.FragmentActivity() {
+    private var isAppLocked by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -45,10 +49,76 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
                     ) {
-                        MainNavigation()
+                        if (isAppLocked) {
+                            BiometricLockOverlay(
+                                onUnlockClick = { triggerBiometricPrompt() }
+                            )
+                        } else {
+                            MainNavigation()
+                        }
                     }
                 }
             }
+        }
+    }
+
+    companion object {
+        var isSystemPickerActive = false
+        var lastBackgroundTimestamp: Long = 0L
+        var isSessionUnlocked = false
+    }
+
+    override fun onPause() {
+        super.onPause()
+        lastBackgroundTimestamp = System.currentTimeMillis()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val prefs = getSharedPreferences("splitsmith_prefs", MODE_PRIVATE)
+        val isBiometricEnabled = prefs.getBoolean("key_biometric_enabled", false)
+        val elapsed = System.currentTimeMillis() - lastBackgroundTimestamp
+
+        if (isBiometricEnabled && !isSystemPickerActive && (!isSessionUnlocked || elapsed >= 30_000L)) {
+            isAppLocked = true
+            triggerBiometricPrompt()
+        } else {
+            isAppLocked = false
+        }
+        isSystemPickerActive = false
+    }
+
+    fun triggerBiometricPrompt() {
+        try {
+            val executor = androidx.core.content.ContextCompat.getMainExecutor(this)
+            val biometricPrompt = androidx.biometric.BiometricPrompt(
+                this,
+                executor,
+                object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
+                        super.onAuthenticationSucceeded(result)
+                        isAppLocked = false
+                        isSessionUnlocked = true
+                    }
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        super.onAuthenticationError(errorCode, errString)
+                    }
+                }
+            )
+
+            val promptInfo = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
+                .setTitle("SplitSmith Locked")
+                .setSubtitle("Authenticate to access your expenses")
+                .setAllowedAuthenticators(
+                    androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                    androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                )
+                .build()
+
+            biometricPrompt.authenticate(promptInfo)
+        } catch (e: Exception) {
+            isAppLocked = false
+            isSessionUnlocked = true
         }
     }
 

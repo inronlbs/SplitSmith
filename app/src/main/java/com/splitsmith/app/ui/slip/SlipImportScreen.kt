@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -75,7 +77,10 @@ fun SlipImportScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    val imageUri = remember(imageUriStr) { Uri.parse(imageUriStr) }
+    val imageUri = remember(imageUriStr) {
+        val decoded = Uri.decode(imageUriStr)
+        Uri.parse(decoded)
+    }
 
     // State Variables
     var amountStr by remember { mutableStateOf("") }
@@ -100,6 +105,7 @@ fun SlipImportScreen(
     var isLoading by remember { mutableStateOf(true) }
     var statusMessage by remember { mutableStateOf("Initializing local OCR...") }
     var loadedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var showCropDialog by remember { mutableStateOf(false) }
 
     var showGroupSelector by remember { mutableStateOf(false) }
     val groupsState = FirebaseManager.observeGroups().collectAsState(initial = emptyList())
@@ -162,10 +168,25 @@ fun SlipImportScreen(
     LaunchedEffect(imageUri) {
         withContext(Dispatchers.IO) {
             try {
-                val inputStream: InputStream? = context.contentResolver.openInputStream(imageUri)
-                if (inputStream != null) {
-                    val bmp = BitmapFactory.decodeStream(inputStream)
-                    loadedBitmap = bmp
+                var bmp: Bitmap? = null
+                try {
+                    context.contentResolver.openInputStream(imageUri)?.use { stream ->
+                        bmp = BitmapFactory.decodeStream(stream)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("SlipImport", "ContentResolver openInputStream failed: ${e.message}")
+                }
+                if (bmp == null && imageUri.scheme == "file" && imageUri.path != null) {
+                    try {
+                        bmp = BitmapFactory.decodeFile(imageUri.path)
+                    } catch (e: Exception) {
+                        android.util.Log.e("SlipImport", "BitmapFactory decodeFile failed: ${e.message}")
+                    }
+                }
+
+                val finalBmp = bmp
+                if (finalBmp != null) {
+                    loadedBitmap = finalBmp
 
                     // Step 1: Perform Clipboard Local Fallback scanner (in case user copied notification)
                     var clipboardParsedAmount = ""
@@ -190,13 +211,20 @@ fun SlipImportScreen(
                         android.util.Log.e("SlipImport", "Clipboard parse error: ${e.message}")
                     }
 
-                    // Step 2: Run Local ML Kit OCR (100% offline, free, instant)
-                    statusMessage = "Extracting text from image locally..."
+                    // Step 2: Run Local ML Kit OCR & Embedded Barcode Scan (100% offline, free, instant)
+                    statusMessage = "Extracting text & scanning QR from image..."
                     var localOcrText = ""
                     try {
-                        localOcrText = recognizeTextFromBitmap(bmp)
+                        localOcrText = recognizeTextFromBitmap(finalBmp)
                     } catch (e: Exception) {
                         android.util.Log.e("SlipImport", "Local OCR failed: ${e.message}")
+                    }
+
+                    var qrPayload = ""
+                    try {
+                        qrPayload = scanBarcodesFromBitmap(finalBmp)
+                    } catch (e: Exception) {
+                        android.util.Log.e("SlipImport", "Embedded QR scan failed: ${e.message}")
                     }
 
                     var amountParsed = ""
@@ -357,6 +385,25 @@ fun SlipImportScreen(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize().padding(d.space8)
                         )
+                        Surface(
+                            onClick = { showCropDialog = true },
+                            shape = RoundedCornerShape(d.radiusFull),
+                            color = colors.inkPrimary,
+                            contentColor = colors.canvasChalk,
+                            shadowElevation = 4.dp,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(d.space12)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = d.space12, vertical = d.space4 + 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit & Crop", modifier = Modifier.size(16.dp))
+                                Text("Edit & Crop", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelSmall)
+                            }
+                        }
                     } else {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -384,6 +431,43 @@ fun SlipImportScreen(
                         }
                     }
                 }
+            }
+
+            if (showCropDialog) {
+                com.splitsmith.app.ui.components.attachments.ReceiptEditorModal(
+                    imageUri = imageUri,
+                    onDismiss = { showCropDialog = false },
+                    onEditedImageSaved = { editedUri ->
+                        showCropDialog = false
+                        coroutineScope.launch(Dispatchers.IO) {
+                            isLoading = true
+                            statusMessage = "Extracting text from enhanced receipt..."
+                            try {
+                                val stream = context.contentResolver.openInputStream(editedUri)
+                                val bmp = BitmapFactory.decodeStream(stream)
+                                stream?.close()
+                                if (bmp != null) {
+                                    loadedBitmap = bmp
+                                    val localOcrText = recognizeTextFromBitmap(bmp)
+                                    if (localOcrText.isNotEmpty()) {
+                                        val parsed = parseOCRText(localOcrText)
+                                        withContext(Dispatchers.Main) {
+                                            if (parsed.amount.isNotEmpty()) amountStr = parsed.amount
+                                            if (parsed.receiver.isNotEmpty()) receiverName = parsed.receiver
+                                            if (parsed.txnId.isNotEmpty()) transactionId = parsed.txnId
+                                            if (parsed.paymentNote.isNotEmpty()) remarks = parsed.paymentNote
+                                            selectedCategory = parseCategory(receiverName)
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            } finally {
+                                withContext(Dispatchers.Main) { isLoading = false }
+                            }
+                        }
+                    }
+                )
             }
 
             // Info/Warning Banner when AI Autofill failed or is empty
@@ -896,6 +980,20 @@ private suspend fun recognizeTextFromBitmap(bitmap: Bitmap): String = suspendCan
     }
 }
 
+private fun scanBarcodesFromBitmap(bitmap: Bitmap): String {
+    return try {
+        val intArray = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(intArray, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        val source = com.google.zxing.RGBLuminanceSource(bitmap.width, bitmap.height, intArray)
+        val binaryBitmap = com.google.zxing.BinaryBitmap(com.google.zxing.common.HybridBinarizer(source))
+        val reader = com.google.zxing.MultiFormatReader()
+        val result = reader.decode(binaryBitmap)
+        result.text ?: ""
+    } catch (e: Exception) {
+        ""
+    }
+}
+
 private data class ParsedSlip(
     val amount: String,
     val receiver: String,
@@ -906,18 +1004,36 @@ private data class ParsedSlip(
 
 private fun cleanReceiverName(raw: String): String {
     if (raw.isBlank()) return ""
-    var cleaned = raw.trim().replace("\"", "")
+    val rawTrimmed = raw.trim()
+    val rawLower = rawTrimmed.lowercase()
 
-    // 1. Instantly reject sender/from/bank/boilerplate lines
-    val rawLower = raw.lowercase().trim()
-    if (rawLower.startsWith("from:") || rawLower.startsWith("from ") || rawLower.startsWith("debited from") || rawLower.startsWith("sent from")) {
+    // 1. REJECT SENDER / BANK / CREDIT / DEBIT LINES
+    if (rawLower.startsWith("from:") || rawLower.startsWith("from ") || 
+        rawLower.startsWith("debited from") || rawLower.startsWith("sent from") ||
+        rawLower.startsWith("credited to") || rawLower.startsWith("credited from")) {
         return ""
     }
-    if (rawLower.contains("federal bank") || rawLower.contains("punjab national bank") || rawLower.contains("yesbank") || rawLower.contains("hdfc") || rawLower.contains("icici") || rawLower.contains("state bank") || rawLower.contains("fed new")) {
+    if (rawLower.contains("federal bank") || rawLower.contains("punjab national bank") || rawLower.contains("yesbank") || rawLower.contains("hdfc") || rawLower.contains("icici") || rawLower.contains("state bank") || rawLower.contains("fed new") || rawLower.contains("axis bank") || rawLower.contains("kotak")) {
         return ""
     }
 
-    // 2. Remove status banners & non-relevant boilerplate prefixes
+    // 2. REJECT DATE & TIMESTAMP LINES (e.g. "05:14 pm on 25 Jul 2026", "18 Jul 2026", "at 1:46 pm", "25 Jul 2026, 04:30 PM")
+    val isTimestamp = Regex("(?i)\\b(?:am|pm|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|202\\d|at \\d{1,2}:\\d{2})\\b").containsMatchIn(rawLower) ||
+                      Regex("(?i)\\b\\d{1,2}:\\d{2}\\s*(?:am|pm)?\\b").containsMatchIn(rawLower)
+    if (isTimestamp) return ""
+
+    // 3. REJECT UPI VPA / HANDLES / EMAIL ADDRESSES (e.g. "grofers1paytm@hdfcbank", "shyam.yadav@paytm")
+    if (rawLower.contains("@") || rawLower.endsWith(".upi") || rawLower.endsWith(".paytm") || rawLower.endsWith(".ybl") || rawLower.endsWith(".okicici")) {
+        return ""
+    }
+
+    // 4. REJECT PURE NUMERIC / TXN ID / UTR LINES (e.g. "300870607650", "T2607251714101058579349")
+    if (rawLower.matches(Regex("^[0-9\\s\\-\\.:/]+$")) || rawLower.matches(Regex("^[a-z0-9]{12,35}$"))) {
+        return ""
+    }
+
+    // 5. CLEAN STATUS BANNERS & PREFIXES
+    var cleaned = rawTrimmed.replace("\"", "")
     cleaned = cleaned.replace(Regex("(?i)^(transaction|payment|transfer|money|paid|sent)\\s+(successful|completed|success|to|from)\\b"), "")
     cleaned = cleaned.replace(Regex("(?i)^(paid to|sent to|payment to|pay to|to:|to\\b|from:)\\s*"), "")
     cleaned = cleaned.replace(Regex("(?i)banking name:?\\s*"), "")
@@ -927,11 +1043,21 @@ private fun cleanReceiverName(raw: String): String {
 
     val lower = cleaned.lowercase()
 
-    // 3. Reject avatar badge 2-letter initials (e.g. "OS", "A", "BG", "S") and boilerplate status words
+    // 6. REJECT BOILERPLATE UI LABELS, AVATAR INITIALS (len <= 2), AND SYSTEM WORDS
     if (cleaned.length <= 2 ||
         lower.contains("transaction") ||
         lower.contains("successful") ||
         lower.contains("completed") ||
+        lower.contains("transfer details") ||
+        lower.contains("transaction details") ||
+        lower.contains("payment details") ||
+        lower.contains("invoice to") ||
+        lower.contains("billed to") ||
+        lower.contains("tax invoice") ||
+        lower.contains("invoice no") ||
+        lower.contains("order id") ||
+        lower.contains("gstin") ||
+        lower.contains("fssai") ||
         lower.contains("debited") ||
         lower.contains("credited") ||
         lower.contains("balance") ||
@@ -956,50 +1082,64 @@ private fun parseOCRText(text: String): ParsedSlip {
     var receiver = ""
     var txnId = ""
     
-    // 1. Parse Amount
-    val amountCandidates = mutableListOf<String>()
+    // 1. Parse Amount (Prioritizing explicit "Total :- 1400.01" or multi-column table totals on paper & Tax Invoices & fuel receipts)
     for (line in lines) {
-        val m = Regex("[₹R][sS]?\\.?\\s*([0-9,]+(?:\\.[0-9]{2})?)").find(line)
-        if (m != null) {
-            amountCandidates.add(m.groupValues[1].replace(",", ""))
-        } else {
-            val m2 = Regex("^\\s*[A-Za-z₹]?\\s*([0-9,]+(?:\\.[0-9]{2})?)\\s*$").find(line)
-            if (m2 != null) {
-                amountCandidates.add(m2.groupValues[1].replace(",", ""))
-            }
-        }
-    }
-    
-    val cleanAmounts = amountCandidates
-        .map { it.replace(",", "") }
-        .filter { it.isNotEmpty() && it.length <= 7 }
-    
-    if (cleanAmounts.isNotEmpty()) {
-        val sorted = cleanAmounts.distinct().sortedBy { it.length }
-        var foundSuffixMatch = false
-        for (i in sorted.indices) {
-            val short = sorted[i]
-            for (j in (i + 1) until sorted.size) {
-                val long = sorted[j]
-                if (long.startsWith("7") && long.endsWith(short) && long.length == short.length + 1) {
-                    amount = short
-                    foundSuffixMatch = true
+        val lineLower = line.lowercase()
+        if ((lineLower.contains("total") || lineLower.contains("amount paid") || lineLower.contains("net amount") || lineLower.contains("amount(rs)")) &&
+            !lineLower.contains("subtotal") && !lineLower.contains("item") && !lineLower.contains("save") && !lineLower.contains("vehicle")) {
+            val allNumbers = Regex("([0-9,]+(?:\\.[0-9]{2})?)").findAll(line)
+                .map { it.groupValues[1].replace(",", "").replace(Regex("^0+(?=\\d)"), "") }
+                .filter { (it.toDoubleOrNull() ?: 0.0) > 0.0 }
+                .toList()
+            if (allNumbers.isNotEmpty()) {
+                val maxVal = allNumbers.maxByOrNull { it.toDoubleOrNull() ?: 0.0 } ?: allNumbers.last()
+                if ((maxVal.toDoubleOrNull() ?: 0.0) > 0.0) {
+                    amount = maxVal
                     break
                 }
             }
-            if (foundSuffixMatch) break
-        }
-        if (!foundSuffixMatch) {
-            val first = cleanAmounts.first()
-            if (first.startsWith("7") && first.length >= 3) {
-                amount = first.substring(1)
-            } else {
-                amount = first
-            }
         }
     }
+
+    if (amount.isEmpty()) {
+        val amountCandidates = mutableListOf<String>()
+        for (line in lines) {
+            val lineLower = line.lowercase()
+            if (lineLower.contains("nozzle") || lineLower.contains("fip no") || lineLower.contains("s.no") || lineLower.contains("qty")) continue
+
+            val m = Regex("[₹R][sS]?\\.?\\s*([0-9,]+(?:\\.[0-9]{2})?)").find(line)
+            if (m != null) {
+                amountCandidates.add(m.groupValues[1].replace(",", "").replace(Regex("^0+(?=\\d)"), ""))
+            } else {
+                val m2 = Regex("(?:Amount|Paid|Total|RS|INR)?\\s*[:\\-]?\\s*([0-9,]+(?:\\.[0-9]{2})?)", RegexOption.IGNORE_CASE).find(line)
+                if (m2 != null) {
+                    val rawStr = m2.groupValues[1].replace(",", "").replace(Regex("^0+(?=\\d)"), "")
+                    if ((rawStr.toDoubleOrNull() ?: 0.0) > 0.0) {
+                        amountCandidates.add(rawStr)
+                    }
+                }
+            }
+        }
+        
+        val validAmounts = amountCandidates
+            .map { it.replace(",", "").replace(Regex("^0+(?=\\d)"), "") }
+            .filter { it.isNotEmpty() && (it.toDoubleOrNull() ?: 0.0) > 0.0 }
+        
+        // Filter out single-digit candidates (like 1, 2) if multi-digit candidates exist
+        val multiDigitAmounts = validAmounts.filter { (it.toDoubleOrNull() ?: 0.0) >= 10.0 }
+        if (multiDigitAmounts.isNotEmpty()) {
+            amount = multiDigitAmounts.maxByOrNull { it.toDoubleOrNull() ?: 0.0 } ?: multiDigitAmounts.first()
+        } else if (validAmounts.isNotEmpty()) {
+            amount = validAmounts.first()
+        }
+    }
+
+    // Format amount cleanly (remove trailing .00 if integer)
+    if (amount.endsWith(".00")) {
+        amount = amount.dropLast(3)
+    }
     
-    // 2. Parse Receiver Name (Sample Screenshots Patterns: GPay, PhonePe, Paytm)
+    // 2. Parse Receiver Name (Sample Screenshots & Tax Invoices e.g. "Sold By: BLINKIT FOODS LIMITED", Bistro, GPay, PhonePe)
     for (i in lines.indices) {
         val line = lines[i]
         val lineLower = line.lowercase().trim()
@@ -1007,6 +1147,23 @@ private fun parseOCRText(text: String): ParsedSlip {
         // Ignore Sender / From lines
         if (lineLower.startsWith("from:") || lineLower.startsWith("from ") || lineLower.startsWith("debited from")) {
             continue
+        }
+
+        // Pattern 0: Tax Invoice "Sold By: <Merchant>", "Billed By: <Merchant>", "Vendor: <Merchant>"
+        if (lineLower.startsWith("sold by") || lineLower.startsWith("billed by") || lineLower.startsWith("vendor") || lineLower.startsWith("seller")) {
+            val rest = line.substringAfter(":").trim()
+            var candidate = cleanReceiverName(rest)
+            if (candidate.isEmpty() && i + 1 < lines.size) {
+                candidate = cleanReceiverName(lines[i + 1])
+            }
+            if (candidate.isNotEmpty() && !candidate.contains("invoice to", ignoreCase = true)) {
+                receiver = candidate
+                break
+            }
+        }
+        if (lineLower.contains("bistro") || lineLower.contains("blinkit foods")) {
+            receiver = "Blinkit Foods Limited (Bistro)"
+            break
         }
 
         // Pattern A: Paytm Quotes "Pay To <Name>" or "\"Pay To ...\""
@@ -1088,7 +1245,7 @@ private fun parseOCRText(text: String): ParsedSlip {
     if (receiver.isEmpty()) {
         for (line in lines) {
             val lineLower = line.lowercase()
-            if (lineLower.startsWith("from") || lineLower.contains("bank")) continue
+            if (lineLower.startsWith("from") || lineLower.contains("bank") || lineLower.contains("invoice to")) continue
             val candidate = cleanReceiverName(line)
             if (candidate.length > 2 && !line.contains("@") && !line.matches(Regex(".*\\d{4,}.*")) && !line.startsWith("₹") && !line.startsWith("Rs") && !line.startsWith("INR")) {
                 receiver = candidate
@@ -1100,35 +1257,40 @@ private fun parseOCRText(text: String): ParsedSlip {
     // Final safety check
     receiver = cleanReceiverName(receiver)
     
-    // 3. Parse Transaction ID / UTR
-    val utrMatch = Regex("\\b(\\d{12})\\b").find(text)
-    if (utrMatch != null) {
-        txnId = utrMatch.groupValues[1]
+    // 3. Parse Transaction ID / Invoice No / Ref No
+    val invoiceMatch = Regex("(?i)(?:Invoice\\s*No|Inv\\s*No|Order\\s*Id|Ref\\s*No)[:\\-\\s]*([A-Za-z0-9]{8,25})").find(text)
+    if (invoiceMatch != null) {
+        txnId = invoiceMatch.groupValues[1]
     } else {
-        for (i in lines.indices) {
-            val line = lines[i]
-            val lineLower = line.lowercase()
-            val isTxnLabel = lineLower.contains("transaction id") || 
-                             lineLower.contains("utr") ||
-                             lineLower.contains("ref number") ||
-                             lineLower.contains("txn id")
-            
-            if (isTxnLabel) {
-                val words = Regex("\\b([A-Za-z0-9]{8,22})\\b").findAll(line).map { it.groupValues[1] }.toList()
-                val filteredWords = words.filter { w ->
-                    val wl = w.lowercase()
-                    wl != "transaction" && wl != "id" && wl != "google" && wl != "phonepe" && wl != "upi" &&
-                    wl != "completed" && wl != "successful" && wl != "ref" && wl != "number" && wl != "utr" &&
-                    wl != "from" && wl != "to" && wl != "paid"
-                }
-                if (filteredWords.isNotEmpty()) {
-                    txnId = filteredWords.first()
-                    break
-                } else if (i + 1 < lines.size) {
-                    val nextLine = lines[i + 1]
-                    if (nextLine.matches(Regex("^[A-Za-z0-9]{8,22}$"))) {
-                        txnId = nextLine
+        val utrMatch = Regex("\\b(\\d{12})\\b").find(text)
+        if (utrMatch != null) {
+            txnId = utrMatch.groupValues[1]
+        } else {
+            for (i in lines.indices) {
+                val line = lines[i]
+                val lineLower = line.lowercase()
+                val isTxnLabel = lineLower.contains("transaction id") || 
+                                 lineLower.contains("utr") ||
+                                 lineLower.contains("ref number") ||
+                                 lineLower.contains("txn id")
+                
+                if (isTxnLabel) {
+                    val words = Regex("\\b([A-Za-z0-9]{8,22})\\b").findAll(line).map { it.groupValues[1] }.toList()
+                    val filteredWords = words.filter { w ->
+                        val wl = w.lowercase()
+                        wl != "transaction" && wl != "id" && wl != "google" && wl != "phonepe" && wl != "upi" &&
+                        wl != "completed" && wl != "successful" && wl != "ref" && wl != "number" && wl != "utr" &&
+                        wl != "from" && wl != "to" && wl != "paid"
+                    }
+                    if (filteredWords.isNotEmpty()) {
+                        txnId = filteredWords.first()
                         break
+                    } else if (i + 1 < lines.size) {
+                        val nextLine = lines[i + 1]
+                        if (nextLine.matches(Regex("^[A-Za-z0-9]{8,22}$"))) {
+                            txnId = nextLine
+                            break
+                        }
                     }
                 }
             }
@@ -1181,6 +1343,28 @@ private fun parseOCRText(text: String): ParsedSlip {
 }
 
 private fun parseDate(text: String): Pair<Long?, Boolean> {
+    // ISO Date format: 2026-07-25 or 2026/07/25
+    val isoRegex = Regex("\\b(202\\d)[-/\\.]([01]\\d)[-/\\.]([0-3]\\d)\\b")
+    val matchIso = isoRegex.find(text)
+    if (matchIso != null) {
+        try {
+            val year = matchIso.groupValues[1].toInt()
+            val month = matchIso.groupValues[2].toInt() - 1
+            val day = matchIso.groupValues[3].toInt()
+            if (month in 0..11 && day in 1..31) {
+                val cal = java.util.Calendar.getInstance()
+                cal.set(java.util.Calendar.YEAR, year)
+                cal.set(java.util.Calendar.MONTH, month)
+                cal.set(java.util.Calendar.DAY_OF_MONTH, day)
+                cal.set(java.util.Calendar.HOUR_OF_DAY, 12)
+                cal.set(java.util.Calendar.MINUTE, 0)
+                cal.set(java.util.Calendar.SECOND, 0)
+                cal.set(java.util.Calendar.MILLISECOND, 0)
+                return Pair(cal.timeInMillis, true)
+            }
+        } catch (e: Exception) {}
+    }
+
     val dateRegex = Regex("(?i)\\b(\\d{1,2})[\\s,/\\.\\-]+([A-Za-z]{3,9})[\\s,/\\.\\-]+(\\d{2,4})\\b")
     val match = dateRegex.find(text)
     if (match != null) {
@@ -1293,10 +1477,120 @@ private fun suggestSmartTitle(receiverName: String, category: String): String {
         lower.contains("flipkart") || lower.contains("myntra") -> "Online Shopping"
         category.isNotEmpty() && category != "Other" -> category
         receiverName.isNotEmpty() -> "Transfer to $receiverName"
-        else -> "Expense"
+        else -> "Payment Slip"
     }
 }
 
+@Composable
+fun ImageCropDialog(
+    bitmap: Bitmap,
+    onDismiss: () -> Unit,
+    onCropConfirmed: (Bitmap) -> Unit
+) {
+    val d = LocalDimens.current
+    val colors = LocalSplitColors.current
+
+    var cropLeft by remember { mutableFloatStateOf(0.05f) }
+    var cropTop by remember { mutableFloatStateOf(0.05f) }
+    var cropRight by remember { mutableFloatStateOf(0.95f) }
+    var cropBottom by remember { mutableFloatStateOf(0.95f) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.canvasChalk,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(d.space8)
+            ) {
+                Icon(imageVector = Icons.Default.Crop, contentDescription = "Crop", tint = colors.inkPrimary)
+                Text("Crop Receipt Image", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.inkPrimary)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(),
+                verticalArrangement = Arrangement.spacedBy(d.space12)
+            ) {
+                Text(
+                    text = "Adjust crop bounds to isolate receipt details & remove background noise:",
+                    fontFamily = OutfitFamily,
+                    fontSize = d.textLabelMedium,
+                    color = colors.inkMuted
+                )
+
+                // Image Preview with Crop Border
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(d.radiusMD))
+                        .background(Color.Black.copy(alpha = 0.85f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Preview",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize().padding(8.dp)
+                    )
+                }
+
+                // Crop Sliders
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Vertical Crop (Top / Bottom)", fontFamily = OutfitFamily, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colors.inkMuted)
+                    RangeSlider(
+                        value = cropTop..cropBottom,
+                        onValueChange = { range ->
+                            cropTop = range.start.coerceIn(0f, cropBottom - 0.1f)
+                            cropBottom = range.endInclusive.coerceAtLeast(cropTop + 0.1f)
+                        },
+                        colors = SliderDefaults.colors(thumbColor = colors.inkPrimary, activeTrackColor = colors.inkPrimary)
+                    )
+
+                    Text("Horizontal Crop (Left / Right)", fontFamily = OutfitFamily, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colors.inkMuted)
+                    RangeSlider(
+                        value = cropLeft..cropRight,
+                        onValueChange = { range ->
+                            cropLeft = range.start.coerceIn(0f, cropRight - 0.1f)
+                            cropRight = range.endInclusive.coerceAtLeast(cropLeft + 0.1f)
+                        },
+                        colors = SliderDefaults.colors(thumbColor = colors.inkPrimary, activeTrackColor = colors.inkPrimary)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    try {
+                        val bmpWidth = bitmap.width
+                        val bmpHeight = bitmap.height
+                        val x = (cropLeft * bmpWidth).toInt().coerceIn(0, bmpWidth - 1)
+                        val y = (cropTop * bmpHeight).toInt().coerceIn(0, bmpHeight - 1)
+                        val width = ((cropRight - cropLeft) * bmpWidth).toInt().coerceIn(1, bmpWidth - x)
+                        val height = ((cropBottom - cropTop) * bmpHeight).toInt().coerceIn(1, bmpHeight - y)
+
+                        val cropped = Bitmap.createBitmap(bitmap, x, y, width, height)
+                        onCropConfirmed(cropped)
+                    } catch (e: Exception) {
+                        onCropConfirmed(bitmap)
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk),
+                shape = RoundedCornerShape(d.radiusMD)
+            ) {
+                Text("Apply Crop", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", fontFamily = OutfitFamily, color = colors.inkMuted)
+            }
+        }
+    )
+}
+
 data class DuplicateResult(val isExactMatch: Boolean, val message: String)
-
-

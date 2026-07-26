@@ -60,10 +60,19 @@ fun QRCodeScreen(
         }
     }
 
-    // Generate QR bitmap when uid is loaded
-    val qrBitmap = remember(uid) {
+    // Generate structured QR payload: splitsmith://user?code=SHORTCODE&uid=UID
+    val qrPayload = remember(displayUserCode, uid) {
         if (uid.isNotEmpty()) {
-            generateQRCodeBitmap(uid, 512)
+            "splitsmith://user?code=$displayUserCode&uid=$uid"
+        } else {
+            ""
+        }
+    }
+
+    // Generate QR bitmap
+    val qrBitmap = remember(qrPayload) {
+        if (qrPayload.isNotEmpty()) {
+            generateQRCodeBitmap(qrPayload, 512)
         } else {
             null
         }
@@ -135,7 +144,7 @@ fun QRCodeScreen(
                     )
                     if (!userProfile?.email.isNullOrEmpty()) {
                         Text(
-                            text = userProfile?.email ?: "",
+                            text = userProfile.email,
                             fontFamily = OutfitFamily,
                             fontSize = d.textBodyMedium,
                             color = inkMuted,

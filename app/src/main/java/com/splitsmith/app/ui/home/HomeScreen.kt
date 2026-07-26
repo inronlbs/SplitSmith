@@ -97,6 +97,7 @@ fun HomeScreen(
     onNavigateToQRCode: () -> Unit,
     onNavigateToReports: () -> Unit,
     onNavigateToAddExpense: (groupId: String, expenseId: String?) -> Unit,
+    onNavigateToSlipImport: (imageUriStr: String) -> Unit = {},
     onSignOut: () -> Unit
 ) {
     val d = LocalDimens.current
@@ -174,10 +175,30 @@ fun HomeScreen(
         }
     }
 
+    var showScannerOptionsSheet by remember { mutableStateOf(false) }
+    var tempCameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            onNavigateToSlipImport(android.net.Uri.encode(uri.toString()))
+        }
+    }
+
+    val cameraCaptureLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.TakePicture()
+    ) { success: Boolean ->
+        if (success && tempCameraUri != null) {
+            onNavigateToSlipImport(android.net.Uri.encode(tempCameraUri.toString()))
+        }
+    }
+
     var selectedSplitForDetail by remember { mutableStateOf<DirectSplit?>(null) }
     var selectedPersonalForDetail by remember { mutableStateOf<com.splitsmith.app.data.PersonalExpense?>(null) }
     var selectedGroupExpenseForDetail by remember { mutableStateOf<com.splitsmith.app.data.GroupExpenseWithContext?>(null) }
-    val isAnySheetOpen = showQuickAddSheet || showCreateGroupSheet || showJoinGroupSheet || showSplitActionsSheet || selectedSplitForDetail != null || selectedPersonalForDetail != null || selectedGroupExpenseForDetail != null
+    var targetPersonalExpenseId by remember { mutableStateOf<String?>(null) }
+    val isAnySheetOpen = showQuickAddSheet || showCreateGroupSheet || showJoinGroupSheet || showSplitActionsSheet || showScannerOptionsSheet || selectedSplitForDetail != null || selectedPersonalForDetail != null || selectedGroupExpenseForDetail != null
 
     // Smart System Back Navigation & Double-Back Exit Guard
     var lastBackPressTime by remember { mutableStateOf(0L) }
@@ -187,6 +208,7 @@ fun HomeScreen(
             showCreateGroupSheet = false
             showJoinGroupSheet = false
             showSplitActionsSheet = false
+            showScannerOptionsSheet = false
             selectedSplitForDetail = null
             selectedPersonalForDetail = null
             selectedGroupExpenseForDetail = null
@@ -321,6 +343,7 @@ fun HomeScreen(
                     )
                     2 -> PersonalExpensesScreen(
                         showAddPersonalInitially = showAddPersonalInitially,
+                        initialSelectedExpenseId = targetPersonalExpenseId,
                         onNavigateToQuickSplit = onNavigateToQuickSplit,
                         onBack = { coroutineScope.launch { pagerState.animateScrollToPage(0) } }
                     )
@@ -416,7 +439,14 @@ fun HomeScreen(
             if (selectedPersonalForDetail != null) {
                 PersonalExpenseDetailBottomSheet(
                     expense = selectedPersonalForDetail!!,
-                    onDismiss = { selectedPersonalForDetail = null }
+                    onDismiss = { selectedPersonalForDetail = null },
+                    onGoToPersonalExpenses = { expId ->
+                        targetPersonalExpenseId = expId
+                        selectedPersonalForDetail = null
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(2)
+                        }
+                    }
                 )
             }
 
@@ -426,6 +456,32 @@ fun HomeScreen(
                     currentUserId = FirebaseManager.currentUserId ?: "",
                     onNavigateToGroup = onNavigateToGroup,
                     onDismiss = { selectedGroupExpenseForDetail = null }
+                )
+            }
+
+            if (showScannerOptionsSheet) {
+                ScannerOptionsBottomSheet(
+                    onCameraClick = {
+                        try {
+                            com.splitsmith.app.MainActivity.isSystemPickerActive = true
+                            val photoFile = java.io.File(context.cacheDir, "camera_slip_${System.currentTimeMillis()}.jpg")
+                            val photoUri = androidx.core.content.FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                photoFile
+                            )
+                            tempCameraUri = photoUri
+                            cameraCaptureLauncher.launch(photoUri)
+                        } catch (e: Exception) {
+                            com.splitsmith.app.MainActivity.isSystemPickerActive = false
+                            Toast.makeText(context, "Could not open camera: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onGalleryClick = {
+                        com.splitsmith.app.MainActivity.isSystemPickerActive = true
+                        galleryLauncher.launch("image/*")
+                    },
+                    onDismiss = { showScannerOptionsSheet = false }
                 )
             }
 
@@ -460,7 +516,7 @@ fun HomeScreen(
                             colors = colors, d = d
                         ) {
                             showQuickAddSheet = false
-                            onNavigateToQuickSplit()
+                            showScannerOptionsSheet = true
                         }
                         // 1. Personal Expense
                         QuickActionRow(
@@ -976,6 +1032,49 @@ fun HomeDashboardView(
                                 }
 
                                 Spacer(modifier = Modifier.height(d.space8))
+
+                                Surface(
+                                    shape = RoundedCornerShape(d.radiusMD),
+                                    color = colors.surfaceCard,
+                                    border = BorderStroke(1.dp, colors.borderWhisper),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = d.space16, vertical = d.space12),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Google Drive Backup",
+                                                fontFamily = OutfitFamily,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = d.textBodyMedium,
+                                                color = colors.inkPrimary
+                                            )
+                                            Text(
+                                                text = "Auto-save receipts to Drive/SplitSmith",
+                                                fontFamily = OutfitFamily,
+                                                fontSize = d.textLabelSmall,
+                                                color = colors.inkMuted
+                                            )
+                                        }
+                                        Switch(
+                                            checked = userProfile.driveSyncEnabled,
+                                            onCheckedChange = { enabled ->
+                                                coroutineScope.launch {
+                                                    FirebaseManager.updateDriveSyncSetting(enabled)
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = colors.canvasChalk,
+                                                checkedTrackColor = colors.inkPrimary
+                                            )
+                                        )
+                                    }
+                                }
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1917,6 +2016,46 @@ fun ProfileSettingsView(
             }
         }
 
+        // SECURITY section
+        item {
+            Spacer(modifier = Modifier.height(d.space24))
+            Text("SECURITY", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
+            Spacer(modifier = Modifier.height(d.space8))
+
+            val prefs = remember { context.getSharedPreferences("splitsmith_prefs", android.content.Context.MODE_PRIVATE) }
+            var isBiometricEnabled by remember { mutableStateOf(prefs.getBoolean("key_biometric_enabled", false)) }
+
+            ProfileSettingsRow(
+                label = "App Biometric Lock",
+                trailingContent = {
+                    Switch(
+                        checked = isBiometricEnabled,
+                        onCheckedChange = { checked ->
+                            isBiometricEnabled = checked
+                            prefs.edit().putBoolean("key_biometric_enabled", checked).apply()
+                            Toast.makeText(context, if (checked) "Biometric Lock enabled" else "Biometric Lock disabled", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colors.canvasChalk,
+                            checkedTrackColor = colors.inkPrimary,
+                            uncheckedThumbColor = colors.inkMuted,
+                            uncheckedTrackColor = colors.borderWhisper
+                        )
+                    )
+                },
+                inkPrimary = colors.inkPrimary,
+                inkMuted = colors.inkMuted,
+                borderWhisper = colors.borderWhisper,
+                d = d,
+                onClick = {
+                    val newValue = !isBiometricEnabled
+                    isBiometricEnabled = newValue
+                    prefs.edit().putBoolean("key_biometric_enabled", newValue).apply()
+                    Toast.makeText(context, if (newValue) "Biometric Lock enabled" else "Biometric Lock disabled", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+
         // App Theme Switch with Sun / Moon Indicator Icon
         item {
             Spacer(modifier = Modifier.height(d.space4))
@@ -2015,11 +2154,7 @@ fun ProfileSettingsView(
                                 isCheckingForUpdate = false
                                 if (release != null) {
                                     updateReleaseInfo = release
-                                    if (release.isNewer) {
-                                        showUpdateDialog = true
-                                    } else {
-                                        Toast.makeText(context, "SplitSmith (${release.tagName}) is up to date!", Toast.LENGTH_SHORT).show()
-                                    }
+                                    showUpdateDialog = true
                                 } else {
                                     Toast.makeText(context, "Could not check GitHub releases. Check network connection.", Toast.LENGTH_LONG).show()
                                 }
@@ -2157,7 +2292,7 @@ fun ProfileSettingsView(
                                 shape = RoundedCornerShape(d.radiusMD),
                                 border = BorderStroke(1.dp, colors.borderWhisper)
                             ) {
-                                Text("Visit Web App", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                                Text("Visit Web", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
                             }
 
                             Button(
@@ -2585,12 +2720,11 @@ fun GroupExpenseDetailBottomSheet(
 @Composable
 fun PersonalExpenseDetailBottomSheet(
     expense: com.splitsmith.app.data.PersonalExpense,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onGoToPersonalExpenses: (String) -> Unit = {}
 ) {
     val d = LocalDimens.current
     val colors = LocalSplitColors.current
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
@@ -2656,25 +2790,191 @@ fun PersonalExpenseDetailBottomSheet(
                 }
             }
 
-            OutlinedButton(
+            Button(
                 onClick = {
-                    coroutineScope.launch {
-                        try {
-                            FirebaseManager.deletePersonalExpense(expense.id)
-                            Toast.makeText(context, "Deleted personal expense", Toast.LENGTH_SHORT).show()
-                            onDismiss()
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                    onGoToPersonalExpenses(expense.id)
                 },
                 modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
-                border = BorderStroke(1.dp, colors.alertRed),
                 shape = RoundedCornerShape(d.radiusMD),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.alertRed)
+                colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
             ) {
-                Text("Delete Personal Expense", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    Text("Go to Personal Expenses", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold)
+                    Icon(imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Go", tint = colors.canvasChalk)
+                }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScannerOptionsBottomSheet(
+    onCameraClick: () -> Unit,
+    onGalleryClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val d = LocalDimens.current
+    val colors = LocalSplitColors.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.surfaceCard,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = colors.borderWhisper) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = d.space24)
+                .padding(top = d.space8, bottom = d.space24),
+            verticalArrangement = Arrangement.spacedBy(d.space16)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Scan & Import",
+                    fontFamily = OutfitFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = d.textHeadlineMedium,
+                    color = colors.inkPrimary
+                )
+                Text(
+                    text = "AI-powered receipt & QR code scanner",
+                    fontFamily = OutfitFamily,
+                    fontSize = d.textLabelMedium,
+                    color = colors.inkMuted
+                )
+            }
+
+            // 1. Scan with Camera Hero Card
+            Surface(
+                onClick = {
+                    onDismiss()
+                    onCameraClick()
+                },
+                shape = RoundedCornerShape(d.radiusLG),
+                color = colors.canvasChalk,
+                border = BorderStroke(1.dp, colors.borderWhisper),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(d.space16),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(d.space16)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(colors.inkPrimary.copy(alpha = 0.08f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoCamera,
+                            contentDescription = "Camera Scan",
+                            tint = colors.inkPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "Scan with Camera",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = d.textTitleMedium,
+                                color = colors.inkPrimary
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(colors.inkPrimary.copy(alpha = 0.1f))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("Instant", fontFamily = OutfitFamily, fontSize = 10.sp, color = colors.inkPrimary)
+                            }
+                        }
+                        Text(
+                            text = "Point camera at paper bill or QR code",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelSmall,
+                            color = colors.inkMuted
+                        )
+                    }
+                }
+            }
+
+            // 2. Upload from Gallery Hero Card
+            Surface(
+                onClick = {
+                    onDismiss()
+                    onGalleryClick()
+                },
+                shape = RoundedCornerShape(d.radiusLG),
+                color = colors.canvasChalk,
+                border = BorderStroke(1.dp, colors.borderWhisper),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(d.space16),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(d.space16)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(colors.inkPrimary.copy(alpha = 0.08f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.QrCode,
+                            contentDescription = "Gallery Upload",
+                            tint = colors.inkPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "Upload from Gallery",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = d.textTitleMedium,
+                                color = colors.inkPrimary
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(colors.inkPrimary.copy(alpha = 0.1f))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("Photo Picker", fontFamily = OutfitFamily, fontSize = 10.sp, color = colors.inkPrimary)
+                            }
+                        }
+                        Text(
+                            text = "Import screenshot from GPay, PhonePe, Paytm…",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelSmall,
+                            color = colors.inkMuted
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = "✓ Auto-detects Receipts, Payment Slips, and Group/User QR Codes",
+                fontFamily = OutfitFamily,
+                fontSize = 11.sp,
+                color = colors.inkMuted,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            )
         }
     }
 }
