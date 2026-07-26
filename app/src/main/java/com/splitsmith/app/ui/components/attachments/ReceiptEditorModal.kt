@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -331,46 +332,87 @@ fun ReceiptEditorModal(
                             // Interactive Crop Overlay Box strictly inside the Image Box
                             if (activeTool == EditTool.CROP) {
                                 var activeHandle by remember { mutableStateOf<String?>(null) }
+                                val density = androidx.compose.ui.platform.LocalDensity.current
 
                                 Canvas(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .pointerInput(Unit) {
-                                            detectTransformGestures { _, pan, _, _ ->
-                                                val dx = pan.x / imgW
-                                                val dy = pan.y / imgH
+                                            val hitRadius = with(density) { 44.dp.toPx() }
+                                            detectDragGestures(
+                                                onDragStart = { downOffset ->
+                                                    val x = downOffset.x
+                                                    val y = downOffset.y
+                                                    val leftPx = cropLeft * imgW
+                                                    val topPx = cropTop * imgH
+                                                    val rightPx = cropRight * imgW
+                                                    val bottomPx = cropBottom * imgH
 
-                                                if (activeHandle == null) {
-                                                    // Move entire crop box
-                                                    val bw = cropRight - cropLeft
-                                                    val bh = cropBottom - cropTop
-                                                    var nLeft = (cropLeft + dx).coerceIn(0f, 1f - bw)
-                                                    var nTop = (cropTop + dy).coerceIn(0f, 1f - bh)
-                                                    cropLeft = nLeft
-                                                    cropTop = nTop
-                                                    cropRight = nLeft + bw
-                                                    cropBottom = nTop + bh
-                                                } else {
+                                                    fun dist(px: Float, py: Float) = Math.hypot((x - px).toDouble(), (y - py).toDouble()).toFloat()
+
+                                                    activeHandle = when {
+                                                        dist(leftPx, topPx) <= hitRadius -> "TL"
+                                                        dist(rightPx, topPx) <= hitRadius -> "TR"
+                                                        dist(leftPx, bottomPx) <= hitRadius -> "BL"
+                                                        dist(rightPx, bottomPx) <= hitRadius -> "BR"
+                                                        Math.abs(y - topPx) <= hitRadius && x >= leftPx - 20f && x <= rightPx + 20f -> "T"
+                                                        Math.abs(y - bottomPx) <= hitRadius && x >= leftPx - 20f && x <= rightPx + 20f -> "B"
+                                                        Math.abs(x - leftPx) <= hitRadius && y >= topPx - 20f && y <= bottomPx + 20f -> "L"
+                                                        Math.abs(x - rightPx) <= hitRadius && y >= topPx - 20f && y <= bottomPx + 20f -> "R"
+                                                        x in leftPx..rightPx && y in topPx..bottomPx -> "CENTER"
+                                                        else -> null
+                                                    }
+                                                },
+                                                onDragEnd = { activeHandle = null },
+                                                onDragCancel = { activeHandle = null },
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    val dx = dragAmount.x / imgW
+                                                    val dy = dragAmount.y / imgH
+                                                    val minSpan = 0.08f
+
                                                     when (activeHandle) {
                                                         "TL" -> {
-                                                            cropLeft = (cropLeft + dx).coerceIn(0f, cropRight - 0.1f)
-                                                            cropTop = (cropTop + dy).coerceIn(0f, cropBottom - 0.1f)
+                                                            cropLeft = (cropLeft + dx).coerceIn(0f, cropRight - minSpan)
+                                                            cropTop = (cropTop + dy).coerceIn(0f, cropBottom - minSpan)
                                                         }
                                                         "TR" -> {
-                                                            cropRight = (cropRight + dx).coerceIn(cropLeft + 0.1f, 1f)
-                                                            cropTop = (cropTop + dy).coerceIn(0f, cropBottom - 0.1f)
+                                                            cropRight = (cropRight + dx).coerceIn(cropLeft + minSpan, 1f)
+                                                            cropTop = (cropTop + dy).coerceIn(0f, cropBottom - minSpan)
                                                         }
                                                         "BL" -> {
-                                                            cropLeft = (cropLeft + dx).coerceIn(0f, cropRight - 0.1f)
-                                                            cropBottom = (cropBottom + dy).coerceIn(cropTop + 0.1f, 1f)
+                                                            cropLeft = (cropLeft + dx).coerceIn(0f, cropRight - minSpan)
+                                                            cropBottom = (cropBottom + dy).coerceIn(cropTop + minSpan, 1f)
                                                         }
                                                         "BR" -> {
-                                                            cropRight = (cropRight + dx).coerceIn(cropLeft + 0.1f, 1f)
-                                                            cropBottom = (cropBottom + dy).coerceIn(cropTop + 0.1f, 1f)
+                                                            cropRight = (cropRight + dx).coerceIn(cropLeft + minSpan, 1f)
+                                                            cropBottom = (cropBottom + dy).coerceIn(cropTop + minSpan, 1f)
+                                                        }
+                                                        "T" -> {
+                                                            cropTop = (cropTop + dy).coerceIn(0f, cropBottom - minSpan)
+                                                        }
+                                                        "B" -> {
+                                                            cropBottom = (cropBottom + dy).coerceIn(cropTop + minSpan, 1f)
+                                                        }
+                                                        "L" -> {
+                                                            cropLeft = (cropLeft + dx).coerceIn(0f, cropRight - minSpan)
+                                                        }
+                                                        "R" -> {
+                                                            cropRight = (cropRight + dx).coerceIn(cropLeft + minSpan, 1f)
+                                                        }
+                                                        "CENTER" -> {
+                                                            val bw = cropRight - cropLeft
+                                                            val bh = cropBottom - cropTop
+                                                            val nLeft = (cropLeft + dx).coerceIn(0f, 1f - bw)
+                                                            val nTop = (cropTop + dy).coerceIn(0f, 1f - bh)
+                                                            cropLeft = nLeft
+                                                            cropTop = nTop
+                                                            cropRight = nLeft + bw
+                                                            cropBottom = nTop + bh
                                                         }
                                                     }
                                                 }
-                                            }
+                                            )
                                         }
                                 ) {
                                     val leftPx = cropLeft * imgW
@@ -388,7 +430,7 @@ fun ReceiptEditorModal(
                                     // Right rect
                                     drawRect(color = Color.Black.copy(alpha = 0.5f), topLeft = Offset(rightPx, topPx), size = Size(imgW - rightPx, bottomPx - topPx))
 
-                                    // 1px Crop Border
+                                    // 2px Crop Border
                                     drawRect(
                                         color = Color.White,
                                         topLeft = Offset(leftPx, topPx),
@@ -414,9 +456,9 @@ fun ReceiptEditorModal(
                                         )
                                     }
 
-                                    // Corner Handles
-                                    val handleSize = 18.dp.toPx()
-                                    val handleStroke = 3.5.dp.toPx()
+                                    // Corner Handles (L-brackets)
+                                    val handleSize = 20.dp.toPx()
+                                    val handleStroke = 4.dp.toPx()
                                     // Top-Left
                                     drawLine(Color.White, Offset(leftPx, topPx), Offset(leftPx + handleSize, topPx), strokeWidth = handleStroke)
                                     drawLine(Color.White, Offset(leftPx, topPx), Offset(leftPx, topPx + handleSize), strokeWidth = handleStroke)
@@ -429,6 +471,20 @@ fun ReceiptEditorModal(
                                     // Bottom-Right
                                     drawLine(Color.White, Offset(rightPx, bottomPx), Offset(rightPx - handleSize, bottomPx), strokeWidth = handleStroke)
                                     drawLine(Color.White, Offset(rightPx, bottomPx), Offset(rightPx, bottomPx - handleSize), strokeWidth = handleStroke)
+
+                                    // Side Handles (Pill/Circle indicators)
+                                    val handleRadius = 5.dp.toPx()
+                                    val midX = leftPx + (rightPx - leftPx) / 2f
+                                    val midY = topPx + (bottomPx - topPx) / 2f
+
+                                    // Top Side
+                                    drawCircle(color = Color.White, radius = handleRadius, center = Offset(midX, topPx))
+                                    // Bottom Side
+                                    drawCircle(color = Color.White, radius = handleRadius, center = Offset(midX, bottomPx))
+                                    // Left Side
+                                    drawCircle(color = Color.White, radius = handleRadius, center = Offset(leftPx, midY))
+                                    // Right Side
+                                    drawCircle(color = Color.White, radius = handleRadius, center = Offset(rightPx, midY))
                                 }
                             }
                         }
