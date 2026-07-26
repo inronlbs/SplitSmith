@@ -2245,8 +2245,12 @@ fun ProfileSettingsView(
                                 val release = com.splitsmith.app.util.AppUpdateManager.checkForUpdates()
                                 isCheckingForUpdate = false
                                 if (release != null) {
-                                    updateReleaseInfo = release
-                                    showUpdateDialog = true
+                                    if (release.isNewer) {
+                                        updateReleaseInfo = release
+                                        showUpdateDialog = true
+                                    } else {
+                                        Toast.makeText(context, "You are already using the latest version (v${com.splitsmith.app.BuildConfig.VERSION_NAME})!", Toast.LENGTH_SHORT).show()
+                                    }
                                 } else {
                                     Toast.makeText(context, "Could not check GitHub releases. Check network connection.", Toast.LENGTH_LONG).show()
                                 }
