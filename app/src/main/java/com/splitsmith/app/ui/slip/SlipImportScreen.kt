@@ -758,6 +758,86 @@ fun SlipImportScreen(
 
             Spacer(modifier = Modifier.height(d.space8))
 
+            // Google Drive Backup Toggle Card
+            var uploadToDrive by remember(profileState.value) { mutableStateOf(profileState.value?.driveSyncEnabled ?: true) }
+            val hasDrivePermission = remember(context) { com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context) }
+            val driveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+            ) {
+                uploadToDrive = true
+            }
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(d.radiusLG),
+                border = BorderStroke(1.dp, colors.borderWhisper),
+                color = colors.surfaceCard
+            ) {
+                Column(modifier = Modifier.padding(d.space16)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Backup Receipt to Google Drive", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textBodyMedium, color = colors.inkPrimary)
+                            Text("Save a copy of this slip to your SplitSmith Drive folder", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
+                        }
+                        Switch(
+                            checked = uploadToDrive,
+                            onCheckedChange = { checked ->
+                                uploadToDrive = checked
+                                if (checked && !hasDrivePermission) {
+                                    com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(driveLauncher, context)
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = colors.canvasChalk,
+                                checkedTrackColor = colors.inkPrimary,
+                                uncheckedThumbColor = colors.inkMuted,
+                                uncheckedTrackColor = colors.borderWhisper
+                            )
+                        )
+                    }
+
+                    if (uploadToDrive && !hasDrivePermission) {
+                        Spacer(modifier = Modifier.height(d.space8))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color(0xFFFEF3C7),
+                            border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                            shape = RoundedCornerShape(d.radiusSM)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(d.space12),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Google Drive Access Required",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textLabelMedium,
+                                    color = Color(0xFF92400E),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Button(
+                                    onClick = {
+                                        com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(driveLauncher, context)
+                                    },
+                                    shape = RoundedCornerShape(d.radiusSM),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706), contentColor = Color.White),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Grant Access", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(d.space8))
+
             // Action Options Row
             Text("WHAT WOULD YOU LIKE TO DO?", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.2.sp)
 
@@ -781,6 +861,13 @@ fun SlipImportScreen(
                                 if (sourcePaymentApp.isNotEmpty()) append("Via $sourcePaymentApp. ")
                                 if (transactionId.isNotEmpty()) append("Txn ID: $transactionId")
                             }.trim()
+
+                            val uid = FirebaseManager.currentUserId ?: return@launch
+                            val expenseRef = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                .collection("users").document(uid).collection("personal_expenses").document()
+
+                            val expId = expenseRef.id
+
                             FirebaseManager.addPersonalExpense(
                                 description = entryTitle,
                                 amount = amt,
@@ -788,7 +875,52 @@ fun SlipImportScreen(
                                 note = personalNote,
                                 date = parsedDateMillis ?: System.currentTimeMillis()
                             )
+
                             Toast.makeText(context, "Logged as Personal Expense!", Toast.LENGTH_SHORT).show()
+
+                            // Asynchronous non-blocking background Drive upload / queueing
+                            val targetUri = imageUri
+                            if (uploadToDrive && targetUri != null) {
+                                val applicationContext = context.applicationContext
+                                kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+                                    try {
+                                        val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
+                                            context = applicationContext,
+                                            inputUri = targetUri,
+                                            folderCategoryName = "Personal Expenses",
+                                            dateMillis = parsedDateMillis ?: System.currentTimeMillis(),
+                                            expenseId = expId
+                                        )
+                                        if (driveResult != null) {
+                                            FirebaseManager.attachDriveFileToPersonalExpense(
+                                                expenseId = expId,
+                                                driveFileId = driveResult.fileId,
+                                                webUrl = driveResult.webViewLink
+                                            )
+                                        } else {
+                                            com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                context = applicationContext,
+                                                localUri = targetUri,
+                                                folderCategoryName = "Personal Expenses",
+                                                dateMillis = parsedDateMillis ?: System.currentTimeMillis(),
+                                                expenseId = expId,
+                                                isPersonal = true
+                                            )
+                                        }
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                            context = applicationContext,
+                                            localUri = targetUri,
+                                            folderCategoryName = "Personal Expenses",
+                                            dateMillis = parsedDateMillis ?: System.currentTimeMillis(),
+                                            expenseId = expId,
+                                            isPersonal = true
+                                        )
+                                    }
+                                }
+                            }
+
                             onBack()
                         } catch (e: Exception) {
                             Toast.makeText(context, "Error saving: ${e.message}", Toast.LENGTH_LONG).show()
@@ -1002,9 +1134,22 @@ private data class ParsedSlip(
     val isIncoming: Boolean = false
 )
 
+private val INVOICE_NOISE_KEYWORDS = setOf(
+    "subtotal", "grand total", "total amount", "net amount", "net payable", "amount paid",
+    "item total", "cgst", "sgst", "igst", "vat", "tax", "round off", "discount",
+    "delivery charge", "delivery fee", "platform fee", "convenience fee", "packaging charge",
+    "service tax", "tip", "tipping", "mrp", "savings", "cashback", "qty", "quantity",
+    "hsn", "sac", "rate", "description", "amount(rs)", "amount (rs)", "sl no", "s.no",
+    "invoice date", "due date", "po no", "po number", "eway bill", "cin", "pan", "gstin",
+    "fssai", "fssai lic no", "lic no", "tax invoice", "bill of supply", "retail invoice",
+    "cash memo", "receipt", "acknowledgement", "original for recipient", "duplicate for transporter",
+    "triplicate for supplier", "copy", "terms and conditions", "terms & conditions", "thank you", "visit again"
+)
+
 private fun cleanReceiverName(raw: String): String {
     if (raw.isBlank()) return ""
     val rawTrimmed = raw.trim()
+    if (rawTrimmed.length <= 2) return ""
     val rawLower = rawTrimmed.lowercase()
 
     // 1. REJECT SENDER / BANK / CREDIT / DEBIT LINES
@@ -1017,18 +1162,18 @@ private fun cleanReceiverName(raw: String): String {
         return ""
     }
 
-    // 2. REJECT DATE & TIMESTAMP LINES (e.g. "05:14 pm on 25 Jul 2026", "18 Jul 2026", "at 1:46 pm", "25 Jul 2026, 04:30 PM")
+    // 2. REJECT DATE & TIMESTAMP LINES
     val isTimestamp = Regex("(?i)\\b(?:am|pm|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|202\\d|at \\d{1,2}:\\d{2})\\b").containsMatchIn(rawLower) ||
                       Regex("(?i)\\b\\d{1,2}:\\d{2}\\s*(?:am|pm)?\\b").containsMatchIn(rawLower)
     if (isTimestamp) return ""
 
-    // 3. REJECT UPI VPA / HANDLES / EMAIL ADDRESSES (e.g. "grofers1paytm@hdfcbank", "shyam.yadav@paytm")
+    // 3. REJECT UPI VPA / HANDLES / EMAIL ADDRESSES
     if (rawLower.contains("@") || rawLower.endsWith(".upi") || rawLower.endsWith(".paytm") || rawLower.endsWith(".ybl") || rawLower.endsWith(".okicici")) {
         return ""
     }
 
-    // 4. REJECT PURE NUMERIC / TXN ID / UTR LINES (e.g. "300870607650", "T2607251714101058579349")
-    if (rawLower.matches(Regex("^[0-9\\s\\-\\.:/]+$")) || rawLower.matches(Regex("^[a-z0-9]{12,35}$"))) {
+    // 4. REJECT PURE NUMERIC / PHONE / TXN ID / UTR LINES (Must contain text, not just numbers)
+    if (rawLower.matches(Regex("^[0-9\\s\\-\\.:/#()]+$")) || rawLower.matches(Regex("^[a-z0-9]{12,35}$")) || !rawTrimmed.matches(Regex(".*[A-Za-z]{2,}.*"))) {
         return ""
     }
 
@@ -1043,8 +1188,10 @@ private fun cleanReceiverName(raw: String): String {
 
     val lower = cleaned.lowercase()
 
-    // 6. REJECT BOILERPLATE UI LABELS, AVATAR INITIALS (len <= 2), AND SYSTEM WORDS
+    // 6. REJECT BOILERPLATE UI LABELS, INVOICE NOISE WORDS, AND SYSTEM STRINGS
     if (cleaned.length <= 2 ||
+        !cleaned.matches(Regex(".*[A-Za-z]{2,}.*")) ||
+        INVOICE_NOISE_KEYWORDS.any { lower.contains(it) } ||
         lower.contains("transaction") ||
         lower.contains("successful") ||
         lower.contains("completed") ||
@@ -1053,11 +1200,7 @@ private fun cleanReceiverName(raw: String): String {
         lower.contains("payment details") ||
         lower.contains("invoice to") ||
         lower.contains("billed to") ||
-        lower.contains("tax invoice") ||
-        lower.contains("invoice no") ||
         lower.contains("order id") ||
-        lower.contains("gstin") ||
-        lower.contains("fssai") ||
         lower.contains("debited") ||
         lower.contains("credited") ||
         lower.contains("balance") ||
@@ -1074,6 +1217,35 @@ private fun cleanReceiverName(raw: String): String {
     return cleaned
 }
 
+private fun isPhoneOrSystemId(lineLower: String, numStr: String): Boolean {
+    val cleanDigits = numStr.filter { it.isDigit() }
+    
+    // 1. Indian 10-digit mobile number starting with 6,7,8,9
+    if (cleanDigits.length == 10 && cleanDigits[0] in '6'..'9') return true
+    if (cleanDigits.length == 11 && cleanDigits.startsWith("0") && cleanDigits[1] in '6'..'9') return true
+    if (cleanDigits.length == 12 && cleanDigits.startsWith("91") && cleanDigits[2] in '6'..'9') return true
+
+    // 2. PIN Codes (6 digits starting with 1-8 without decimal point)
+    if (!numStr.contains(".") && cleanDigits.length == 6 && cleanDigits[0] in '1'..'8') return true
+
+    // 3. Phone / Mobile / Contact / Account / GSTIN / FSSAI / PIN / HSN / Ref Labels
+    if (lineLower.contains("ph:") || lineLower.contains("phone") || lineLower.contains("mob:") || lineLower.contains("mobile") ||
+        lineLower.contains("contact") || lineLower.contains("tel:") || lineLower.contains("gstin") || lineLower.contains("fssai") ||
+        lineLower.contains("hsn") || lineLower.contains("sac") || lineLower.contains("pin code") || lineLower.contains("pincode") ||
+        lineLower.contains("account") || lineLower.contains("a/c") || lineLower.contains("utr") || lineLower.contains("ref no") ||
+        lineLower.contains("txn id") || lineLower.contains("order id")) {
+        return true
+    }
+
+    // 4. Implausible total amount (> 500,000 INR) without explicit currency symbol
+    val valD = numStr.toDoubleOrNull() ?: 0.0
+    if (valD > 500000.0 && !lineLower.contains("₹") && !lineLower.contains("inr") && !lineLower.contains("total")) {
+        return true
+    }
+
+    return false
+}
+
 private fun parseOCRText(text: String): ParsedSlip {
     val lines = text.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
     val lowerText = text.lowercase()
@@ -1081,57 +1253,50 @@ private fun parseOCRText(text: String): ParsedSlip {
     var amount = ""
     var receiver = ""
     var txnId = ""
+
+    data class AmountCandidate(val value: String, val score: Int)
+    val candidates = mutableListOf<AmountCandidate>()
     
-    // 1. Parse Amount (Prioritizing explicit "Total :- 1400.01" or multi-column table totals on paper & Tax Invoices & fuel receipts)
+    // 1. Score all potential numeric values in receipt lines
     for (line in lines) {
         val lineLower = line.lowercase()
-        if ((lineLower.contains("total") || lineLower.contains("amount paid") || lineLower.contains("net amount") || lineLower.contains("amount(rs)")) &&
-            !lineLower.contains("subtotal") && !lineLower.contains("item") && !lineLower.contains("save") && !lineLower.contains("vehicle")) {
-            val allNumbers = Regex("([0-9,]+(?:\\.[0-9]{2})?)").findAll(line)
-                .map { it.groupValues[1].replace(",", "").replace(Regex("^0+(?=\\d)"), "") }
-                .filter { (it.toDoubleOrNull() ?: 0.0) > 0.0 }
-                .toList()
-            if (allNumbers.isNotEmpty()) {
-                val maxVal = allNumbers.maxByOrNull { it.toDoubleOrNull() ?: 0.0 } ?: allNumbers.last()
-                if ((maxVal.toDoubleOrNull() ?: 0.0) > 0.0) {
-                    amount = maxVal
-                    break
-                }
+        // Filter out invoice noise lines (subtotal, qty, taxes, item lines)
+        if (INVOICE_NOISE_KEYWORDS.any { kw -> lineLower.contains(kw) && !lineLower.contains("grand total") && !lineLower.contains("total amount") && !lineLower.contains("amount paid") && !lineLower.contains("net amount") }) {
+            if (lineLower.contains("subtotal") || lineLower.contains("qty") || lineLower.contains("nozzle") || lineLower.contains("item") || lineLower.contains("cgst") || lineLower.contains("sgst") || lineLower.contains("igst") || lineLower.contains("vat")) {
+                continue
+            }
+        }
+
+        // Strict numeric pattern (clean currency symbols, commas, and trailing /-)
+        val rawTokens = Regex("(?:₹|Rs\\.?|INR)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:/\\-)?").findAll(line)
+        for (match in rawTokens) {
+            val rawNum = match.groupValues[1].replace(",", "").replace(Regex("^0+(?=\\d)"), "")
+            // Amount MUST be strictly numeric
+            if (!rawNum.matches(Regex("^\\d{1,6}(?:\\.\\d{1,2})?$"))) continue
+            val valD = rawNum.toDoubleOrNull() ?: 0.0
+            if (valD <= 0.0) continue
+
+            if (isPhoneOrSystemId(lineLower, rawNum)) continue
+
+            var score = 0
+            val isExplicitTotal = lineLower.contains("total") || lineLower.contains("amount paid") || lineLower.contains("net amount") || lineLower.contains("amount(rs)") || lineLower.contains("net payable")
+            val hasCurrencySymbol = lineLower.contains("₹") || lineLower.contains("inr") || lineLower.contains("rs.") || lineLower.contains("rs ")
+            val hasDecimals = rawNum.contains(".")
+
+            if (isExplicitTotal) score += 100
+            if (hasCurrencySymbol) score += 60
+            if (hasDecimals) score += 40
+            if (valD >= 10.0 && valD <= 500000.0) score += 20
+
+            if (score >= 60) {
+                candidates.add(AmountCandidate(rawNum, score))
             }
         }
     }
 
-    if (amount.isEmpty()) {
-        val amountCandidates = mutableListOf<String>()
-        for (line in lines) {
-            val lineLower = line.lowercase()
-            if (lineLower.contains("nozzle") || lineLower.contains("fip no") || lineLower.contains("s.no") || lineLower.contains("qty")) continue
-
-            val m = Regex("[₹R][sS]?\\.?\\s*([0-9,]+(?:\\.[0-9]{2})?)").find(line)
-            if (m != null) {
-                amountCandidates.add(m.groupValues[1].replace(",", "").replace(Regex("^0+(?=\\d)"), ""))
-            } else {
-                val m2 = Regex("(?:Amount|Paid|Total|RS|INR)?\\s*[:\\-]?\\s*([0-9,]+(?:\\.[0-9]{2})?)", RegexOption.IGNORE_CASE).find(line)
-                if (m2 != null) {
-                    val rawStr = m2.groupValues[1].replace(",", "").replace(Regex("^0+(?=\\d)"), "")
-                    if ((rawStr.toDoubleOrNull() ?: 0.0) > 0.0) {
-                        amountCandidates.add(rawStr)
-                    }
-                }
-            }
-        }
-        
-        val validAmounts = amountCandidates
-            .map { it.replace(",", "").replace(Regex("^0+(?=\\d)"), "") }
-            .filter { it.isNotEmpty() && (it.toDoubleOrNull() ?: 0.0) > 0.0 }
-        
-        // Filter out single-digit candidates (like 1, 2) if multi-digit candidates exist
-        val multiDigitAmounts = validAmounts.filter { (it.toDoubleOrNull() ?: 0.0) >= 10.0 }
-        if (multiDigitAmounts.isNotEmpty()) {
-            amount = multiDigitAmounts.maxByOrNull { it.toDoubleOrNull() ?: 0.0 } ?: multiDigitAmounts.first()
-        } else if (validAmounts.isNotEmpty()) {
-            amount = validAmounts.first()
-        }
+    val bestCandidate = candidates.maxByOrNull { it.score }
+    if (bestCandidate != null && bestCandidate.score >= 60) {
+        amount = bestCandidate.value
     }
 
     // Format amount cleanly (remove trailing .00 if integer)
@@ -1139,17 +1304,16 @@ private fun parseOCRText(text: String): ParsedSlip {
         amount = amount.dropLast(3)
     }
     
-    // 2. Parse Receiver Name (Sample Screenshots & Tax Invoices e.g. "Sold By: BLINKIT FOODS LIMITED", Bistro, GPay, PhonePe)
+    // 2. Parse Receiver Name (Merchant / Vendor)
     for (i in lines.indices) {
         val line = lines[i]
         val lineLower = line.lowercase().trim()
 
-        // Ignore Sender / From lines
         if (lineLower.startsWith("from:") || lineLower.startsWith("from ") || lineLower.startsWith("debited from")) {
             continue
         }
 
-        // Pattern 0: Tax Invoice "Sold By: <Merchant>", "Billed By: <Merchant>", "Vendor: <Merchant>"
+        // Pattern 0: Tax Invoice "Sold By: <Merchant>", "Billed By: <Merchant>", "Vendor: <Merchant>", "Seller: <Merchant>"
         if (lineLower.startsWith("sold by") || lineLower.startsWith("billed by") || lineLower.startsWith("vendor") || lineLower.startsWith("seller")) {
             val rest = line.substringAfter(":").trim()
             var candidate = cleanReceiverName(rest)
@@ -1166,7 +1330,7 @@ private fun parseOCRText(text: String): ParsedSlip {
             break
         }
 
-        // Pattern A: Paytm Quotes "Pay To <Name>" or "\"Pay To ...\""
+        // Pattern A: Paytm Quotes "Pay To <Name>"
         val payToMatch = Regex("(?i)Pay\\s+To\\s+([A-Za-z0-9\\s]{2,35})").find(line)
         if (payToMatch != null) {
             val candidate = cleanReceiverName(payToMatch.groupValues[1])
@@ -1176,7 +1340,7 @@ private fun parseOCRText(text: String): ParsedSlip {
             }
         }
 
-        // Pattern B: Explicit labels "Banking Name: <Merchant>" or "Merchant: <Name>"
+        // Pattern B: Explicit labels "Banking Name: <Merchant>" or "Merchant Name: <Name>"
         if (lineLower.startsWith("banking name") || lineLower.startsWith("merchant name") || lineLower.startsWith("receiver")) {
             val rest = line.substringAfter(":").trim()
             val candidate = cleanReceiverName(rest)
@@ -1192,14 +1356,13 @@ private fun parseOCRText(text: String): ParsedSlip {
             }
         }
 
-        // Pattern C: "Paid to", "Sent to", "Payment to" (PhonePe / Paytm / Amazon Pay / BHIM)
+        // Pattern C: "Paid to", "Sent to", "Payment to"
         if (lineLower.startsWith("paid to") || lineLower.startsWith("sent to") || lineLower.startsWith("payment to")) {
             val rest = cleanReceiverName(line)
             if (rest.isNotEmpty()) {
                 receiver = rest
                 break
             }
-            // Check lines i+1, i+2, i+3 for actual merchant name
             for (j in 1..3) {
                 if (i + j < lines.size) {
                     val candidateLine = lines[i + j]
@@ -1213,7 +1376,7 @@ private fun parseOCRText(text: String): ParsedSlip {
             if (receiver.isNotEmpty()) break
         }
 
-        // Pattern D: "To: <Name>" or "To <Name>" (GPay / Paytm style e.g. "To Amazon Pay on Delivery" or "To: Shyam Yadav")
+        // Pattern D: "To: <Name>" or "To <Name>"
         if (lineLower.startsWith("to:") || lineLower.startsWith("to ")) {
             val candidate = cleanReceiverName(line)
             if (candidate.isNotEmpty() && !line.contains("@") && !candidate.equals("pay", ignoreCase = true)) {
@@ -1222,7 +1385,7 @@ private fun parseOCRText(text: String): ParsedSlip {
             }
         }
 
-        // Pattern E: UPI ID line containing bullet/separator (e.g. "Amazon Pay • amazon-pod@rapl" or "G Pay • binoy...")
+        // Pattern E: UPI ID line containing bullet/separator
         if (line.contains("@")) {
             val parts = line.split("•", "-", "·")
             if (parts.size > 1) {
@@ -1241,28 +1404,32 @@ private fun parseOCRText(text: String): ParsedSlip {
         }
     }
 
-    // Fallback: search for first valid non-boilerplate name line
+    // Fallback: search for first valid non-boilerplate merchant name line
     if (receiver.isEmpty()) {
         for (line in lines) {
             val lineLower = line.lowercase()
             if (lineLower.startsWith("from") || lineLower.contains("bank") || lineLower.contains("invoice to")) continue
             val candidate = cleanReceiverName(line)
-            if (candidate.length > 2 && !line.contains("@") && !line.matches(Regex(".*\\d{4,}.*")) && !line.startsWith("₹") && !line.startsWith("Rs") && !line.startsWith("INR")) {
+            if (candidate.length > 2 && candidate.matches(Regex(".*[A-Za-z]{2,}.*")) && !line.contains("@") && !line.matches(Regex(".*\\d{4,}.*")) && !line.startsWith("₹") && !line.startsWith("Rs") && !line.startsWith("INR")) {
                 receiver = candidate
                 break
             }
         }
     }
 
-    // Final safety check
     receiver = cleanReceiverName(receiver)
     
-    // 3. Parse Transaction ID / Invoice No / Ref No
-    val invoiceMatch = Regex("(?i)(?:Invoice\\s*No|Inv\\s*No|Order\\s*Id|Ref\\s*No)[:\\-\\s]*([A-Za-z0-9]{8,25})").find(text)
+    // 3. Parse Transaction ID / UTR / Ref No (Min length 8, Must contain digits, Cannot be plain text)
+    val invoiceMatch = Regex("(?i)(?:Invoice\\s*No|Inv\\s*No|Order\\s*Id|Ref\\s*No)[:\\-\\s]*([A-Za-z0-9\\-/]{8,35})").find(text)
     if (invoiceMatch != null) {
-        txnId = invoiceMatch.groupValues[1]
-    } else {
-        val utrMatch = Regex("\\b(\\d{12})\\b").find(text)
+        val candidate = invoiceMatch.groupValues[1].trim()
+        if (candidate.length >= 8 && candidate.matches(Regex(".*[0-9].*"))) {
+            txnId = candidate
+        }
+    }
+    
+    if (txnId.isEmpty()) {
+        val utrMatch = Regex("\\b(\\d{12,16})\\b").find(text)
         if (utrMatch != null) {
             txnId = utrMatch.groupValues[1]
         } else {
@@ -1275,19 +1442,18 @@ private fun parseOCRText(text: String): ParsedSlip {
                                  lineLower.contains("txn id")
                 
                 if (isTxnLabel) {
-                    val words = Regex("\\b([A-Za-z0-9]{8,22})\\b").findAll(line).map { it.groupValues[1] }.toList()
+                    val words = Regex("\\b([A-Za-z0-9\\-/]{8,35})\\b").findAll(line).map { it.groupValues[1] }.toList()
                     val filteredWords = words.filter { w ->
                         val wl = w.lowercase()
-                        wl != "transaction" && wl != "id" && wl != "google" && wl != "phonepe" && wl != "upi" &&
-                        wl != "completed" && wl != "successful" && wl != "ref" && wl != "number" && wl != "utr" &&
-                        wl != "from" && wl != "to" && wl != "paid"
+                        w.length >= 8 && w.matches(Regex(".*[0-9].*")) &&
+                        wl != "transaction" && wl != "successful" && wl != "completed" && wl != "payment" && wl != "details"
                     }
                     if (filteredWords.isNotEmpty()) {
                         txnId = filteredWords.first()
                         break
                     } else if (i + 1 < lines.size) {
-                        val nextLine = lines[i + 1]
-                        if (nextLine.matches(Regex("^[A-Za-z0-9]{8,22}$"))) {
+                        val nextLine = lines[i + 1].trim()
+                        if (nextLine.length in 8..35 && nextLine.matches(Regex("^[A-Za-z0-9\\-/]+$")) && nextLine.matches(Regex(".*[0-9].*"))) {
                             txnId = nextLine
                             break
                         }
@@ -1298,12 +1464,11 @@ private fun parseOCRText(text: String): ParsedSlip {
     }
     
     if (txnId.isEmpty()) {
-        val allIds = Regex("\\b([A-Za-z0-9]{8,22})\\b").findAll(text).map { it.groupValues[1] }.toList()
+        val allIds = Regex("\\b([A-Za-z0-9]{8,35})\\b").findAll(text).map { it.groupValues[1] }.toList()
         val filteredIds = allIds.filter { w ->
             val wl = w.lowercase()
-            wl != "transaction" && wl != "id" && wl != "google" && wl != "phonepe" && wl != "upi" &&
-            wl != "completed" && wl != "successful" && wl != "ref" && wl != "number" && wl != "utr" &&
-            wl != "from" && wl != "to" && wl != "paid" && wl != "delivery"
+            w.length >= 8 && w.matches(Regex(".*[0-9].*")) &&
+            wl != "transaction" && wl != "successful" && wl != "completed" && wl != "payment" && wl != "details" && wl != "delivery"
         }
         if (filteredIds.isNotEmpty()) {
             txnId = filteredIds.first()

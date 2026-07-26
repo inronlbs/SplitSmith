@@ -403,11 +403,13 @@ fun GroupDetailScreen(
                                 fontSize = d.textLabelSmall,
                                 color = inkMuted
                             )
+                            val remainingGroupBudget = groupBudgetLimit - totalGroupSpend
                             Text(
-                                text = "₹${"%.0f".format(totalGroupSpend)} / ₹${"%.0f".format(groupBudgetLimit)}",
+                                text = if (remainingGroupBudget >= 0) "₹${"%.0f".format(remainingGroupBudget)} left" else "Overspent: ₹${"%.0f".format(-remainingGroupBudget)}",
                                 fontFamily = JetBrainsMonoFamily,
                                 fontSize = d.textLabelSmall,
-                                color = inkMuted
+                                fontWeight = if (remainingGroupBudget < 0) FontWeight.Bold else FontWeight.Normal,
+                                color = if (remainingGroupBudget < 0) alertRed else inkMuted
                             )
                         }
                         Box(

@@ -501,6 +501,39 @@ object FirebaseManager {
         expenseRef.set(expense).await()
     }
 
+    suspend fun attachDriveFileToPersonalExpense(expenseId: String, driveFileId: String, webUrl: String) {
+        val uid = currentUserId ?: return
+        if (expenseId.isBlank() || driveFileId.isBlank()) return
+        val docRef = db.collection("users").document(uid).collection("personal_expenses").document(expenseId)
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(docRef)
+            val currentDriveIds = snapshot.get("receiptDriveFileIds") as? List<String> ?: emptyList()
+            val currentUrls = snapshot.get("receiptUrls") as? List<String> ?: emptyList()
+
+            val newDriveIds = (currentDriveIds + driveFileId).distinct()
+            val newUrls = (currentUrls + webUrl).distinct()
+
+            transaction.update(docRef, "receiptDriveFileIds", newDriveIds)
+            transaction.update(docRef, "receiptUrls", newUrls)
+        }.await()
+    }
+
+    suspend fun attachDriveFileToGroupExpense(groupId: String, expenseId: String, driveFileId: String, webUrl: String) {
+        if (groupId.isBlank() || expenseId.isBlank() || driveFileId.isBlank()) return
+        val docRef = db.collection("groups").document(groupId).collection("expenses").document(expenseId)
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(docRef)
+            val currentDriveIds = snapshot.get("receiptDriveFileIds") as? List<String> ?: emptyList()
+            val currentUrls = snapshot.get("receiptUrls") as? List<String> ?: emptyList()
+
+            val newDriveIds = (currentDriveIds + driveFileId).distinct()
+            val newUrls = (currentUrls + webUrl).distinct()
+
+            transaction.update(docRef, "receiptDriveFileIds", newDriveIds)
+            transaction.update(docRef, "receiptUrls", newUrls)
+        }.await()
+    }
+
     fun observePersonalExpenses(): Flow<List<PersonalExpense>> = callbackFlow {
         val uid = currentUserId
         if (uid == null) {

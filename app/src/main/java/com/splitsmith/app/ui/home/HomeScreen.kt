@@ -1229,11 +1229,13 @@ fun HomeDashboardView(
                             color = colors.inkMuted,
                             letterSpacing = 1.5.sp
                         )
+                        val remainingBudget = budgetLimit - totalPersonalSpent
                         Text(
-                            text = "₹${"%.0f".format(totalPersonalSpent)} of ₹${"%.0f".format(budgetLimit)} used",
+                            text = if (remainingBudget >= 0) "₹${"%.0f".format(remainingBudget)} left" else "Overspent: ₹${"%.0f".format(-remainingBudget)}",
                             fontFamily = OutfitFamily,
                             fontSize = 11.sp,
-                            color = colors.inkMuted
+                            fontWeight = if (remainingBudget < 0) FontWeight.Bold else FontWeight.Normal,
+                            color = if (remainingBudget < 0) colors.alertRed else colors.inkMuted
                         )
                     }
                     // Slim progress bar
@@ -2016,6 +2018,96 @@ fun ProfileSettingsView(
             }
         }
 
+        // STORAGE & CLOUD BACKUP section
+        item {
+            Spacer(modifier = Modifier.height(d.space24))
+            Text("STORAGE & CLOUD BACKUP", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
+            Spacer(modifier = Modifier.height(d.space8))
+
+            val hasDrivePermission = remember(context) { com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context) }
+            val driveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+            ) {
+                coroutineScope.launch {
+                    FirebaseManager.updateDriveSyncSetting(true)
+                }
+            }
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                ProfileSettingsRow(
+                    label = "Google Drive Auto-Sync",
+                    trailingContent = {
+                        Switch(
+                            checked = profile?.driveSyncEnabled ?: false,
+                            onCheckedChange = { enabled ->
+                                coroutineScope.launch {
+                                    if (enabled && !com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) {
+                                        com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(driveLauncher, context)
+                                    } else {
+                                        FirebaseManager.updateDriveSyncSetting(enabled)
+                                    }
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = colors.canvasChalk,
+                                checkedTrackColor = colors.inkPrimary,
+                                uncheckedThumbColor = colors.inkMuted,
+                                uncheckedTrackColor = colors.borderWhisper
+                            )
+                        )
+                    },
+                    inkPrimary = colors.inkPrimary,
+                    inkMuted = colors.inkMuted,
+                    borderWhisper = colors.borderWhisper,
+                    d = d,
+                    onClick = {
+                        val current = profile?.driveSyncEnabled ?: false
+                        coroutineScope.launch {
+                            if (!current && !com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) {
+                                com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(driveLauncher, context)
+                            } else {
+                                FirebaseManager.updateDriveSyncSetting(!current)
+                            }
+                        }
+                    }
+                )
+
+                if (profile?.driveSyncEnabled == true && !hasDrivePermission) {
+                    Spacer(modifier = Modifier.height(d.space8))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color(0xFFFEF3C7),
+                        border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                        shape = RoundedCornerShape(d.radiusSM)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(d.space12),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Google Drive Access Required",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelMedium,
+                                color = Color(0xFF92400E),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = {
+                                    com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(driveLauncher, context)
+                                },
+                                shape = RoundedCornerShape(d.radiusSM),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706), contentColor = Color.White),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text("Grant Access", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // SECURITY section
         item {
             Spacer(modifier = Modifier.height(d.space24))
@@ -2692,6 +2784,21 @@ fun GroupExpenseDetailBottomSheet(
                         Text(if (isPayer) "You paid" else "Your share", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelMedium)
                         Text("₹${if (isPayer) exp.amount - myShare else myShare}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleMedium, color = if (isPayer) colors.inkPrimary else colors.alertRed)
                     }
+
+                    val attachmentUrls = remember(exp) { exp.getEffectiveReceiptUrls() }
+                    if (attachmentUrls.isNotEmpty()) {
+                        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+                        Text("ATTACHED RECEIPTS & INVOICES", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.2.sp)
+                        val displayAttachments = attachmentUrls.map { url ->
+                            val name = url.substringAfterLast("/").substringBefore("?").ifBlank { "Receipt Document" }
+                            val isPdf = url.contains(".pdf", ignoreCase = true)
+                            com.splitsmith.app.ui.components.DisplayAttachment(url = url, name = name, isPdf = isPdf)
+                        }
+                        com.splitsmith.app.ui.components.AttachmentChipsView(
+                            attachments = displayAttachments,
+                            isEditable = false
+                        )
+                    }
                 }
             }
 
@@ -2786,6 +2893,20 @@ fun PersonalExpenseDetailBottomSheet(
                     if (expense.note.isNotEmpty()) {
                         HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
                         Text("Note: ${expense.note}", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelSmall)
+                    }
+                    val attachmentUrls = remember(expense) { expense.receiptUrls }
+                    if (attachmentUrls.isNotEmpty()) {
+                        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+                        Text("ATTACHED RECEIPTS & INVOICES", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.2.sp)
+                        val displayAttachments = attachmentUrls.map { url ->
+                            val name = url.substringAfterLast("/").substringBefore("?").ifBlank { "Receipt Document" }
+                            val isPdf = url.contains(".pdf", ignoreCase = true)
+                            com.splitsmith.app.ui.components.DisplayAttachment(url = url, name = name, isPdf = isPdf)
+                        }
+                        com.splitsmith.app.ui.components.AttachmentChipsView(
+                            attachments = displayAttachments,
+                            isEditable = false
+                        )
                     }
                 }
             }

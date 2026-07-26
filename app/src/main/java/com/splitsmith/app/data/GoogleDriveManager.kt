@@ -28,6 +28,21 @@ object GoogleDriveManager {
 
     private const val ROOT_FOLDER_NAME = "SplitSmith"
 
+    fun hasDrivePermission(context: Context): Boolean {
+        val account = GoogleSignIn.getLastSignedInAccount(context) ?: return false
+        return GoogleSignIn.hasPermissions(account, com.google.android.gms.common.api.Scope(DriveScopes.DRIVE_FILE))
+    }
+
+    fun requestDrivePermission(launcher: androidx.activity.result.ActivityResultLauncher<android.content.Intent>, context: Context) {
+        val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
+            com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+        )
+            .requestScopes(com.google.android.gms.common.api.Scope(DriveScopes.DRIVE_FILE))
+            .build()
+        val intent = GoogleSignIn.getClient(context, gso).signInIntent
+        launcher.launch(intent)
+    }
+
     private fun getDriveService(context: Context): Drive? {
         val account = GoogleSignIn.getLastSignedInAccount(context) ?: return null
         val credential = GoogleAccountCredential.usingOAuth2(

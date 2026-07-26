@@ -197,7 +197,14 @@ fun PersonalExpensesScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("Current Expenses for the Month", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
-                            Text("Monthly Budget: \u20b9${budgetLimit.toInt()}", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
+                            val remaining = budgetLimit - monthlySpend
+                            Text(
+                                text = if (remaining >= 0) "₹${"%.0f".format(remaining)} left" else "Overspent: ₹${"%.0f".format(-remaining)}",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelSmall,
+                                fontWeight = if (remaining < 0) FontWeight.Bold else FontWeight.Normal,
+                                color = if (remaining < 0) colors.alertRed else colors.inkMuted
+                            )
                         }
                         Spacer(modifier = Modifier.height(d.space8))
                         Text(

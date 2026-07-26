@@ -12,7 +12,7 @@ data class UserProfile(
     val customCategories: List<String> = emptyList(),
     val shortCode: String = "",
     val budget: BudgetConfig = BudgetConfig(limit = 15000.0, type = "MONTHLY", threshold = 80),
-    val driveSyncEnabled: Boolean = false
+    val driveSyncEnabled: Boolean = true
 )
 
 @Serializable

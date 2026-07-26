@@ -100,7 +100,7 @@ fun AttachmentComponent(
                 onClick = { showPickerSheet = true },
                 shape = RoundedCornerShape(d.radiusFull),
                 border = BorderStroke(1.dp, colors.borderWhisper),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,

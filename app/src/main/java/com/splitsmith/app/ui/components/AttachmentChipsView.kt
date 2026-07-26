@@ -36,7 +36,8 @@ data class DisplayAttachment(
     val uri: Uri? = null,
     val url: String = "",
     val name: String = "Attachment",
-    val isPdf: Boolean = false
+    val isPdf: Boolean = false,
+    val isPending: Boolean = false
 )
 
 @Composable
@@ -52,6 +53,7 @@ fun AttachmentChipsView(
     val context = LocalContext.current
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
     var previewImageUri by remember { mutableStateOf<Uri?>(null) }
+    var previewIndex by remember { mutableIntStateOf(-1) }
 
     val colors = LocalSplitColors.current
 
@@ -70,6 +72,7 @@ fun AttachmentChipsView(
                         openAttachment(context, item, onShowImagePreview = { url, uri ->
                             previewImageUrl = url
                             previewImageUri = uri
+                            previewIndex = index
                         })
                     }
                 )
@@ -82,6 +85,7 @@ fun AttachmentChipsView(
         Dialog(onDismissRequest = {
             previewImageUrl = null
             previewImageUri = null
+            previewIndex = -1
         }) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -106,11 +110,27 @@ fun AttachmentChipsView(
                             fontSize = 16.sp,
                             color = colors.inkPrimary
                         )
-                        IconButton(onClick = {
-                            previewImageUrl = null
-                            previewImageUri = null
-                        }) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = colors.inkPrimary)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isEditable && previewIndex >= 0 && onEditAttachment != null) {
+                                TextButton(onClick = {
+                                    val idx = previewIndex
+                                    previewImageUrl = null
+                                    previewImageUri = null
+                                    previewIndex = -1
+                                    onEditAttachment(idx)
+                                }) {
+                                    Icon(Icons.Outlined.Edit, contentDescription = "Edit", tint = colors.inkPrimary, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Edit & Crop", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.inkPrimary, fontSize = 13.sp)
+                                }
+                            }
+                            IconButton(onClick = {
+                                previewImageUrl = null
+                                previewImageUri = null
+                                previewIndex = -1
+                            }) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = colors.inkPrimary)
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
@@ -136,17 +156,17 @@ private fun AttachmentChip(
     onClick: () -> Unit
 ) {
     val colors = LocalSplitColors.current
-    val accentColor = if (item.isPdf) Color(0xFF0284C7) else Color(0xFFEA580C)
-    val chipBg = accentColor.copy(alpha = 0.12f)
+    val accentColor = if (item.isPdf) Color(0xFF0284C7) else Color(0xFFD97706)
+    val chipBg = accentColor.copy(alpha = 0.08f)
 
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = chipBg,
-        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.3f)),
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.25f)),
         modifier = Modifier.clickable(onClick = onClick)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -164,8 +184,17 @@ private fun AttachmentChip(
                 color = colors.inkPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 140.dp)
+                modifier = Modifier.widthIn(max = 130.dp)
             )
+            if (item.isPending) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "• Pending",
+                    fontFamily = OutfitFamily,
+                    fontSize = 11.sp,
+                    color = colors.inkMuted
+                )
+            }
             Spacer(modifier = Modifier.width(4.dp))
             Icon(
                 imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
@@ -176,12 +205,12 @@ private fun AttachmentChip(
 
             if (isEditable) {
                 if (!item.isPdf) {
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Surface(
                         shape = CircleShape,
-                        color = colors.surfaceCard,
+                        color = colors.surfaceCard.copy(alpha = 0.9f),
                         modifier = Modifier
-                            .size(18.dp)
+                            .size(32.dp)
                             .clickable(onClick = onEdit)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -189,18 +218,18 @@ private fun AttachmentChip(
                                 imageVector = Icons.Outlined.Edit,
                                 contentDescription = "Edit Receipt",
                                 tint = colors.inkPrimary,
-                                modifier = Modifier.size(11.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(4.dp))
                 Surface(
                     shape = CircleShape,
-                    color = colors.surfaceCard,
+                    color = colors.surfaceCard.copy(alpha = 0.9f),
                     modifier = Modifier
-                        .size(18.dp)
+                        .size(32.dp)
                         .clickable(onClick = onRemove)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -208,7 +237,7 @@ private fun AttachmentChip(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Remove",
                             tint = colors.inkPrimary,
-                            modifier = Modifier.size(12.dp)
+                            modifier = Modifier.size(15.dp)
                         )
                     }
                 }
