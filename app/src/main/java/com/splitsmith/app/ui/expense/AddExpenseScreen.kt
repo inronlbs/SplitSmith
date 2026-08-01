@@ -105,6 +105,7 @@ fun AddExpenseScreen(
         val pDesc = FirebaseManager.pendingExpenseDesc
         val pCategory = FirebaseManager.pendingExpenseCategory
         val pDate = FirebaseManager.pendingExpenseDate
+        val pAttachment = FirebaseManager.pendingExpenseAttachmentUri
         if (pAmt != null) {
             amountStr = pAmt
             FirebaseManager.pendingExpenseAmount = null
@@ -120,6 +121,10 @@ fun AddExpenseScreen(
         if (pDate != null) {
             selectedDateMillis = pDate
             FirebaseManager.pendingExpenseDate = null
+        }
+        if (pAttachment != null) {
+            selectedAttachmentUris = listOf(pAttachment)
+            FirebaseManager.pendingExpenseAttachmentUri = null
         }
     }
 
@@ -291,10 +296,14 @@ fun AddExpenseScreen(
                                 if (selectedAttachmentUris.isNotEmpty()) {
                                     val folderCategory = currentGroup?.name ?: "Group Expenses"
                                     selectedAttachmentUris.forEach { uri ->
+                                        val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "exp")
+                                        val effectiveUri = localSavedUri ?: uri
+                                        var driveUploaded = false
+
                                         if (userProfile?.driveSyncEnabled == true) {
                                             val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
                                                 context = context,
-                                                inputUri = uri,
+                                                inputUri = effectiveUri,
                                                 folderCategoryName = folderCategory,
                                                 dateMillis = selectedDateMillis,
                                                 expenseId = expenseId ?: ""
@@ -302,6 +311,22 @@ fun AddExpenseScreen(
                                             if (driveResult != null) {
                                                 finalUploadedUrls.add(driveResult.webViewLink)
                                                 finalDriveFileIds.add(driveResult.fileId)
+                                                driveUploaded = true
+                                            }
+                                        }
+
+                                        if (!driveUploaded) {
+                                            finalUploadedUrls.add(effectiveUri.toString())
+                                            if (userProfile?.driveSyncEnabled == true) {
+                                                com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                    context = context,
+                                                    localUri = effectiveUri,
+                                                    folderCategoryName = folderCategory,
+                                                    dateMillis = selectedDateMillis,
+                                                    expenseId = expenseId ?: "",
+                                                    isPersonal = false,
+                                                    groupId = groupId
+                                                )
                                             }
                                         }
                                     }

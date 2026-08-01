@@ -24,6 +24,7 @@ object FirebaseManager {
     var pendingExpenseDesc: String? = null
     var pendingExpenseCategory: String? = null
     var pendingExpenseDate: Long? = null
+    var pendingExpenseAttachmentUri: android.net.Uri? = null
 
     val currentUserId: String?
         get() {

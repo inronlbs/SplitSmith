@@ -883,8 +883,9 @@ fun SlipImportScreen(
             val hasDrivePermission = remember(context) { com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context) }
             val driveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                 contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
-            ) {
-                uploadToDrive = true
+            ) { result ->
+                val success = com.splitsmith.app.data.GoogleDriveManager.handleDrivePermissionResult(result.data)
+                uploadToDrive = success
             }
 
             Surface(
@@ -1078,6 +1079,7 @@ fun SlipImportScreen(
                     FirebaseManager.pendingExpenseDesc = if (receiverName.isNotEmpty()) "$entryTitle ($receiverName)" else entryTitle
                     FirebaseManager.pendingExpenseCategory = selectedCategory
                     FirebaseManager.pendingExpenseDate = parsedDateMillis
+                    FirebaseManager.pendingExpenseAttachmentUri = imageUri
                     onNavigateToQuickSplit()
                 },
                 modifier = Modifier
@@ -1170,6 +1172,7 @@ fun SlipImportScreen(
                                     FirebaseManager.pendingExpenseDesc = if (receiverName.isNotEmpty()) "$entryTitle ($receiverName)" else entryTitle
                                     FirebaseManager.pendingExpenseCategory = selectedCategory
                                     FirebaseManager.pendingExpenseDate = parsedDateMillis
+                                    FirebaseManager.pendingExpenseAttachmentUri = imageUri
                                     onNavigateToAddExpense(group.id, null)
                                 },
                                 shape = RoundedCornerShape(d.radiusSM),

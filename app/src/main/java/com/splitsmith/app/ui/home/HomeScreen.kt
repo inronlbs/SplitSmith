@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Groups
@@ -1217,6 +1218,38 @@ fun HomeDashboardView(
                     else -> colors.alertRed
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val alertThresholdPct = userProfile?.budget?.threshold ?: 80
+                    val isThresholdExceeded = budgetLimit > 0 && totalPersonalSpent >= (budgetLimit * (alertThresholdPct / 100.0))
+
+                    if (isThresholdExceeded) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = d.space8),
+                            color = Color(0xFFFEF3C7),
+                            border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                            shape = RoundedCornerShape(d.radiusSM)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(d.space12),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(d.space8)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = "Warning",
+                                    tint = Color(0xFFD97706),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Budget Alert: Spending reached ${"%.0f".format((totalPersonalSpent / budgetLimit) * 100)}% of limit (₹${"%.0f".format(totalPersonalSpent)} / ₹${"%.0f".format(budgetLimit)})",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = d.textLabelMedium,
+                                    color = Color(0xFF92400E)
+                                )
+                            }
+                        }
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -2037,9 +2070,10 @@ fun ProfileSettingsView(
             val hasDrivePermission = remember(context) { com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context) }
             val driveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                 contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
-            ) {
+            ) { result ->
+                val success = com.splitsmith.app.data.GoogleDriveManager.handleDrivePermissionResult(result.data)
                 coroutineScope.launch {
-                    FirebaseManager.updateDriveSyncSetting(true)
+                    FirebaseManager.updateDriveSyncSetting(success)
                 }
             }
 

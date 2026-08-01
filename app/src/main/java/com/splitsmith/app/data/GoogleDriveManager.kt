@@ -33,6 +33,18 @@ object GoogleDriveManager {
         return GoogleSignIn.hasPermissions(account, com.google.android.gms.common.api.Scope(DriveScopes.DRIVE_FILE))
     }
 
+    fun handleDrivePermissionResult(intentData: android.content.Intent?): Boolean {
+        if (intentData == null) return false
+        return try {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(intentData)
+            val account = task.getResult(com.google.android.gms.common.api.ApiException::class.java)
+            account != null && GoogleSignIn.hasPermissions(account, com.google.android.gms.common.api.Scope(DriveScopes.DRIVE_FILE))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     fun requestDrivePermission(launcher: androidx.activity.result.ActivityResultLauncher<android.content.Intent>, context: Context) {
         val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
             com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
@@ -46,15 +58,15 @@ object GoogleDriveManager {
 
     private fun getDriveService(context: Context): Drive? {
         val account = GoogleSignIn.getLastSignedInAccount(context) ?: return null
-        val accountName = account.email ?: account.account?.name
         val credential = GoogleAccountCredential.usingOAuth2(
             context,
             Collections.singleton(DriveScopes.DRIVE_FILE)
         )
-        if (accountName != null) {
-            credential.selectedAccountName = accountName
-        } else if (account.account != null) {
+        val accountName = account.email ?: account.account?.name
+        if (account.account != null) {
             credential.selectedAccount = account.account
+        } else if (accountName != null) {
+            credential.selectedAccountName = accountName
         }
 
         return Drive.Builder(

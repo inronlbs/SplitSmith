@@ -127,9 +127,11 @@ fun MainNavigation() {
                     imageUriStr = key.imageUriStr,
                     onBack = { backStack.removeLastOrNull() },
                     onNavigateToQuickSplit = {
+                        backStack.removeLastOrNull()
                         backStack.add(QuickSplit)
                     },
                     onNavigateToAddExpense = { gid, eid ->
+                        backStack.removeLastOrNull()
                         backStack.add(AddExpense(gid, eid))
                     }
                 )

@@ -611,10 +611,14 @@ fun PersonalExpensesScreen(
 
                                     if (selectedAttachmentUris.isNotEmpty()) {
                                         selectedAttachmentUris.forEach { uri ->
+                                            val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "personal")
+                                            val effectiveUri = localSavedUri ?: uri
+                                            var driveUploaded = false
+
                                             if (profile?.driveSyncEnabled == true) {
                                                 val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
                                                     context = context,
-                                                    inputUri = uri,
+                                                    inputUri = effectiveUri,
                                                     folderCategoryName = "Personal Expenses",
                                                     dateMillis = newDateMillis,
                                                     expenseId = currentEdit?.id ?: ""
@@ -622,6 +626,21 @@ fun PersonalExpensesScreen(
                                                 if (driveResult != null) {
                                                     finalUploadedUrls.add(driveResult.webViewLink)
                                                     finalDriveFileIds.add(driveResult.fileId)
+                                                    driveUploaded = true
+                                                }
+                                            }
+
+                                            if (!driveUploaded) {
+                                                finalUploadedUrls.add(effectiveUri.toString())
+                                                if (profile?.driveSyncEnabled == true) {
+                                                    com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                        context = context,
+                                                        localUri = effectiveUri,
+                                                        folderCategoryName = "Personal Expenses",
+                                                        dateMillis = newDateMillis,
+                                                        expenseId = currentEdit?.id ?: "",
+                                                        isPersonal = true
+                                                    )
                                                 }
                                             }
                                         }

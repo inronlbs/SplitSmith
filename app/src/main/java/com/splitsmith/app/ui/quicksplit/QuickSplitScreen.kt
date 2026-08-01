@@ -661,20 +661,29 @@ fun QuickSplitScreen(
                                     val finalDriveFileIds = existingDriveFileIds.toMutableList()
 
                                     if (selectedAttachmentUris.isNotEmpty()) {
-                                        selectedAttachmentUris.forEach { uri ->
-                                            val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
-                                                context = context,
-                                                inputUri = uri,
-                                                folderCategoryName = "Quick Splits",
-                                                dateMillis = selectedDateMillis,
-                                                expenseId = ""
-                                            )
-                                            if (driveResult != null) {
-                                                finalUploadedUrls.add(driveResult.webViewLink)
-                                                finalDriveFileIds.add(driveResult.fileId)
-                                            }
-                                        }
-                                    }
+                                         selectedAttachmentUris.forEach { uri ->
+                                             val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "quick")
+                                             val effectiveUri = localSavedUri ?: uri
+                                             var driveUploaded = false
+
+                                             val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
+                                                 context = context,
+                                                 inputUri = effectiveUri,
+                                                 folderCategoryName = "Quick Splits",
+                                                 dateMillis = selectedDateMillis,
+                                                 expenseId = ""
+                                             )
+                                             if (driveResult != null) {
+                                                 finalUploadedUrls.add(driveResult.webViewLink)
+                                                 finalDriveFileIds.add(driveResult.fileId)
+                                                 driveUploaded = true
+                                             }
+
+                                             if (!driveUploaded) {
+                                                 finalUploadedUrls.add(effectiveUri.toString())
+                                             }
+                                         }
+                                     }
 
                                     FirebaseManager.createDirectSplit(
                                         withUserId = user.uid,

@@ -649,6 +649,20 @@ fun DirectSplitDetailBottomSheet(
                     val dateStr = if (split.date > 0) java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault()).format(java.util.Date(split.date)) else "Recently"
                     Text(dateStr, fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkPrimary)
                 }
+
+                if (split.receiptUrls.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(d.space8))
+                    Text("ATTACHED RECEIPTS & INVOICES", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.2.sp)
+                    val displayAttachments = split.receiptUrls.map { url ->
+                        val name = url.substringAfterLast("/").substringBefore("?").ifBlank { "Receipt Document" }
+                        val isPdf = url.contains(".pdf", ignoreCase = true)
+                        com.splitsmith.app.ui.components.DisplayAttachment(url = url, name = name, isPdf = isPdf)
+                    }
+                    com.splitsmith.app.ui.components.AttachmentChipsView(
+                        attachments = displayAttachments,
+                        isEditable = false
+                    )
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
