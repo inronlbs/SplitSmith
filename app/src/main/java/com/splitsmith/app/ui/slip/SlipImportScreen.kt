@@ -31,6 +31,11 @@ import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.CurrencyRupee
+import androidx.compose.material.icons.outlined.Notes
+import androidx.compose.material.icons.outlined.StoreMallDirectory
+import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -46,6 +51,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -478,78 +484,146 @@ fun SlipImportScreen(
             }
 
             if (selectedOcrText != null) {
-                val txt = selectedOcrText!!
-                AlertDialog(
-                    onDismissRequest = { selectedOcrText = null },
-                    title = {
-                        Text("Assign Selected Text", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.inkPrimary)
-                    },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Tapped receipt text:", fontFamily = OutfitFamily, fontSize = 12.sp, color = colors.inkMuted)
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = colors.canvasChalk,
-                                border = BorderStroke(1.dp, colors.borderWhisper),
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                var editableText by remember(selectedOcrText) { mutableStateOf(selectedOcrText ?: "") }
+                Dialog(onDismissRequest = { selectedOcrText = null }) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = colors.surfaceCard,
+                        tonalElevation = 6.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            // Header
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(txt, fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colors.inkPrimary, modifier = Modifier.padding(12.dp))
-                            }
-                            Text("Select field to populate:", fontFamily = OutfitFamily, fontSize = 12.sp, color = colors.inkMuted)
-                        }
-                    },
-                    confirmButton = {
-                        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
-                                    onClick = {
-                                        val digits = txt.replace(Regex("[^0-9.]"), "")
-                                        if (digits.isNotEmpty()) amountStr = digits
-                                        selectedOcrText = null
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
-                                ) {
-                                    Text("Set Amount", fontFamily = OutfitFamily, fontSize = 12.sp)
-                                }
-
-                                Button(
-                                    onClick = {
-                                        receiverName = cleanReceiverName(txt)
-                                        selectedOcrText = null
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
-                                ) {
-                                    Text("Set Merchant", fontFamily = OutfitFamily, fontSize = 12.sp)
-                                }
-                            }
-
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(
-                                    onClick = {
-                                        transactionId = txt.trim()
-                                        selectedOcrText = null
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text("Set Txn ID", fontFamily = OutfitFamily, fontSize = 12.sp)
-                                }
-
-                                TextButton(
+                                Text(
+                                    "Assign Text",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = d.textTitleMedium,
+                                    color = colors.inkPrimary
+                                )
+                                IconButton(
                                     onClick = { selectedOcrText = null },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.size(32.dp)
                                 ) {
-                                    Text("Cancel", fontFamily = OutfitFamily, fontSize = 12.sp)
+                                    Icon(Icons.Default.Close, contentDescription = "Close", tint = colors.inkMuted, modifier = Modifier.size(20.dp))
+                                }
+                            }
+
+                            // Editable text field
+                            OutlinedTextField(
+                                value = editableText,
+                                onValueChange = { editableText = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = LocalTextStyle.current.copy(
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = colors.inkPrimary
+                                ),
+                                label = { Text("Extracted text (editable)", fontFamily = OutfitFamily, fontSize = 12.sp) },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = colors.inkPrimary,
+                                    unfocusedBorderColor = colors.borderWhisper,
+                                    focusedContainerColor = colors.canvasChalk,
+                                    unfocusedContainerColor = colors.canvasChalk,
+                                    cursorColor = colors.inkPrimary
+                                ),
+                                maxLines = 3
+                            )
+
+                            // Field label
+                            Text(
+                                "ASSIGN TO FIELD",
+                                fontFamily = OutfitFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.inkMuted,
+                                letterSpacing = 1.5.sp
+                            )
+
+                            // Assignment buttons — 2-column grid with icons
+                            @Composable
+                            fun AssignChip(
+                                icon: androidx.compose.ui.graphics.vector.ImageVector,
+                                label: String,
+                                onClick: () -> Unit,
+                                modifier: Modifier = Modifier
+                            ) {
+                                Surface(
+                                    onClick = onClick,
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = colors.canvasChalk,
+                                    border = BorderStroke(1.dp, colors.borderWhisper),
+                                    modifier = modifier.height(44.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.inkPrimary)
+                                        Text(label, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = colors.inkPrimary)
+                                    }
+                                }
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    AssignChip(
+                                        icon = Icons.Outlined.CurrencyRupee,
+                                        label = "Amount",
+                                        onClick = {
+                                            val digits = editableText.replace(Regex("[^0-9.]"), "")
+                                            if (digits.isNotEmpty()) amountStr = digits
+                                            selectedOcrText = null
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    AssignChip(
+                                        icon = Icons.Outlined.StoreMallDirectory,
+                                        label = "Merchant",
+                                        onClick = {
+                                            receiverName = cleanReceiverName(editableText)
+                                            selectedOcrText = null
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    AssignChip(
+                                        icon = Icons.Outlined.Tag,
+                                        label = "Txn ID",
+                                        onClick = {
+                                            transactionId = editableText.trim()
+                                            selectedOcrText = null
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    AssignChip(
+                                        icon = Icons.Outlined.Notes,
+                                        label = "Remarks",
+                                        onClick = {
+                                            remarks = editableText.trim()
+                                            selectedOcrText = null
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
                                 }
                             }
                         }
-                    },
-                    dismissButton = null
-                )
+                    }
+                }
             }
 
             if (showCropDialog) {
@@ -983,31 +1057,40 @@ fun SlipImportScreen(
                                 if (transactionId.isNotEmpty()) append("Txn ID: $transactionId")
                             }.trim()
 
-                            val uid = FirebaseManager.currentUserId ?: return@launch
-                            val expenseRef = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-                                .collection("users").document(uid).collection("personal_expenses").document()
+                            // Save image locally first (persistent storage)
+                            val localReceiptUrls = mutableListOf<String>()
+                            val targetUri = imageUri
+                            var localSavedUri: android.net.Uri? = null
+                            if (targetUri != null) {
+                                localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, targetUri, "personal")
+                                if (localSavedUri != null) {
+                                    localReceiptUrls.add(localSavedUri.toString())
+                                } else {
+                                    localReceiptUrls.add(targetUri.toString())
+                                }
+                            }
 
-                            val expId = expenseRef.id
-
-                            FirebaseManager.addPersonalExpense(
+                            // Save to Firebase (returns real document ID)
+                            val expId = FirebaseManager.addPersonalExpense(
                                 description = entryTitle,
                                 amount = amt,
                                 category = selectedCategory,
                                 note = personalNote,
-                                date = parsedDateMillis ?: System.currentTimeMillis()
+                                date = parsedDateMillis ?: System.currentTimeMillis(),
+                                receiptUrls = localReceiptUrls
                             )
 
                             Toast.makeText(context, "Logged as Personal Expense!", Toast.LENGTH_SHORT).show()
 
-                            // Asynchronous non-blocking background Drive upload / queueing
-                            val targetUri = imageUri
-                            if (uploadToDrive && targetUri != null) {
+                            // Background Drive upload with real document ID
+                            val effectiveUri = localSavedUri ?: targetUri
+                            if (uploadToDrive && effectiveUri != null && expId.isNotBlank()) {
                                 val applicationContext = context.applicationContext
                                 kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                                     try {
                                         val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
                                             context = applicationContext,
-                                            inputUri = targetUri,
+                                            inputUri = effectiveUri,
                                             folderCategoryName = "Personal Expenses",
                                             dateMillis = parsedDateMillis ?: System.currentTimeMillis(),
                                             expenseId = expId
@@ -1021,7 +1104,7 @@ fun SlipImportScreen(
                                         } else {
                                             com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
                                                 context = applicationContext,
-                                                localUri = targetUri,
+                                                localUri = effectiveUri,
                                                 folderCategoryName = "Personal Expenses",
                                                 dateMillis = parsedDateMillis ?: System.currentTimeMillis(),
                                                 expenseId = expId,
@@ -1032,7 +1115,7 @@ fun SlipImportScreen(
                                         e.printStackTrace()
                                         com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
                                             context = applicationContext,
-                                            localUri = targetUri,
+                                            localUri = effectiveUri,
                                             folderCategoryName = "Personal Expenses",
                                             dateMillis = parsedDateMillis ?: System.currentTimeMillis(),
                                             expenseId = expId,

@@ -25,6 +25,7 @@ object FirebaseManager {
     var pendingExpenseCategory: String? = null
     var pendingExpenseDate: Long? = null
     var pendingExpenseAttachmentUri: android.net.Uri? = null
+    var pendingQuickSplitUser: UserProfile? = null
 
     val currentUserId: String?
         get() {
@@ -331,8 +332,10 @@ object FirebaseManager {
     }
 
     suspend fun getGroupOnce(groupId: String): Group? {
+        val cleanId = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(groupId)
+        if (cleanId.isBlank() || !com.splitsmith.app.util.QrPayloadParser.isValidFirestoreDocId(cleanId)) return null
         return try {
-            db.collection("groups").document(groupId).get().await().toObject(Group::class.java)
+            db.collection("groups").document(cleanId).get().await().toObject(Group::class.java)
         } catch (e: Exception) {
             null
         }
@@ -370,8 +373,8 @@ object FirebaseManager {
         receiptUrls: List<String> = emptyList(),
         receiptDriveFileIds: List<String> = emptyList(),
         date: Long = System.currentTimeMillis()
-    ) {
-        val uid = currentUserId ?: return
+    ): String {
+        val uid = currentUserId ?: return ""
         val expenseRef = db.collection("groups").document(groupId).collection("expenses").document()
         val finalUrls = if (receiptUrls.isNotEmpty()) receiptUrls else if (receiptUrl.isNotBlank()) listOf(receiptUrl) else emptyList()
         val expense = Expense(
@@ -389,6 +392,7 @@ object FirebaseManager {
             createdBy = uid
         )
         expenseRef.set(expense).await()
+        return expenseRef.id
     }
 
     suspend fun deleteExpense(groupId: String, expenseId: String) {
@@ -486,8 +490,8 @@ object FirebaseManager {
         date: Long = System.currentTimeMillis(),
         receiptUrls: List<String> = emptyList(),
         receiptDriveFileIds: List<String> = emptyList()
-    ) {
-        val uid = currentUserId ?: return
+    ): String {
+        val uid = currentUserId ?: return ""
         val expenseRef = db.collection("users").document(uid).collection("personal_expenses").document()
         val expense = PersonalExpense(
             id = expenseRef.id,
@@ -500,6 +504,7 @@ object FirebaseManager {
             receiptDriveFileIds = receiptDriveFileIds
         )
         expenseRef.set(expense).await()
+        return expenseRef.id
     }
 
     suspend fun attachDriveFileToPersonalExpense(expenseId: String, driveFileId: String, webUrl: String) {
@@ -579,16 +584,28 @@ object FirebaseManager {
          return (list1 + list2).distinctBy { it.id }.sortedByDescending { it.date }
      }
 
-    suspend fun updatePersonalExpense(id: String, description: String, amount: Double, category: String, note: String, date: Long = System.currentTimeMillis()) {
+    suspend fun updatePersonalExpense(
+        id: String,
+        description: String,
+        amount: Double,
+        category: String,
+        note: String,
+        date: Long = System.currentTimeMillis(),
+        receiptUrls: List<String>? = null,
+        receiptDriveFileIds: List<String>? = null
+    ) {
          val uid = currentUserId ?: throw RuntimeException("Not authenticated")
+         val updates = mutableMapOf<String, Any>(
+             "description" to description,
+             "amount" to amount,
+             "category" to category,
+             "note" to note,
+             "date" to date
+         )
+         if (receiptUrls != null) updates["receiptUrls"] = receiptUrls
+         if (receiptDriveFileIds != null) updates["receiptDriveFileIds"] = receiptDriveFileIds
          db.collection("users").document(uid).collection("personal_expenses").document(id)
-             .update(
-                 "description", description,
-                 "amount", amount,
-                 "category", category,
-                 "note", note,
-                 "date", date
-             ).await()
+             .update(updates).await()
      }
 
     // CUSTOM CATEGORIES ACTIONS
@@ -676,8 +693,8 @@ object FirebaseManager {
         date: Long = System.currentTimeMillis(),
         receiptUrls: List<String> = emptyList(),
         receiptDriveFileIds: List<String> = emptyList()
-    ) {
-        val uid = currentUserId ?: return
+    ): String {
+        val uid = currentUserId ?: return ""
         val splitRef = db.collection("direct_splits").document()
         val split = DirectSplit(
             id = splitRef.id,
@@ -694,6 +711,23 @@ object FirebaseManager {
             receiptDriveFileIds = receiptDriveFileIds
         )
         splitRef.set(split).await()
+        return splitRef.id
+    }
+
+    suspend fun attachDriveFileToDirectSplit(splitId: String, driveFileId: String, webUrl: String) {
+        if (splitId.isBlank() || driveFileId.isBlank()) return
+        val docRef = db.collection("direct_splits").document(splitId)
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(docRef)
+            val currentDriveIds = snapshot.get("receiptDriveFileIds") as? List<String> ?: emptyList()
+            val currentUrls = snapshot.get("receiptUrls") as? List<String> ?: emptyList()
+
+            val newDriveIds = (currentDriveIds + driveFileId).distinct()
+            val newUrls = (currentUrls + webUrl).distinct()
+
+            transaction.update(docRef, "receiptDriveFileIds", newDriveIds)
+            transaction.update(docRef, "receiptUrls", newUrls)
+        }.await()
     }
 
     fun observeDirectSplits(): Flow<List<DirectSplit>> = callbackFlow {
@@ -783,39 +817,75 @@ object FirebaseManager {
     }
 
     suspend fun searchUserByCode(code: String): UserProfile? {
-        val trimmed = code.trim().uppercase()
-        if (trimmed.isEmpty()) return null
-
-        // 1. Try exact UID match
-        val doc = db.collection("users").document(code.trim()).get().await()
-        if (doc.exists()) {
-            return doc.toObject(UserProfile::class.java)
+        val parsed = com.splitsmith.app.util.QrPayloadParser.parse(code)
+        val targetCode = when (parsed) {
+            is com.splitsmith.app.util.ParsedQrPayload.UserQr -> parsed.userCode
+            is com.splitsmith.app.util.ParsedQrPayload.GroupQr -> return null
+            is com.splitsmith.app.util.ParsedQrPayload.Unknown -> parsed.rawText
         }
-        
-        val docLower = db.collection("users").document(code.trim().lowercase()).get().await()
-        if (docLower.exists()) {
-            return docLower.toObject(UserProfile::class.java)
+        val targetUid = when (parsed) {
+            is com.splitsmith.app.util.ParsedQrPayload.UserQr -> parsed.uid
+            else -> ""
+        }
+
+        val trimmed = targetCode.trim().uppercase()
+        if (trimmed.isEmpty() && targetUid.isEmpty()) return null
+
+        // 0. If direct UID was extracted from QR payload, check UID document first
+        if (targetUid.isNotEmpty() && com.splitsmith.app.util.QrPayloadParser.isValidFirestoreDocId(targetUid)) {
+            try {
+                val doc = db.collection("users").document(targetUid).get().await()
+                if (doc.exists()) {
+                    return doc.toObject(UserProfile::class.java)
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 1. Try exact UID match (only if path is valid)
+        val rawCode = targetCode.trim()
+        if (com.splitsmith.app.util.QrPayloadParser.isValidFirestoreDocId(rawCode)) {
+            try {
+                val doc = db.collection("users").document(rawCode).get().await()
+                if (doc.exists()) {
+                    return doc.toObject(UserProfile::class.java)
+                }
+            } catch (_: Exception) {}
+
+            try {
+                val docLower = db.collection("users").document(rawCode.lowercase()).get().await()
+                if (docLower.exists()) {
+                    return docLower.toObject(UserProfile::class.java)
+                }
+            } catch (_: Exception) {}
         }
 
         // 2. Query by shortCode field
-        val queryByShort = db.collection("users")
-            .whereEqualTo("shortCode", trimmed)
-            .limit(1)
-            .get().await()
-        val foundByShort = queryByShort.documents.firstOrNull()?.toObject(UserProfile::class.java)
-        if (foundByShort != null) {
-            return foundByShort
+        if (trimmed.isNotEmpty()) {
+            try {
+                val queryByShort = db.collection("users")
+                    .whereEqualTo("shortCode", trimmed)
+                    .limit(1)
+                    .get().await()
+                val foundByShort = queryByShort.documents.firstOrNull()?.toObject(UserProfile::class.java)
+                if (foundByShort != null) {
+                    return foundByShort
+                }
+            } catch (_: Exception) {}
         }
 
         // 3. Fallback client-side scan for maximum reliability across existing databases
-        val allUsers = db.collection("users").get().await()
-        for (d in allUsers.documents) {
-            val profile = d.toObject(UserProfile::class.java)
-            if (profile != null) {
-                if (profile.uid.take(6).uppercase() == trimmed || profile.uid.uppercase() == trimmed) {
-                    return profile
+        if (trimmed.isNotEmpty()) {
+            try {
+                val allUsers = db.collection("users").get().await()
+                for (d in allUsers.documents) {
+                    val profile = d.toObject(UserProfile::class.java)
+                    if (profile != null) {
+                        if (profile.uid.take(6).uppercase() == trimmed || profile.uid.uppercase() == trimmed) {
+                            return profile
+                        }
+                    }
                 }
-            }
+            } catch (_: Exception) {}
         }
         return null
     }
@@ -824,9 +894,19 @@ object FirebaseManager {
     suspend fun addConnection(targetUid: String) {
         val uid = currentUserId ?: return
         if (targetUid == uid) return
+        val now = System.currentTimeMillis()
+        // Save in current user's connections
         db.collection("users").document(uid).collection("connections").document(targetUid).set(
-            mapOf("connectedAt" to System.currentTimeMillis())
+            mapOf("connectedAt" to now)
         ).await()
+        // Save in target user's connections (mutual connection)
+        try {
+            db.collection("users").document(targetUid).collection("connections").document(uid).set(
+                mapOf("connectedAt" to now)
+            ).await()
+        } catch (e: Exception) {
+            android.util.Log.w("FirebaseManager", "Could not set reverse connection: ${e.message}")
+        }
     }
 
     suspend fun removeConnection(targetUid: String) {
@@ -941,18 +1021,23 @@ object FirebaseManager {
         category: String,
         splitMode: String,
         splits: Map<String, Double>,
-        date: Long = System.currentTimeMillis()
+        date: Long = System.currentTimeMillis(),
+        receiptUrls: List<String>? = null,
+        receiptDriveFileIds: List<String>? = null
     ) {
+        val updates = mutableMapOf<String, Any>(
+            "description" to description,
+            "amount" to amount,
+            "paidBy" to paidBy,
+            "category" to category,
+            "splitMode" to splitMode,
+            "splits" to splits,
+            "date" to date
+        )
+        if (receiptUrls != null) updates["receiptUrls"] = receiptUrls
+        if (receiptDriveFileIds != null) updates["receiptDriveFileIds"] = receiptDriveFileIds
         db.collection("groups").document(groupId).collection("expenses").document(expenseId)
-            .update(
-                "description", description,
-                "amount", amount,
-                "paidBy", paidBy,
-                "category", category,
-                "splitMode", splitMode,
-                "splits", splits,
-                "date", date
-            ).await()
+            .update(updates).await()
     }
 
     fun observeAllUserGroupExpenses(): Flow<List<GroupExpenseWithContext>> = callbackFlow {

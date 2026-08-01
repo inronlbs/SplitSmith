@@ -91,6 +91,16 @@ fun QuickSplitScreen(
             selectedDateMillis = pDate
             FirebaseManager.pendingExpenseDate = null
         }
+        val pAttachment = FirebaseManager.pendingExpenseAttachmentUri
+        if (pAttachment != null) {
+            selectedAttachmentUris = listOf(pAttachment)
+            FirebaseManager.pendingExpenseAttachmentUri = null
+        }
+        val pUser = FirebaseManager.pendingQuickSplitUser
+        if (pUser != null) {
+            targetUser = pUser
+            FirebaseManager.pendingQuickSplitUser = null
+        }
     }
 
     val colors = LocalSplitColors.current
@@ -131,18 +141,14 @@ fun QuickSplitScreen(
         coroutineScope.launch {
             isLoading = true
             try {
-                val resolvedCode = if (payload.startsWith("splitsmith://user?")) {
-                    val uri = Uri.parse(payload)
-                    uri.getQueryParameter("code") ?: uri.getQueryParameter("uid") ?: payload
-                } else {
-                    payload
-                }
-                val resolvedUser = FirebaseManager.searchUserByCode(resolvedCode)
-                    ?: (if (resolvedCode.contains("@")) FirebaseManager.searchUserByEmail(resolvedCode) else null)
+                val cleanCode = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(payload)
+                val resolvedUser = FirebaseManager.searchUserByCode(payload)
+                    ?: (if (cleanCode.contains("@")) FirebaseManager.searchUserByEmail(cleanCode) else null)
 
                 if (resolvedUser != null) {
+                    FirebaseManager.addConnection(resolvedUser.uid)
                     targetUser = resolvedUser
-                    Toast.makeText(context, "Resolved: ${resolvedUser.displayName}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Connected with ${resolvedUser.displayName}!", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(context, "QR code user not found", Toast.LENGTH_LONG).show()
                 }
@@ -660,32 +666,19 @@ fun QuickSplitScreen(
                                     val finalUploadedUrls = existingAttachmentUrls.toMutableList()
                                     val finalDriveFileIds = existingDriveFileIds.toMutableList()
 
+                                    // Step 1: Save attachments locally first
+                                    val localSavedUris = mutableListOf<android.net.Uri>()
                                     if (selectedAttachmentUris.isNotEmpty()) {
-                                         selectedAttachmentUris.forEach { uri ->
-                                             val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "quick")
-                                             val effectiveUri = localSavedUri ?: uri
-                                             var driveUploaded = false
+                                        selectedAttachmentUris.forEach { uri ->
+                                            val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "quick")
+                                            val effectiveUri = localSavedUri ?: uri
+                                            localSavedUris.add(effectiveUri)
+                                            finalUploadedUrls.add(effectiveUri.toString())
+                                        }
+                                    }
 
-                                             val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
-                                                 context = context,
-                                                 inputUri = effectiveUri,
-                                                 folderCategoryName = "Quick Splits",
-                                                 dateMillis = selectedDateMillis,
-                                                 expenseId = ""
-                                             )
-                                             if (driveResult != null) {
-                                                 finalUploadedUrls.add(driveResult.webViewLink)
-                                                 finalDriveFileIds.add(driveResult.fileId)
-                                                 driveUploaded = true
-                                             }
-
-                                             if (!driveUploaded) {
-                                                 finalUploadedUrls.add(effectiveUri.toString())
-                                             }
-                                         }
-                                     }
-
-                                    FirebaseManager.createDirectSplit(
+                                    // Step 2: Save to Firebase (get real document ID)
+                                    val newSplitId = FirebaseManager.createDirectSplit(
                                         withUserId = user.uid,
                                         description = description.trim(),
                                         amount = amountVal,
@@ -697,6 +690,49 @@ fun QuickSplitScreen(
                                         receiptDriveFileIds = finalDriveFileIds
                                     )
                                     Toast.makeText(context, "Quick Split saved!", Toast.LENGTH_SHORT).show()
+
+                                    // Step 3: Upload to Drive in background with real ID
+                                    if (localSavedUris.isNotEmpty()) {
+                                        val applicationContext = context.applicationContext
+                                        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                            localSavedUris.forEach { effectiveUri ->
+                                                try {
+                                                    val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
+                                                        context = applicationContext,
+                                                        inputUri = effectiveUri,
+                                                        folderCategoryName = "Quick Splits",
+                                                        dateMillis = selectedDateMillis,
+                                                        expenseId = newSplitId
+                                                    )
+                                                    if (driveResult != null) {
+                                                        FirebaseManager.attachDriveFileToDirectSplit(
+                                                            splitId = newSplitId,
+                                                            driveFileId = driveResult.fileId,
+                                                            webUrl = driveResult.webViewLink
+                                                        )
+                                                    } else {
+                                                        com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                            context = applicationContext,
+                                                            localUri = effectiveUri,
+                                                            folderCategoryName = "Quick Splits",
+                                                            dateMillis = selectedDateMillis,
+                                                            expenseId = newSplitId,
+                                                            isPersonal = false
+                                                        )
+                                                    }
+                                                } catch (e: Exception) {
+                                                    com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                        context = applicationContext,
+                                                        localUri = effectiveUri,
+                                                        folderCategoryName = "Quick Splits",
+                                                        dateMillis = selectedDateMillis,
+                                                        expenseId = newSplitId,
+                                                        isPersonal = false
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                     onBack()
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Save failed: ${e.message}", Toast.LENGTH_LONG).show()

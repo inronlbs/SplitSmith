@@ -57,6 +57,15 @@ private val groupColors = listOf(
 )
 private fun groupColor(id: String) = groupColors[Math.abs(id.hashCode()) % groupColors.size]
 
+data class IndividualPeerGroup(
+    val peerUid: String,
+    val peerName: String,
+    val peerAvatar: String,
+    val peerUpi: String,
+    val netBalance: Double,
+    val splits: List<DirectSplit>
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SplitExpensesScreen(
@@ -74,6 +83,7 @@ fun SplitExpensesScreen(
     var showCreateGroup by remember { mutableStateOf(false) }
     var fabExpanded by remember { mutableStateOf(false) }
     var selectedSplitForDetail by remember { mutableStateOf<DirectSplit?>(null) }
+    var selectedPeerGroupForDetail by remember { mutableStateOf<IndividualPeerGroup?>(null) }
 
     val currentUserId = FirebaseManager.currentUserId ?: ""
 
@@ -128,12 +138,39 @@ fun SplitExpensesScreen(
     val filteredGroups = remember(groups, searchQuery) {
         groups.filter { it.name.contains(searchQuery, ignoreCase = true) }
     }
-    val filteredDirectSplits = remember(directSplits, searchQuery, contactNames) {
-        directSplits.filter { split ->
-            val peerId = if (split.paidBy == currentUserId) split.withUser else split.paidBy
-            val peerName = contactNames[peerId] ?: ""
-            split.description.contains(searchQuery, ignoreCase = true) || peerName.contains(searchQuery, ignoreCase = true)
+    
+    val individualPeers = remember(directSplits, contactNames, contactAvatars, contactUpis, currentUserId, searchQuery) {
+        val grouped = directSplits.groupBy { split ->
+            if (split.paidBy == currentUserId) split.withUser else split.paidBy
         }
+        grouped.map { (peerUid, splitsList) ->
+            val name = contactNames[peerUid] ?: "Unknown"
+            val avatar = contactAvatars[peerUid] ?: ""
+            val upi = contactUpis[peerUid] ?: ""
+
+            var net = 0.0
+            splitsList.forEach { s ->
+                if (s.status != "SETTLED") {
+                    if (s.paidBy == currentUserId) {
+                        net += s.myShare
+                    } else {
+                        net -= s.myShare
+                    }
+                }
+            }
+
+            IndividualPeerGroup(
+                peerUid = peerUid,
+                peerName = name,
+                peerAvatar = avatar,
+                peerUpi = upi,
+                netBalance = net,
+                splits = splitsList.sortedByDescending { it.date }
+            )
+        }.filter { peerGroup ->
+            peerGroup.peerName.contains(searchQuery, ignoreCase = true) ||
+            peerGroup.splits.any { it.description.contains(searchQuery, ignoreCase = true) }
+        }.sortedByDescending { Math.abs(it.netBalance) }
     }
 
     // Bottom sheet for group creation
@@ -157,6 +194,23 @@ fun SplitExpensesScreen(
             peerUpi = contactUpis[peerId] ?: "",
             currentUserId = currentUserId,
             onDismiss = { selectedSplitForDetail = null }
+        )
+    }
+
+    if (selectedPeerGroupForDetail != null) {
+        val peerGroup = selectedPeerGroupForDetail!!
+        PersonDetailBottomSheet(
+            peerGroup = peerGroup,
+            currentUserId = currentUserId,
+            onDismiss = { selectedPeerGroupForDetail = null },
+            onSplitClick = { split ->
+                selectedSplitForDetail = split
+            },
+            onStartQuickSplit = { user ->
+                selectedPeerGroupForDetail = null
+                FirebaseManager.pendingQuickSplitUser = user
+                onNavigateToQuickSplit()
+            }
         )
     }
 
@@ -275,11 +329,11 @@ fun SplitExpensesScreen(
                     }
 
                     if (selectedFilter == "ALL" || selectedFilter == "DIRECT") {
-                        if (filteredDirectSplits.isNotEmpty()) {
+                        if (individualPeers.isNotEmpty()) {
                             item {
                                 Spacer(modifier = Modifier.height(d.space4))
                                 Text(
-                                    text = "INDIVIDUAL",
+                                    text = "INDIVIDUALS",
                                     fontFamily = OutfitFamily,
                                     fontSize = d.textLabelSmall,
                                     color = colors.inkMuted,
@@ -287,29 +341,25 @@ fun SplitExpensesScreen(
                                     modifier = Modifier.padding(vertical = d.space4)
                                 )
                             }
-                            items(filteredDirectSplits) { split ->
-                                DirectSplitListItem(
-                                    split = split,
-                                    peerName = contactNames[if (split.paidBy == currentUserId) split.withUser else split.paidBy] ?: "Unknown",
-                                    peerAvatar = contactAvatars[if (split.paidBy == currentUserId) split.withUser else split.paidBy] ?: "",
-                                    peerUpi = contactUpis[if (split.paidBy == currentUserId) split.withUser else split.paidBy] ?: "",
-                                    currentUserId = currentUserId,
+                            items(individualPeers) { peerGroup ->
+                                IndividualPeerListItem(
+                                    peerGroup = peerGroup,
                                     colors = colors,
                                     d = d,
-                                    onSplitClick = { selectedSplitForDetail = split }
+                                    onClick = { selectedPeerGroupForDetail = peerGroup }
                                 )
                             }
                         }
                     }
 
-                    if (filteredGroups.isEmpty() && filteredDirectSplits.isEmpty()) {
+                    if (filteredGroups.isEmpty() && individualPeers.isEmpty()) {
                         item {
                             Column(
                                 modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(d.space8)
                             ) {
-                                Text("No groups yet", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = colors.inkPrimary)
+                                Text("No groups or individuals yet", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = colors.inkPrimary)
                                 Text("Tap + to create a group or split with someone.", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkMuted, textAlign = TextAlign.Center)
                             }
                         }
@@ -880,12 +930,14 @@ fun CreateGroupBottomSheet(
                 isSearching = true
                 coroutineScope.launch {
                     try {
-                        val resolved = if (scannedCode.contains("@")) {
-                            FirebaseManager.searchUserByEmail(scannedCode)
+                        val cleanCode = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(scannedCode)
+                        val resolved = if (cleanCode.contains("@")) {
+                            FirebaseManager.searchUserByEmail(cleanCode)
                         } else {
                             FirebaseManager.searchUserByCode(scannedCode)
                         }
                         if (resolved != null) {
+                            FirebaseManager.addConnection(resolved.uid)
                             if (addedMembers.none { it.uid == resolved.uid }) {
                                 addedMembers = addedMembers + resolved
                                 Toast.makeText(context, "Added ${resolved.displayName}!", Toast.LENGTH_SHORT).show()
@@ -1209,7 +1261,362 @@ fun CreateGroupBottomSheet(
                 if (isLoading) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colors.canvasChalk, strokeWidth = 2.dp)
                 } else {
-                    Text("Create Group", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge, color = colors.canvasChalk)
+                    Text("Create Group", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelLarge, color = colors.canvasChalk)
+                }
+            }
+        }
+    }
+}
+
+// ─── INDIVIDUAL PEER MODEL & COMPOSABLES ─────────────────────
+
+@Composable
+fun IndividualPeerListItem(
+    peerGroup: IndividualPeerGroup,
+    colors: com.splitsmith.app.theme.SplitColors,
+    d: com.splitsmith.app.theme.Dimens,
+    onClick: () -> Unit
+) {
+    val net = peerGroup.netBalance
+    val balanceText = when {
+        net > 0 -> "Owes you \u20b9${"%.0f".format(net)}"
+        net < 0 -> "You owe \u20b9${"%.0f".format(-net)}"
+        else -> "Settled up"
+    }
+    val balanceColor = when {
+        net > 0 -> colors.inkPrimary
+        net < 0 -> colors.alertRed
+        else -> colors.inkMuted
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = d.space12),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            UserAvatar(avatarUrl = peerGroup.peerAvatar, displayName = peerGroup.peerName, size = d.avatarMd)
+            Spacer(modifier = Modifier.width(d.space12))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = peerGroup.peerName,
+                    fontFamily = OutfitFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = d.textTitleMedium,
+                    color = colors.inkPrimary
+                )
+                Text(
+                    text = "${peerGroup.splits.size} split${if (peerGroup.splits.size == 1) "" else "s"}",
+                    fontFamily = OutfitFamily,
+                    fontSize = d.textLabelMedium,
+                    color = colors.inkMuted
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = balanceText,
+                    fontFamily = OutfitFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = d.textBodyLarge,
+                    color = balanceColor
+                )
+            }
+        }
+        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PersonDetailBottomSheet(
+    peerGroup: IndividualPeerGroup,
+    currentUserId: String,
+    onDismiss: () -> Unit,
+    onSplitClick: (DirectSplit) -> Unit,
+    onStartQuickSplit: (UserProfile) -> Unit
+) {
+    val d = LocalDimens.current
+    val colors = LocalSplitColors.current
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    
+    var selectedSubTab by remember { mutableIntStateOf(0) }
+
+    val net = peerGroup.netBalance
+    val balanceText = when {
+        net > 0 -> "${peerGroup.peerName} owes you \u20b9${"%.0f".format(net)}"
+        net < 0 -> "You owe ${peerGroup.peerName} \u20b9${"%.0f".format(-net)}"
+        else -> "Settled up"
+    }
+    val balanceColor = when {
+        net > 0 -> colors.inkPrimary
+        net < 0 -> colors.alertRed
+        else -> colors.inkMuted
+    }
+    val balanceBg = when {
+        net > 0 -> colors.canvasChalk
+        net < 0 -> colors.canvasChalk
+        else -> colors.canvasChalk
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.surfaceCard,
+        shape = RoundedCornerShape(topStart = d.radiusLG, topEnd = d.radiusLG)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = d.space24)
+                .padding(bottom = d.space24),
+            verticalArrangement = Arrangement.spacedBy(d.space16)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(d.space16)
+            ) {
+                UserAvatar(avatarUrl = peerGroup.peerAvatar, displayName = peerGroup.peerName, size = 56.dp)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = peerGroup.peerName,
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = d.textHeadlineLarge,
+                        color = colors.inkPrimary
+                    )
+                    if (peerGroup.peerUpi.isNotEmpty()) {
+                        Text(
+                            text = "UPI: ${peerGroup.peerUpi}",
+                            fontFamily = JetBrainsMonoFamily,
+                            fontSize = 12.sp,
+                            color = colors.inkMuted
+                        )
+                    }
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = colors.inkMuted)
+                }
+            }
+
+            // ── Segmented Pill Tab Bar ─────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(d.space8)
+            ) {
+                listOf("Expenses", "Balances").forEachIndexed { index, label ->
+                    val isActive = selectedSubTab == index
+                    Surface(
+                        onClick = { selectedSubTab = index },
+                        shape = RoundedCornerShape(d.radiusFull),
+                        color = if (isActive) colors.inkPrimary else colors.canvasChalk,
+                        border = if (!isActive) BorderStroke(1.dp, colors.borderWhisper) else null,
+                        modifier = Modifier.height(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space16)) {
+                            Text(
+                                text = label,
+                                fontFamily = OutfitFamily,
+                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = d.textLabelLarge,
+                                color = if (isActive) colors.canvasChalk else colors.inkMuted
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── Tab Body ───────────────────────────────────
+            Box(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
+                when (selectedSubTab) {
+                    0 -> {
+                        // ── EXPENSES TAB ──
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "1-ON-1 SPLITS HISTORY",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.inkMuted,
+                                    letterSpacing = 1.5.sp
+                                )
+                                OutlinedButton(
+                                    onClick = {
+                                        val peerProfile = UserProfile(uid = peerGroup.peerUid, displayName = peerGroup.peerName, upiId = peerGroup.peerUpi, avatarUrl = peerGroup.peerAvatar)
+                                        onStartQuickSplit(peerProfile)
+                                    },
+                                    shape = RoundedCornerShape(d.radiusFull),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    Text("+ New Split", fontFamily = OutfitFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(peerGroup.splits) { split ->
+                                    DirectSplitListItem(
+                                        split = split,
+                                        peerName = peerGroup.peerName,
+                                        peerAvatar = peerGroup.peerAvatar,
+                                        peerUpi = peerGroup.peerUpi,
+                                        currentUserId = currentUserId,
+                                        colors = colors,
+                                        d = d,
+                                        onSplitClick = { onSplitClick(split) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    1 -> {
+                        // ── BALANCES TAB ──
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            // Net Balance Card
+                            Surface(
+                                shape = RoundedCornerShape(d.radiusMD),
+                                color = balanceBg,
+                                border = BorderStroke(1.dp, colors.borderWhisper),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = "NET STANDING",
+                                        fontFamily = OutfitFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colors.inkMuted,
+                                        letterSpacing = 1.5.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = balanceText,
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 18.sp,
+                                        color = balanceColor
+                                    )
+                                }
+                            }
+
+                            // Settle Up Net Total Button
+                            if (net != 0.0) {
+                                Button(
+                                    onClick = {
+                                        if (net < 0 && peerGroup.peerUpi.isNotEmpty()) {
+                                            val upiUri = Uri.parse("upi://pay?pa=${peerGroup.peerUpi}&pn=${Uri.encode(peerGroup.peerName)}&am=${"%.2f".format(-net)}&cu=INR")
+                                            try {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, upiUri))
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "No UPI app found on device", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } else {
+                                            coroutineScope.launch {
+                                                try {
+                                                    peerGroup.splits.filter { it.status != "SETTLED" }.forEach { s ->
+                                                        FirebaseManager.settleDirectSplit(s.id)
+                                                    }
+                                                    Toast.makeText(context, "All splits marked settled!", Toast.LENGTH_SHORT).show()
+                                                    onDismiss()
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                                    shape = RoundedCornerShape(d.radiusMD),
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
+                                ) {
+                                    Text(
+                                        text = if (net < 0 && peerGroup.peerUpi.isNotEmpty()) "Pay Net Total via UPI" else "Settle Up Net Balance",
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = "INDIVIDUAL UNSETTLED TRANSACTIONS",
+                                fontFamily = OutfitFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.inkMuted,
+                                letterSpacing = 1.5.sp
+                            )
+
+                            val unsettledSplits = peerGroup.splits.filter { it.status != "SETTLED" }
+                            if (unsettledSplits.isEmpty()) {
+                                Text("No unsettled transactions", fontFamily = OutfitFamily, fontSize = 13.sp, color = colors.inkMuted)
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    items(unsettledSplits) { split ->
+                                        Surface(
+                                            shape = RoundedCornerShape(d.radiusSM),
+                                            color = colors.canvasChalk,
+                                            border = BorderStroke(1.dp, colors.borderWhisper),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = split.description.ifEmpty { "1-on-1 Split" },
+                                                        fontFamily = OutfitFamily,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 14.sp,
+                                                        color = colors.inkPrimary
+                                                    )
+                                                    Text(
+                                                        text = "Amount: \u20b9${split.myShare}",
+                                                        fontFamily = JetBrainsMonoFamily,
+                                                        fontSize = 12.sp,
+                                                        color = colors.inkMuted
+                                                    )
+                                                }
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        coroutineScope.launch {
+                                                            try {
+                                                                FirebaseManager.settleDirectSplit(split.id)
+                                                                Toast.makeText(context, "Transaction settled!", Toast.LENGTH_SHORT).show()
+                                                            } catch (e: Exception) {
+                                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    },
+                                                    shape = RoundedCornerShape(d.radiusFull),
+                                                    modifier = Modifier.height(32.dp)
+                                                ) {
+                                                    Text("Settle This", fontFamily = OutfitFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

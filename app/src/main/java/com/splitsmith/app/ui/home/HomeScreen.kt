@@ -36,6 +36,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
@@ -142,6 +144,7 @@ fun HomeScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var joinConfirmGroup by remember { mutableStateOf<Group?>(null) }
+    var connectedUserPopup by remember { mutableStateOf<UserProfile?>(null) }
 
     // Handle deep links (splitsmith://join?code=...) dynamically
     val pendingJoinCode = FirebaseManager.pendingGroupJoinCode
@@ -335,7 +338,8 @@ fun HomeScreen(
                         onNavigateToQuickSplit = onNavigateToQuickSplit,
                         onSplitClick = { selectedSplitForDetail = it },
                         onPersonalClick = { selectedPersonalForDetail = it },
-                        onGroupExpenseClick = { selectedGroupExpenseForDetail = it }
+                        onGroupExpenseClick = { selectedGroupExpenseForDetail = it },
+                        onConnectUser = { connectedUserPopup = it }
                     )
                     1 -> SplitExpensesScreen(
                         onNavigateToGroup = onNavigateToGroup,
@@ -564,6 +568,23 @@ fun HomeScreen(
                 }
             }
 
+            if (connectedUserPopup != null) {
+                val user = connectedUserPopup!!
+                ConnectedUserModal(
+                    user = user,
+                    onDismiss = { connectedUserPopup = null },
+                    onStartQuickSplit = {
+                        FirebaseManager.pendingQuickSplitUser = user
+                        connectedUserPopup = null
+                        onNavigateToQuickSplit()
+                    },
+                    onAddToGroup = {
+                        connectedUserPopup = null
+                        showSelectGroupForExpenseDialog = true
+                    }
+                )
+            }
+
             if (showSelectGroupForExpenseDialog) {
                 val activeGroups = groupsState.value
                 ModalBottomSheet(
@@ -777,7 +798,8 @@ fun HomeDashboardView(
     onNavigateToQuickSplit: () -> Unit = {},
     onSplitClick: (DirectSplit) -> Unit = {},
     onPersonalClick: (com.splitsmith.app.data.PersonalExpense) -> Unit = {},
-    onGroupExpenseClick: (com.splitsmith.app.data.GroupExpenseWithContext) -> Unit = {}
+    onGroupExpenseClick: (com.splitsmith.app.data.GroupExpenseWithContext) -> Unit = {},
+    onConnectUser: (UserProfile) -> Unit = {}
 ) {
     val d = LocalDimens.current
     val colors = LocalSplitColors.current
@@ -812,31 +834,60 @@ fun HomeDashboardView(
         contract = com.journeyapps.barcodescanner.ScanContract()
     ) { result ->
         if (result.contents != null) {
-            val code = result.contents.trim()
+            val rawCode = result.contents.trim()
             coroutineScope.launch {
                 try {
-                    val group = FirebaseManager.getGroupOnce(code)
-                    if (group != null) {
-                        val uid = FirebaseManager.currentUserId
-                        if (group.members[uid] == true) {
-                            Toast.makeText(context, "Already a member of ${group.name}!", Toast.LENGTH_SHORT).show()
-                            onNavigateToGroup(group.id)
-                        } else {
-                            FirebaseManager.requestToJoinGroup(code)
-                            Toast.makeText(context, "Join request sent to admin!", Toast.LENGTH_LONG).show()
+                    val parsed = com.splitsmith.app.util.QrPayloadParser.parse(rawCode)
+                    when (parsed) {
+                        is com.splitsmith.app.util.ParsedQrPayload.UserQr -> {
+                            val user = FirebaseManager.searchUserByCode(rawCode)
+                            if (user != null) {
+                                FirebaseManager.addConnection(user.uid)
+                                onConnectUser(user)
+                            } else {
+                                Toast.makeText(context, "User QR code not found", Toast.LENGTH_SHORT).show()
+                            }
                         }
-                    } else {
-                        // Fallback: check if it's a User QR / User Code
-                        val user = FirebaseManager.searchUserByCode(code)
-                        if (user != null) {
-                            Toast.makeText(context, "Found User: ${user.displayName}", Toast.LENGTH_SHORT).show()
-                            onNavigateToQuickSplit()
-                        } else {
-                            Toast.makeText(context, "QR code not found (No matching group or user)", Toast.LENGTH_SHORT).show()
+                        is com.splitsmith.app.util.ParsedQrPayload.GroupQr -> {
+                            val group = FirebaseManager.getGroupOnce(parsed.groupId)
+                            if (group != null) {
+                                val uid = FirebaseManager.currentUserId
+                                if (group.members[uid] == true) {
+                                    Toast.makeText(context, "Already a member of ${group.name}!", Toast.LENGTH_SHORT).show()
+                                    onNavigateToGroup(group.id)
+                                } else {
+                                    FirebaseManager.requestToJoinGroup(parsed.groupId)
+                                    Toast.makeText(context, "Join request sent to admin!", Toast.LENGTH_LONG).show()
+                                }
+                            } else {
+                                Toast.makeText(context, "Group not found or expired", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        is com.splitsmith.app.util.ParsedQrPayload.Unknown -> {
+                            // Try group first, then fallback to user
+                            val group = FirebaseManager.getGroupOnce(rawCode)
+                            if (group != null) {
+                                val uid = FirebaseManager.currentUserId
+                                if (group.members[uid] == true) {
+                                    Toast.makeText(context, "Already a member of ${group.name}!", Toast.LENGTH_SHORT).show()
+                                    onNavigateToGroup(group.id)
+                                } else {
+                                    FirebaseManager.requestToJoinGroup(group.id)
+                                    Toast.makeText(context, "Join request sent to admin!", Toast.LENGTH_LONG).show()
+                                }
+                            } else {
+                                val user = FirebaseManager.searchUserByCode(rawCode)
+                                if (user != null) {
+                                    FirebaseManager.addConnection(user.uid)
+                                    onConnectUser(user)
+                                } else {
+                                    Toast.makeText(context, "QR code not recognized (No matching group or user)", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         }
                     }
                 } catch (e: Exception) {
-                    Toast.makeText(context, "Failed to scan: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Scan error: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -1213,42 +1264,11 @@ fun HomeDashboardView(
                     label = "budgetBar"
                 )
                 val barColor = when {
-                    budgetProgress < 0.6 -> colors.inkPrimary
-                    budgetProgress < 0.85 -> Color(0xFFF59E0B)
-                    else -> colors.alertRed
+                    budgetProgress < 0.70 -> colors.inkPrimary
+                    budgetProgress < 0.90 -> Color(0xFFE8A838)  // subtle warm amber
+                    else -> Color(0xFFE05252)  // muted red
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    val alertThresholdPct = userProfile?.budget?.threshold ?: 80
-                    val isThresholdExceeded = budgetLimit > 0 && totalPersonalSpent >= (budgetLimit * (alertThresholdPct / 100.0))
-
-                    if (isThresholdExceeded) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = d.space8),
-                            color = Color(0xFFFEF3C7),
-                            border = BorderStroke(1.dp, Color(0xFFF59E0B)),
-                            shape = RoundedCornerShape(d.radiusSM)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(d.space12),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(d.space8)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Warning,
-                                    contentDescription = "Warning",
-                                    tint = Color(0xFFD97706),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = "Budget Alert: Spending reached ${"%.0f".format((totalPersonalSpent / budgetLimit) * 100)}% of limit (₹${"%.0f".format(totalPersonalSpent)} / ₹${"%.0f".format(budgetLimit)})",
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = d.textLabelMedium,
-                                    color = Color(0xFF92400E)
-                                )
-                            }
-                        }
-                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -2002,64 +2022,7 @@ fun ProfileSettingsView(
             )
         }
 
-        // Collapsible Alert Threshold Row & Slider (hidden unless clicked)
-        item {
-            Spacer(modifier = Modifier.height(d.space4))
-            var isSliderExpanded by remember { mutableStateOf(false) }
-            var sliderValue by remember(profile?.budget?.threshold) {
-                mutableFloatStateOf((profile?.budget?.threshold ?: 80).toFloat())
-            }
-            Column(modifier = Modifier.fillMaxWidth()) {
-                ProfileSettingsRow(
-                    label = "Alert Threshold",
-                    value = "${sliderValue.toInt()}%",
-                    inkPrimary = colors.inkPrimary,
-                    inkMuted = colors.inkMuted,
-                    borderWhisper = colors.borderWhisper,
-                    d = d,
-                    onClick = { isSliderExpanded = !isSliderExpanded }
-                )
-                if (isSliderExpanded) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = d.space12, horizontal = d.space8)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Warning Trigger Level", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkMuted)
-                            Text("${sliderValue.toInt()}%", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textBodyMedium, color = colors.inkPrimary)
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Slider(
-                            value = sliderValue,
-                            onValueChange = { sliderValue = it },
-                            onValueChangeFinished = {
-                                coroutineScope.launch {
-                                    try {
-                                        val currentBudget = profile?.budget ?: com.splitsmith.app.data.BudgetConfig()
-                                        FirebaseManager.updateUserBudgetConfig(currentBudget.copy(threshold = sliderValue.toInt()))
-                                        Toast.makeText(context, "Threshold updated to ${sliderValue.toInt()}%", Toast.LENGTH_SHORT).show()
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Error updating threshold: ${e.message}", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
-                            valueRange = 50f..100f,
-                            colors = SliderDefaults.colors(
-                                thumbColor = colors.inkPrimary,
-                                activeTrackColor = colors.inkPrimary,
-                                inactiveTrackColor = colors.borderWhisper
-                            )
-                        )
-                    }
-                    HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
-                }
-            }
-        }
+
 
         // STORAGE & CLOUD BACKUP section
         item {
@@ -2627,7 +2590,7 @@ fun JoinGroupDialog(
         contract = com.journeyapps.barcodescanner.ScanContract(),
         onResult = { result ->
             if (result.contents != null) {
-                groupIdInput = result.contents
+                groupIdInput = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(result.contents)
                 Toast.makeText(context, "Scanned Group ID!", Toast.LENGTH_SHORT).show()
             }
         }
@@ -2703,14 +2666,14 @@ fun JoinGroupDialog(
                                     onGroupJoined(code)
                                 } else {
                                     FirebaseManager.requestToJoinGroup(code)
-                                    Toast.makeText(context, "Join request sent to admin!", Toast.LENGTH_LONG).show()
-                                    onGroupJoined(code)
+                                    Toast.makeText(context, "Request sent!", Toast.LENGTH_SHORT).show()
+                                    onDismiss()
                                 }
                             } else {
                                 Toast.makeText(context, "Group not found", Toast.LENGTH_SHORT).show()
                             }
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Failed to join: ${e.message}", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                         } finally { isLoading = false }
                     }
                 },
@@ -2727,6 +2690,149 @@ fun JoinGroupDialog(
             }
         }
     )
+}
+
+// ─── CONNECTED USER POPUP MODAL ──────────────────────────────
+@Composable
+fun ConnectedUserModal(
+    user: UserProfile,
+    onDismiss: () -> Unit,
+    onStartQuickSplit: () -> Unit,
+    onAddToGroup: () -> Unit
+) {
+    val colors = LocalSplitColors.current
+    val d = LocalDimens.current
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = colors.surfaceCard,
+            tonalElevation = 8.dp,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Success Badge
+                Surface(
+                    shape = CircleShape,
+                    color = colors.canvasChalk,
+                    border = BorderStroke(1.dp, colors.borderWhisper),
+                    modifier = Modifier.size(56.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Connected",
+                            tint = colors.inkPrimary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Connected Successfully!",
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = d.textTitleLarge,
+                        color = colors.inkPrimary
+                    )
+                    Text(
+                        text = "Mutual connection established",
+                        fontFamily = OutfitFamily,
+                        fontSize = 12.sp,
+                        color = colors.inkMuted
+                    )
+                }
+
+                // User Info Card
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = colors.canvasChalk,
+                    border = BorderStroke(1.dp, colors.borderWhisper),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        UserAvatar(avatarUrl = user.avatarUrl, displayName = user.displayName, size = 48.dp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = user.displayName,
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = colors.inkPrimary
+                            )
+                            if (user.shortCode.isNotEmpty()) {
+                                Text(
+                                    text = "Code: ${user.shortCode.uppercase()}",
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontSize = 12.sp,
+                                    color = colors.inkMuted
+                                )
+                            }
+                            if (user.email.isNotEmpty()) {
+                                Text(
+                                    text = user.email,
+                                    fontFamily = OutfitFamily,
+                                    fontSize = 12.sp,
+                                    color = colors.inkMuted
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Action Buttons
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = onStartQuickSplit,
+                        modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                        shape = RoundedCornerShape(d.radiusMD),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.FlashOn, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Start 1-on-1 Split", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = onAddToGroup,
+                        modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                        shape = RoundedCornerShape(d.radiusMD)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.GroupAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Add to Group", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Done", fontFamily = OutfitFamily, color = colors.inkMuted)
+                    }
+                }
+            }
+        }
+    }
 }
 
 fun uriToBase64(context: android.content.Context, uri: android.net.Uri): String? {

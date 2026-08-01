@@ -1,0 +1,114 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isGroupMember(groupId) {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/groups/$(groupId)).data.members[request.auth.uid] == true;
+    }
+
+    function isGroupAdmin(groupId) {
+      let group = get(/databases/$(database)/documents/groups/$(groupId)).data;
+      return isAuthenticated() && (
+        group.adminId == request.auth.uid || 
+        group.admins[request.auth.uid] == true
+      );
+    }
+
+    // ─── USER PROFILES & PRIVATE SUBCOLLECTIONS ─────────────────
+    match /users/{userId} {
+      // Any logged-in user can read profiles (for search, member chips, avatars, upiId)
+      allow read: if isAuthenticated();
+      // Users can only create or edit their own profile document
+      allow create, update: if isUser(userId);
+      allow delete: if false;
+
+      // Sensitive payment information subcollection
+      match /private/{docId} {
+        allow read, write: if isUser(userId);
+      }
+
+      // Mutual user connections subcollection
+      match /connections/{peerId} {
+        allow read: if isUser(userId) || isUser(peerId);
+        allow create, update, delete: if isUser(userId) || isUser(peerId);
+      }
+
+      // Personal wallet expenses subcollection (strictly private to user)
+      match /personal_expenses/{expenseId} {
+        allow read, write: if isUser(userId);
+      }
+    }
+
+    // ─── GROUPS, EXPENSES & SETTLEMENTS ────────────────────────
+    match /groups/{groupId} {
+      // Read allowed for members, admins, applicants, or when joining by code
+      allow read: if isAuthenticated();
+
+      // Create group if user sets themselves as adminId
+      allow create: if isAuthenticated() && request.resource.data.adminId == request.auth.uid;
+
+      // Update group if user is an admin or adding/updating member/request fields
+      allow update: if isAuthenticated() && (
+        isGroupAdmin(groupId) ||
+        resource.data.members[request.auth.uid] == true ||
+        request.resource.data.joinRequests[request.auth.uid] == true ||
+        resource.data.joinRequests[request.auth.uid] == true
+      );
+
+      // Only group admin can delete a group
+      allow delete: if isGroupAdmin(groupId);
+
+      // Group Expenses
+      match /expenses/{expenseId} {
+        allow read: if isGroupMember(groupId);
+        allow create: if isGroupMember(groupId);
+        allow update, delete: if isGroupMember(groupId) && (
+          resource.data.createdBy == request.auth.uid ||
+          resource.data.paidBy == request.auth.uid ||
+          isGroupAdmin(groupId)
+        );
+      }
+
+      // Group Settlements
+      match /settlements/{settlementId} {
+        allow read: if isGroupMember(groupId);
+        allow create: if isGroupMember(groupId) && (
+          request.resource.data.fromUser == request.auth.uid ||
+          request.resource.data.toUser == request.auth.uid
+        );
+        allow update, delete: if isGroupMember(groupId) && (
+          resource.data.fromUser == request.auth.uid ||
+          resource.data.toUser == request.auth.uid ||
+          isGroupAdmin(groupId)
+        );
+      }
+    }
+
+    // ─── DIRECT 1-ON-1 SPLITS ──────────────────────────────────
+    match /direct_splits/{splitId} {
+      allow read: if isAuthenticated() && (
+        resource.data.paidBy == request.auth.uid ||
+        resource.data.withUser == request.auth.uid
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.paidBy == request.auth.uid ||
+        request.resource.data.withUser == request.auth.uid
+      );
+      allow update, delete: if isAuthenticated() && (
+        resource.data.paidBy == request.auth.uid ||
+        resource.data.withUser == request.auth.uid
+      );
+    }
+  }
+}

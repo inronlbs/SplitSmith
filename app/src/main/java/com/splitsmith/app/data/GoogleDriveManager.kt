@@ -19,10 +19,7 @@ import java.util.Collections
 import java.util.Date
 import java.util.Locale
 
-data class DriveFileResult(
-    val fileId: String,
-    val webViewLink: String
-)
+data class DriveFileResult(val fileId: String, val webViewLink: String, val webContentLink: String = "")
 
 object GoogleDriveManager {
 
@@ -58,6 +55,11 @@ object GoogleDriveManager {
 
     private fun getDriveService(context: Context): Drive? {
         val account = GoogleSignIn.getLastSignedInAccount(context) ?: return null
+        // Verify the DRIVE_FILE scope was actually granted
+        if (!GoogleSignIn.hasPermissions(account, com.google.android.gms.common.api.Scope(DriveScopes.DRIVE_FILE))) {
+            android.util.Log.w("GoogleDriveManager", "Drive scope not granted – skipping upload")
+            return null
+        }
         val credential = GoogleAccountCredential.usingOAuth2(
             context,
             Collections.singleton(DriveScopes.DRIVE_FILE)
@@ -186,7 +188,8 @@ object GoogleDriveManager {
 
             if (uploadedFile != null && uploadedFile.id != null) {
                 val link = uploadedFile.webViewLink ?: "https://drive.google.com/file/d/${uploadedFile.id}/view"
-                return@withContext DriveFileResult(uploadedFile.id, link)
+                val contentLink = uploadedFile.webContentLink ?: "https://drive.google.com/uc?id=${uploadedFile.id}&export=download"
+                return@withContext DriveFileResult(uploadedFile.id, link, contentLink)
             }
 
             null

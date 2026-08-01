@@ -144,6 +144,8 @@ fun AddExpenseScreen(
                 customSplitInputs = tempInputs
                 selectedMembers = exp.splits.keys
                 selectedDateMillis = exp.date
+                existingAttachmentUrls = exp.receiptUrls
+                existingDriveFileIds = exp.receiptDriveFileIds
             }
         }
     }
@@ -293,45 +295,18 @@ fun AddExpenseScreen(
                                 val finalUploadedUrls = existingAttachmentUrls.toMutableList()
                                 val finalDriveFileIds = existingDriveFileIds.toMutableList()
 
+                                // Step 1: Save attachments locally first
+                                val localSavedUris = mutableListOf<android.net.Uri>()
                                 if (selectedAttachmentUris.isNotEmpty()) {
-                                    val folderCategory = currentGroup?.name ?: "Group Expenses"
                                     selectedAttachmentUris.forEach { uri ->
                                         val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "exp")
                                         val effectiveUri = localSavedUri ?: uri
-                                        var driveUploaded = false
-
-                                        if (userProfile?.driveSyncEnabled == true) {
-                                            val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
-                                                context = context,
-                                                inputUri = effectiveUri,
-                                                folderCategoryName = folderCategory,
-                                                dateMillis = selectedDateMillis,
-                                                expenseId = expenseId ?: ""
-                                            )
-                                            if (driveResult != null) {
-                                                finalUploadedUrls.add(driveResult.webViewLink)
-                                                finalDriveFileIds.add(driveResult.fileId)
-                                                driveUploaded = true
-                                            }
-                                        }
-
-                                        if (!driveUploaded) {
-                                            finalUploadedUrls.add(effectiveUri.toString())
-                                            if (userProfile?.driveSyncEnabled == true) {
-                                                com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                                    context = context,
-                                                    localUri = effectiveUri,
-                                                    folderCategoryName = folderCategory,
-                                                    dateMillis = selectedDateMillis,
-                                                    expenseId = expenseId ?: "",
-                                                    isPersonal = false,
-                                                    groupId = groupId
-                                                )
-                                            }
-                                        }
+                                        localSavedUris.add(effectiveUri)
+                                        finalUploadedUrls.add(effectiveUri.toString())
                                     }
                                 }
 
+                                // Step 2: Save to Firebase (get real document ID)
                                 if (expenseId != null) {
                                     FirebaseManager.updateExpense(
                                         groupId = groupId,
@@ -342,11 +317,13 @@ fun AddExpenseScreen(
                                         category = selectedCategory,
                                         splitMode = splitMode,
                                         splits = computedSplits,
-                                        date = selectedDateMillis
+                                        date = selectedDateMillis,
+                                        receiptUrls = finalUploadedUrls,
+                                        receiptDriveFileIds = finalDriveFileIds
                                     )
                                     Toast.makeText(context, "Changes saved!", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    FirebaseManager.addExpense(
+                                    val newExpenseId = FirebaseManager.addExpense(
                                         groupId = groupId,
                                         description = description.trim(),
                                         amount = amountVal,
@@ -359,7 +336,54 @@ fun AddExpenseScreen(
                                         receiptDriveFileIds = finalDriveFileIds,
                                         date = selectedDateMillis
                                     )
-                                    Toast.makeText(context, "Expense saved!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Expense added!", Toast.LENGTH_SHORT).show()
+
+                                    // Step 3: Upload to Drive in background with real ID
+                                    if (localSavedUris.isNotEmpty() && userProfile?.driveSyncEnabled == true) {
+                                        val folderCategory = currentGroup?.name ?: "Group Expenses"
+                                        val applicationContext = context.applicationContext
+                                        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                            localSavedUris.forEach { effectiveUri ->
+                                                try {
+                                                    val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
+                                                        context = applicationContext,
+                                                        inputUri = effectiveUri,
+                                                        folderCategoryName = folderCategory,
+                                                        dateMillis = selectedDateMillis,
+                                                        expenseId = newExpenseId
+                                                    )
+                                                    if (driveResult != null) {
+                                                        FirebaseManager.attachDriveFileToGroupExpense(
+                                                            groupId = groupId,
+                                                            expenseId = newExpenseId,
+                                                            driveFileId = driveResult.fileId,
+                                                            webUrl = driveResult.webViewLink
+                                                        )
+                                                    } else {
+                                                        com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                            context = applicationContext,
+                                                            localUri = effectiveUri,
+                                                            folderCategoryName = folderCategory,
+                                                            dateMillis = selectedDateMillis,
+                                                            expenseId = newExpenseId,
+                                                            isPersonal = false,
+                                                            groupId = groupId
+                                                        )
+                                                    }
+                                                } catch (e: Exception) {
+                                                    com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                        context = applicationContext,
+                                                        localUri = effectiveUri,
+                                                        folderCategoryName = folderCategory,
+                                                        dateMillis = selectedDateMillis,
+                                                        expenseId = newExpenseId,
+                                                        isPersonal = false,
+                                                        groupId = groupId
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                                 onBack()
                             } catch (e: Exception) {

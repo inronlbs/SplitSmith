@@ -133,14 +133,57 @@ fun AttachmentChipsView(
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    AsyncImage(
-                        model = previewImageUrl ?: previewImageUri,
-                        contentDescription = "Receipt photo",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 400.dp)
-                    )
+                    // Determine the best image model for Coil
+                    // Drive webViewLink URLs are HTML pages that Coil can't render
+                    val isDriveUrl = previewImageUrl?.contains("drive.google.com") == true
+                    val imageModel = when {
+                        previewImageUri != null -> previewImageUri
+                        !isDriveUrl && previewImageUrl != null -> previewImageUrl
+                        isDriveUrl && previewImageUrl != null -> {
+                            // Try to use the local file:// URI if stored in the URL
+                            val parsed = Uri.parse(previewImageUrl)
+                            if (parsed.scheme == "file") parsed else null
+                        }
+                        else -> null
+                    }
+
+                    if (imageModel != null) {
+                        AsyncImage(
+                            model = imageModel,
+                            contentDescription = "Receipt photo",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 400.dp)
+                        )
+                    } else {
+                        // Drive-only URL — show open-in-browser button instead of broken image
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 120.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Outlined.OpenInNew,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = colors.inkMuted
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Stored in Google Drive", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TextButton(onClick = {
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(previewImageUrl)))
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Could not open link", Toast.LENGTH_SHORT).show()
+                                }
+                            }) {
+                                Text("Open in Browser", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                            }
+                        }
+                    }
                 }
             }
         }

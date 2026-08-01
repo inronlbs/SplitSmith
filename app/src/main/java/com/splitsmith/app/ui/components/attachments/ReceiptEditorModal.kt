@@ -69,7 +69,8 @@ data class EditState(
     val cropLeft: Float = 0.05f,
     val cropTop: Float = 0.05f,
     val cropRight: Float = 0.95f,
-    val cropBottom: Float = 0.95f
+    val cropBottom: Float = 0.95f,
+    val bitmap: Bitmap? = null
 )
 
 @Composable
@@ -98,32 +99,36 @@ fun ReceiptEditorModal(
     var cropBottom by remember { mutableFloatStateOf(0.95f) }
 
     // Undo / Redo history stacks
-    var undoStack by remember { mutableStateOf(listOf(EditState())) }
+    var undoStack by remember { mutableStateOf(listOf<EditState>()) }
     var redoStack by remember { mutableStateOf(listOf<EditState>()) }
 
-    fun currentState() = EditState(
+    fun currentState(bmpOverride: Bitmap? = null) = EditState(
         brightness = brightness,
         contrast = contrast,
         rotationDegrees = rotationDegrees,
         cropLeft = cropLeft,
         cropTop = cropTop,
         cropRight = cropRight,
-        cropBottom = cropBottom
+        cropBottom = cropBottom,
+        bitmap = bmpOverride ?: previewBitmap
     )
 
-    fun pushState(newState: EditState) {
-        val curr = currentState()
-        if (curr != newState) {
-            undoStack = undoStack + newState
-            redoStack = emptyList()
-            brightness = newState.brightness
-            contrast = newState.contrast
-            rotationDegrees = newState.rotationDegrees
-            cropLeft = newState.cropLeft
-            cropTop = newState.cropTop
-            cropRight = newState.cropRight
-            cropBottom = newState.cropBottom
+    fun applyState(state: EditState) {
+        brightness = state.brightness
+        contrast = state.contrast
+        rotationDegrees = state.rotationDegrees
+        cropLeft = state.cropLeft
+        cropTop = state.cropTop
+        cropRight = state.cropRight
+        cropBottom = state.cropBottom
+        if (state.bitmap != null) {
+            previewBitmap = state.bitmap
         }
+    }
+
+    fun recordState(newState: EditState) {
+        undoStack = undoStack + newState
+        redoStack = emptyList()
     }
 
     fun undo() {
@@ -132,13 +137,7 @@ fun ReceiptEditorModal(
             val previous = undoStack[undoStack.size - 2]
             undoStack = undoStack.dropLast(1)
             redoStack = redoStack + current
-            brightness = previous.brightness
-            contrast = previous.contrast
-            rotationDegrees = previous.rotationDegrees
-            cropLeft = previous.cropLeft
-            cropTop = previous.cropTop
-            cropRight = previous.cropRight
-            cropBottom = previous.cropBottom
+            applyState(previous)
         }
     }
 
@@ -147,13 +146,7 @@ fun ReceiptEditorModal(
             val nextState = redoStack.last()
             redoStack = redoStack.dropLast(1)
             undoStack = undoStack + nextState
-            brightness = nextState.brightness
-            contrast = nextState.contrast
-            rotationDegrees = nextState.rotationDegrees
-            cropLeft = nextState.cropLeft
-            cropTop = nextState.cropTop
-            cropRight = nextState.cropRight
-            cropBottom = nextState.cropBottom
+            applyState(nextState)
         }
     }
 
@@ -164,6 +157,10 @@ fun ReceiptEditorModal(
                 val bitmap = BitmapFactory.decodeStream(inputStream)
                 inputStream?.close()
                 previewBitmap = bitmap
+                if (bitmap != null) {
+                    val initialState = EditState(bitmap = bitmap)
+                    undoStack = listOf(initialState)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -516,7 +513,10 @@ fun ReceiptEditorModal(
                                             fontSize = 14.sp,
                                             color = colors.inkPrimary
                                         )
-                                        IconButton(onClick = { brightness = 0f }, modifier = Modifier.size(24.dp)) {
+                                        IconButton(onClick = {
+                                            brightness = 0f
+                                            recordState(currentState())
+                                        }, modifier = Modifier.size(24.dp)) {
                                             Icon(Icons.Outlined.Refresh, contentDescription = "Reset", tint = colors.inkMuted, modifier = Modifier.size(16.dp))
                                         }
                                     }
@@ -524,6 +524,7 @@ fun ReceiptEditorModal(
                                 Slider(
                                     value = brightness,
                                     onValueChange = { brightness = it },
+                                    onValueChangeFinished = { recordState(currentState()) },
                                     valueRange = -100f..100f,
                                     colors = SliderDefaults.colors(
                                         thumbColor = colors.inkPrimary,
@@ -550,7 +551,10 @@ fun ReceiptEditorModal(
                                             fontSize = 14.sp,
                                             color = colors.inkPrimary
                                         )
-                                        IconButton(onClick = { contrast = 0f }, modifier = Modifier.size(24.dp)) {
+                                        IconButton(onClick = {
+                                            contrast = 0f
+                                            recordState(currentState())
+                                        }, modifier = Modifier.size(24.dp)) {
                                             Icon(Icons.Outlined.Refresh, contentDescription = "Reset", tint = colors.inkMuted, modifier = Modifier.size(16.dp))
                                         }
                                     }
@@ -558,6 +562,7 @@ fun ReceiptEditorModal(
                                 Slider(
                                     value = contrast,
                                     onValueChange = { contrast = it },
+                                    onValueChangeFinished = { recordState(currentState()) },
                                     valueRange = -100f..100f,
                                     colors = SliderDefaults.colors(
                                         thumbColor = colors.inkPrimary,
@@ -579,11 +584,13 @@ fun ReceiptEditorModal(
                                         if (previewBitmap != null) {
                                             val bmp = previewBitmap!!
                                             val matrix = android.graphics.Matrix().apply { postRotate(90f) }
-                                            previewBitmap = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+                                            val rotatedBmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+                                            previewBitmap = rotatedBmp
                                             cropLeft = 0.05f
                                             cropTop = 0.05f
                                             cropRight = 0.95f
                                             cropBottom = 0.95f
+                                            recordState(currentState(rotatedBmp))
                                         }
                                     }
                                 ) {
@@ -601,11 +608,13 @@ fun ReceiptEditorModal(
                                                 val y = (cropTop * bmp.height).toInt().coerceIn(0, bmp.height - 1)
                                                 val w = ((cropRight - cropLeft) * bmp.width).toInt().coerceIn(1, bmp.width - x)
                                                 val h = ((cropBottom - cropTop) * bmp.height).toInt().coerceIn(1, bmp.height - y)
-                                                previewBitmap = Bitmap.createBitmap(bmp, x, y, w, h)
+                                                val croppedBmp = Bitmap.createBitmap(bmp, x, y, w, h)
+                                                previewBitmap = croppedBmp
                                                 cropLeft = 0.05f
                                                 cropTop = 0.05f
                                                 cropRight = 0.95f
                                                 cropBottom = 0.95f
+                                                recordState(currentState(croppedBmp))
                                             } catch (e: Exception) {
                                                 e.printStackTrace()
                                             }
@@ -644,6 +653,7 @@ fun ReceiptEditorModal(
                                     onClick = {
                                         contrast = 25f
                                         brightness = 10f
+                                        recordState(currentState())
                                     },
                                     shape = RoundedCornerShape(d.radiusFull),
                                     colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk),
@@ -680,6 +690,7 @@ fun ReceiptEditorModal(
                             activeTool = EditTool.AUTO_CLEAN
                             contrast = 25f
                             brightness = 10f
+                            recordState(currentState())
                         }
                     )
                     ToolIconChip(

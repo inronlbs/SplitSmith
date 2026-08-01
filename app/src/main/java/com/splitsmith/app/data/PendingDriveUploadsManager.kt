@@ -142,6 +142,13 @@ object PendingDriveUploadsManager {
                             driveFileId = driveResult.fileId,
                             webUrl = driveResult.webViewLink
                         )
+                    } else {
+                        // Direct split — expenseId is the splitId
+                        FirebaseManager.attachDriveFileToDirectSplit(
+                            splitId = item.expenseId,
+                            driveFileId = driveResult.fileId,
+                            webUrl = driveResult.webViewLink
+                        )
                     }
                 } else {
                     remaining.add(item)

@@ -2213,6 +2213,37 @@ fun GroupExpenseDetailBottomSheet(
             }
 
             Spacer(modifier = Modifier.height(d.space8))
+
+            val myUid = FirebaseManager.currentUserId ?: ""
+            val myShare = expense.splits[myUid] ?: 0.0
+            val coroutineScope = rememberCoroutineScope()
+            val context = LocalContext.current
+
+            if (expense.paidBy != myUid && myShare > 0) {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            try {
+                                FirebaseManager.addSettlement(
+                                    groupId = groupId,
+                                    toUser = expense.paidBy,
+                                    amount = myShare,
+                                    method = "DIRECT"
+                                )
+                                Toast.makeText(context, "Recorded settlement of \u20b9${"%.0f".format(myShare)} for your share!", Toast.LENGTH_SHORT).show()
+                                onDismiss()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                    shape = RoundedCornerShape(d.radiusMD),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
+                ) {
+                    Text("Settle My Share (\u20b9${"%.0f".format(myShare)})", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
