@@ -56,6 +56,7 @@ fun QuickSplitScreen(
     var searchQuery by remember { mutableStateOf("") }
     var targetUser by remember { mutableStateOf<UserProfile?>(null) }
     var recentContacts by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
+    val userProfileState = FirebaseManager.observeUserProfile().collectAsState(initial = null)
 
     var amountStr by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
@@ -692,7 +693,7 @@ fun QuickSplitScreen(
                                     Toast.makeText(context, "Quick Split saved!", Toast.LENGTH_SHORT).show()
 
                                     // Step 3: Upload to Drive in background with real ID
-                                    if (localSavedUris.isNotEmpty()) {
+                                    if (localSavedUris.isNotEmpty() && userProfileState.value?.driveSyncEnabled == true) {
                                         val applicationContext = context.applicationContext
                                         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                                             localSavedUris.forEach { effectiveUri ->

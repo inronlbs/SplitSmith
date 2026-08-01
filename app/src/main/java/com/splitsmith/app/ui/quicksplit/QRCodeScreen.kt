@@ -90,14 +90,9 @@ fun QRCodeScreen(
                 },
                 actions = {
                     IconButton(onClick = {
-                        val shareIntent = android.content.Intent().apply {
-                            action = android.content.Intent.ACTION_SEND
-                            putExtra(android.content.Intent.EXTRA_TEXT, "Add me on SplitSmith! My User Code is: $displayUserCode")
-                            type = "text/plain"
-                        }
-                        context.startActivity(android.content.Intent.createChooser(shareIntent, "Share User Code"))
+                        shareQRCode(context, qrBitmap, displayUserCode)
                     }) {
-                        Icon(Icons.Default.Share, contentDescription = "Share", tint = inkPrimary)
+                        Icon(Icons.Default.Share, contentDescription = "Share QR Code", tint = inkPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = canvasChalk)
@@ -261,5 +256,41 @@ private fun generateQRCodeBitmap(content: String, size: Int): Bitmap? {
         bitmap
     } catch (e: Exception) {
         null
+    }
+}
+
+private fun shareQRCode(context: android.content.Context, bitmap: Bitmap?, userCode: String) {
+    if (bitmap == null) return
+    try {
+        val cachePath = java.io.File(context.cacheDir, "images")
+        cachePath.mkdirs()
+        val imageFile = java.io.File(cachePath, "user_qr_code.png")
+        val stream = java.io.FileOutputStream(imageFile)
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+        stream.flush()
+        stream.close()
+
+        val contentUri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            imageFile
+        )
+
+        if (contentUri != null) {
+            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(android.content.Intent.EXTRA_STREAM, contentUri)
+                putExtra(android.content.Intent.EXTRA_TEXT, "Add me on SplitSmith! My User Code is: $userCode\nScan this QR code to split bills directly.")
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(android.content.Intent.createChooser(shareIntent, "Share QR Code"))
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_TEXT, "Add me on SplitSmith! My User Code is: $userCode")
+        }
+        context.startActivity(android.content.Intent.createChooser(shareIntent, "Share User Code"))
     }
 }

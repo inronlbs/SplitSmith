@@ -98,6 +98,8 @@ fun SlipImportScreen(
     var isIncomingPayment by remember { mutableStateOf(false) }
     var sourcePaymentApp by remember { mutableStateOf("") }
 
+    val selectedAttachmentUris = remember { mutableStateListOf<Uri>(imageUri) }
+
     val profileState = FirebaseManager.observeUserProfile().collectAsState(initial = null)
     val profile = profileState.value
     val baseCategories = remember { listOf("Food", "Travel", "Stay", "Groceries", "Shopping", "Entertainment", "Rent", "Other") }
@@ -620,6 +622,24 @@ fun SlipImportScreen(
                                         modifier = Modifier.weight(1f)
                                     )
                                 }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    AssignChip(
+                                        icon = Icons.Default.DateRange,
+                                        label = "Date",
+                                        onClick = {
+                                            val (dMillis, dFound) = parseDate(editableText)
+                                            if (dFound && dMillis != null) {
+                                                parsedDateMillis = dMillis
+                                                isDateExtracted = true
+                                            } else {
+                                                Toast.makeText(context, "Could not parse date", Toast.LENGTH_SHORT).show()
+                                            }
+                                            selectedOcrText = null
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
                             }
                         }
                     }
@@ -952,6 +972,29 @@ fun SlipImportScreen(
 
             Spacer(modifier = Modifier.height(d.space8))
 
+            // Multi-Attachment Section
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(d.radiusLG),
+                border = BorderStroke(1.dp, colors.borderWhisper),
+                color = colors.surfaceCard
+            ) {
+                Column(modifier = Modifier.padding(d.space16)) {
+                    com.splitsmith.app.ui.components.attachments.AttachmentComponent(
+                        selectedUris = selectedAttachmentUris,
+                        existingUrls = emptyList(),
+                        onUrisChanged = { newUris ->
+                            selectedAttachmentUris.clear()
+                            selectedAttachmentUris.addAll(newUris)
+                        },
+                        onExistingUrlsChanged = {},
+                        isEditable = true
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(d.space8))
+
             // Google Drive Backup Toggle Card
             var uploadToDrive by remember(profileState.value) { mutableStateOf(profileState.value?.driveSyncEnabled ?: true) }
             val hasDrivePermission = remember(context) { com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context) }
@@ -1057,16 +1100,15 @@ fun SlipImportScreen(
                                 if (transactionId.isNotEmpty()) append("Txn ID: $transactionId")
                             }.trim()
 
-                            // Save image locally first (persistent storage)
+                            // Save images locally first
                             val localReceiptUrls = mutableListOf<String>()
-                            val targetUri = imageUri
-                            var localSavedUri: android.net.Uri? = null
-                            if (targetUri != null) {
-                                localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, targetUri, "personal")
-                                if (localSavedUri != null) {
-                                    localReceiptUrls.add(localSavedUri.toString())
-                                } else {
-                                    localReceiptUrls.add(targetUri.toString())
+                            val localSavedUris = mutableListOf<Uri>()
+                            if (selectedAttachmentUris.isNotEmpty()) {
+                                selectedAttachmentUris.forEach { uri ->
+                                    val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "personal")
+                                    val effectiveUri = localSavedUri ?: uri
+                                    localSavedUris.add(effectiveUri)
+                                    localReceiptUrls.add(effectiveUri.toString())
                                 }
                             }
 
@@ -1082,26 +1124,37 @@ fun SlipImportScreen(
 
                             Toast.makeText(context, "Logged as Personal Expense!", Toast.LENGTH_SHORT).show()
 
-                            // Background Drive upload with real document ID
-                            val effectiveUri = localSavedUri ?: targetUri
-                            if (uploadToDrive && effectiveUri != null && expId.isNotBlank()) {
+                            // Background Drive upload for all attachments
+                            if (uploadToDrive && localSavedUris.isNotEmpty() && expId.isNotBlank()) {
                                 val applicationContext = context.applicationContext
                                 kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
-                                    try {
-                                        val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
-                                            context = applicationContext,
-                                            inputUri = effectiveUri,
-                                            folderCategoryName = "Personal Expenses",
-                                            dateMillis = parsedDateMillis ?: System.currentTimeMillis(),
-                                            expenseId = expId
-                                        )
-                                        if (driveResult != null) {
-                                            FirebaseManager.attachDriveFileToPersonalExpense(
-                                                expenseId = expId,
-                                                driveFileId = driveResult.fileId,
-                                                webUrl = driveResult.webViewLink
+                                    localSavedUris.forEach { effectiveUri ->
+                                        try {
+                                            val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
+                                                context = applicationContext,
+                                                inputUri = effectiveUri,
+                                                folderCategoryName = "Personal Expenses",
+                                                dateMillis = parsedDateMillis ?: System.currentTimeMillis(),
+                                                expenseId = expId
                                             )
-                                        } else {
+                                            if (driveResult != null) {
+                                                FirebaseManager.attachDriveFileToPersonalExpense(
+                                                    expenseId = expId,
+                                                    driveFileId = driveResult.fileId,
+                                                    webUrl = driveResult.webViewLink
+                                                )
+                                            } else {
+                                                com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                    context = applicationContext,
+                                                    localUri = effectiveUri,
+                                                    folderCategoryName = "Personal Expenses",
+                                                    dateMillis = parsedDateMillis ?: System.currentTimeMillis(),
+                                                    expenseId = expId,
+                                                    isPersonal = true
+                                                )
+                                            }
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
                                             com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
                                                 context = applicationContext,
                                                 localUri = effectiveUri,
@@ -1111,16 +1164,6 @@ fun SlipImportScreen(
                                                 isPersonal = true
                                             )
                                         }
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                        com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                            context = applicationContext,
-                                            localUri = effectiveUri,
-                                            folderCategoryName = "Personal Expenses",
-                                            dateMillis = parsedDateMillis ?: System.currentTimeMillis(),
-                                            expenseId = expId,
-                                            isPersonal = true
-                                        )
                                     }
                                 }
                             }
@@ -1162,7 +1205,7 @@ fun SlipImportScreen(
                     FirebaseManager.pendingExpenseDesc = if (receiverName.isNotEmpty()) "$entryTitle ($receiverName)" else entryTitle
                     FirebaseManager.pendingExpenseCategory = selectedCategory
                     FirebaseManager.pendingExpenseDate = parsedDateMillis
-                    FirebaseManager.pendingExpenseAttachmentUri = imageUri
+                    FirebaseManager.pendingExpenseAttachmentUri = selectedAttachmentUris.firstOrNull()
                     onNavigateToQuickSplit()
                 },
                 modifier = Modifier

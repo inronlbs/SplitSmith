@@ -110,7 +110,7 @@ fun AttachmentComponent(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = if (displayAttachments.isEmpty()) "+ Attach Invoice / Receipt" else "+ Add More Files",
+                    text = if (displayAttachments.isEmpty()) "Attach Invoice / Receipt" else "Add More Files",
                     fontFamily = OutfitFamily,
                     fontSize = d.textLabelMedium,
                     color = colors.inkPrimary

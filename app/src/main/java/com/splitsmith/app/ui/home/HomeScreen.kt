@@ -146,7 +146,14 @@ fun HomeScreen(
     var joinConfirmGroup by remember { mutableStateOf<Group?>(null) }
     var connectedUserPopup by remember { mutableStateOf<UserProfile?>(null) }
 
-    // Handle deep links (splitsmith://join?code=...) dynamically
+    // Process any pending Google Drive uploads on app startup if scope is granted
+    LaunchedEffect(Unit) {
+        if (com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) {
+            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
+            }
+        }
+    }
     val pendingJoinCode = FirebaseManager.pendingGroupJoinCode
     LaunchedEffect(pendingJoinCode) {
         if (!pendingJoinCode.isNullOrEmpty()) {
@@ -2037,6 +2044,10 @@ fun ProfileSettingsView(
                 val success = com.splitsmith.app.data.GoogleDriveManager.handleDrivePermissionResult(result.data)
                 coroutineScope.launch {
                     FirebaseManager.updateDriveSyncSetting(success)
+                    if (success) {
+                        Toast.makeText(context, "Google Drive linked! Syncing pending attachments...", Toast.LENGTH_SHORT).show()
+                        com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
+                    }
                 }
             }
 
