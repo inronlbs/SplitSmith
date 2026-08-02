@@ -147,10 +147,39 @@ fun HomeScreen(
     var joinConfirmGroup by remember { mutableStateOf<Group?>(null) }
     var connectedUserPopup by remember { mutableStateOf<UserProfile?>(null) }
 
+    var hasDrivePermission by remember { mutableStateOf(com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) }
+    var showDriveSnackbar by remember { mutableStateOf(false) }
+
+    val homeDriveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val success = com.splitsmith.app.data.GoogleDriveManager.handleDrivePermissionResult(result.data, context)
+        hasDrivePermission = success
+        if (success) {
+            showDriveSnackbar = false
+            Toast.makeText(context, "Google Drive linked! Syncing...", Toast.LENGTH_SHORT).show()
+            coroutineScope.launch {
+                com.splitsmith.app.data.GoogleDriveManager.ensureRootFolderExists(context)
+                com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context)
+                com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
+            }
+        }
+    }
+
+    LaunchedEffect(userProfileState.value) {
+        val wantsSync = userProfileState.value?.driveSyncEnabled == true
+        val hasPerm = com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)
+        hasDrivePermission = hasPerm
+        showDriveSnackbar = wantsSync && !hasPerm
+    }
+
     // Process any pending Google Drive uploads on app startup if scope is granted
     LaunchedEffect(Unit) {
+        com.splitsmith.app.migration.FolderMigration.runFolderMigration(context)
         if (com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) {
+            com.splitsmith.app.data.GoogleDriveManager.ensureRootFolderExists(context)
             com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
+            com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context)
         }
     }
     val pendingJoinCode = FirebaseManager.pendingGroupJoinCode
@@ -681,6 +710,19 @@ fun HomeScreen(
                         }
                     }
                 }
+            }
+            if (showDriveSnackbar) {
+                com.splitsmith.app.ui.PermissionSnackbar(
+                    showSnackbar = true,
+                    onDismiss = { showDriveSnackbar = false },
+                    onGrantPermission = {
+                        com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(homeDriveLauncher, context)
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = d.navDockHeight + d.space24)
+                        .padding(horizontal = d.space16)
+                )
             }
         }
     }
@@ -2089,39 +2131,7 @@ fun ProfileSettingsView(
                     }
                 )
 
-                if (profile?.driveSyncEnabled == true && !hasDrivePermission) {
-                    Spacer(modifier = Modifier.height(d.space8))
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = Color(0xFFFEF3C7),
-                        border = BorderStroke(1.dp, Color(0xFFF59E0B)),
-                        shape = RoundedCornerShape(d.radiusSM)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(d.space12),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "Google Drive Access Required",
-                                fontFamily = OutfitFamily,
-                                fontSize = d.textLabelMedium,
-                                color = Color(0xFF92400E),
-                                modifier = Modifier.weight(1f)
-                            )
-                            Button(
-                                onClick = {
-                                    com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(driveLauncher, context)
-                                },
-                                shape = RoundedCornerShape(d.radiusSM),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706), contentColor = Color.White),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
-                                Text("Grant Access", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-                        }
-                    }
-                }
+                // Banner removed: Now handled globally by PermissionSnackbar at the Scaffold level
             }
         }
 

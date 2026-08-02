@@ -3,7 +3,9 @@ package com.splitsmith.app.data
 import android.content.Context
 import android.net.Uri
 import android.widget.Toast
+import com.splitsmith.app.util.DriveUploadLogger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -289,33 +291,49 @@ object PendingDriveUploadsManager {
 
                     when (driveResult) {
                         is DriveUploadResult.Success -> {
-                            try {
-                                val localPath = item.originalLocalUriPath.ifBlank { item.localUriPath }
-                                if (item.isPersonal) {
-                                    FirebaseManager.attachDriveFileToPersonalExpense(
-                                        expenseId = item.expenseId,
-                                        driveFileId = driveResult.fileId,
-                                        webUrl = driveResult.webViewLink,
-                                        localUriPath = localPath
-                                    )
-                                } else if (item.groupId.isNotEmpty()) {
-                                    FirebaseManager.attachDriveFileToGroupExpense(
-                                        groupId = item.groupId,
-                                        expenseId = item.expenseId,
-                                        driveFileId = driveResult.fileId,
-                                        webUrl = driveResult.webViewLink,
-                                        localUriPath = localPath
-                                    )
-                                } else {
-                                    FirebaseManager.attachDriveFileToDirectSplit(
-                                        splitId = item.expenseId,
-                                        driveFileId = driveResult.fileId,
-                                        webUrl = driveResult.webViewLink,
-                                        localUriPath = localPath
-                                    )
+                            var attachSuccess = false
+                            var attachAttempt = 0
+                            var attachDelay = 1000L
+                            while (attachAttempt < 5) {
+                                attachAttempt++
+                                try {
+                                    val localPath = item.originalLocalUriPath.ifBlank { item.localUriPath }
+                                    if (item.isPersonal) {
+                                        FirebaseManager.attachDriveFileToPersonalExpense(
+                                            expenseId = item.expenseId,
+                                            driveFileId = driveResult.fileId,
+                                            webUrl = driveResult.webViewLink,
+                                            localUriPath = localPath
+                                        )
+                                    } else if (item.groupId.isNotEmpty()) {
+                                        FirebaseManager.attachDriveFileToGroupExpense(
+                                            groupId = item.groupId,
+                                            expenseId = item.expenseId,
+                                            driveFileId = driveResult.fileId,
+                                            webUrl = driveResult.webViewLink,
+                                            localUriPath = localPath
+                                        )
+                                    } else {
+                                        FirebaseManager.attachDriveFileToDirectSplit(
+                                            splitId = item.expenseId,
+                                            driveFileId = driveResult.fileId,
+                                            webUrl = driveResult.webViewLink,
+                                            localUriPath = localPath
+                                        )
+                                    }
+                                    attachSuccess = true
+                                    break
+                                } catch (attachError: Exception) {
+                                    DriveUploadLogger.logError(context, "PendingDriveUploads", "Firestore attach failed attempt $attachAttempt (Drive file exists: ${driveResult.fileId}): ${attachError.message}", attachError)
+                                    if (attachAttempt < 5) {
+                                        delay(attachDelay)
+                                        attachDelay = (attachDelay * 2.0).toLong()
+                                    }
                                 }
-                            } catch (attachError: Exception) {
-                                android.util.Log.e("PendingDriveUploads", "Firestore attach failed (Drive file exists: ${driveResult.fileId}): ${attachError.message}")
+                            }
+                            
+                            if (!attachSuccess) {
+                                DriveUploadLogger.logError(context, "PendingDriveUploads", "Firestore attach failed after 5 attempts for ${driveResult.fileId}")
                                 continue
                             }
 

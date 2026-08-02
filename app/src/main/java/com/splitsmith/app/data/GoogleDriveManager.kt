@@ -11,7 +11,9 @@ import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
 import com.google.api.services.drive.model.File
 import com.splitsmith.app.util.AttachmentCompressor
+import com.splitsmith.app.util.DriveUploadLogger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.FileInputStream
 import java.text.SimpleDateFormat
@@ -33,6 +35,32 @@ sealed class DriveUploadResult {
 object GoogleDriveManager {
 
     private const val ROOT_FOLDER_NAME = "SplitSmith"
+
+    private suspend fun <T> withRetry(
+        context: Context,
+        tag: String,
+        times: Int = 5,
+        initialDelay: Long = 1000,
+        factor: Double = 2.0,
+        block: suspend () -> T
+    ): T {
+        var currentDelay = initialDelay
+        for (i in 0 until times - 1) {
+            try {
+                return block()
+            } catch (e: Exception) {
+                DriveUploadLogger.logError(context, tag, "Attempt ${i + 1} failed: ${e.message}", e)
+                delay(currentDelay)
+                currentDelay = (currentDelay * factor).toLong()
+            }
+        }
+        return try {
+            block()
+        } catch (e: Exception) {
+            DriveUploadLogger.logError(context, tag, "Final attempt $times failed: ${e.message}", e)
+            throw e
+        }
+    }
 
     fun hasDrivePermission(context: Context): Boolean {
         val account = GoogleSignIn.getLastSignedInAccount(context) ?: return false
@@ -181,25 +209,12 @@ object GoogleDriveManager {
     ): DriveUploadResult = withContext(Dispatchers.IO) {
         try {
             if (!hasDrivePermission(context)) {
-                android.util.Log.e("GoogleDriveManager", "uploadAttachment FAILED: DRIVE_FILE scope not granted")
+                DriveUploadLogger.logError(context, "GoogleDriveManager", "uploadAttachment FAILED: DRIVE_FILE scope not granted")
                 return@withContext DriveUploadResult.Failure(DriveError.SCOPE_MISSING, "Google Drive permission not granted. Tap to grant access.")
             }
 
             val driveService = getDriveService(context)
                 ?: return@withContext DriveUploadResult.Failure(DriveError.TOKEN_EXPIRED, "Sign-in token expired or account unavailable. Tap to re-authenticate.")
-
-            // 1. Root SplitSmith folder
-            val rootFolderId = findOrCreateFolder(driveService, ROOT_FOLDER_NAME)
-                ?: return@withContext DriveUploadResult.Failure(DriveError.NETWORK_ERROR, "Could not create Drive folder. Check your internet connection.")
-
-            // 2. Category / Group folder
-            val categoryFolderId = findOrCreateFolder(driveService, folderCategoryName, rootFolderId)
-                ?: return@withContext DriveUploadResult.Failure(DriveError.NETWORK_ERROR, "Could not create Drive category folder.")
-
-            // 3. Month folder (e.g. 2026-07)
-            val monthString = SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(Date(if (dateMillis > 0) dateMillis else System.currentTimeMillis()))
-            val monthFolderId = findOrCreateFolder(driveService, monthString, categoryFolderId)
-                ?: return@withContext DriveUploadResult.Failure(DriveError.NETWORK_ERROR, "Could not create Drive month folder.")
 
             val isPdf = AttachmentCompressor.isPdfUri(context, inputUri)
             val originalName = AttachmentCompressor.getFileName(context, inputUri)
@@ -223,22 +238,41 @@ object GoogleDriveManager {
                 mimeType = "image/jpeg"
             }
 
-            if (uploadFile == null || !uploadFile.exists()) return@withContext DriveUploadResult.Failure(DriveError.FILE_NOT_FOUND, "Could not read attachment file for upload.")
+            if (uploadFile == null || !uploadFile.exists()) {
+                DriveUploadLogger.logError(context, "GoogleDriveManager", "uploadAttachment FAILED: File not found")
+                return@withContext DriveUploadResult.Failure(DriveError.FILE_NOT_FOUND, "Could not read attachment file for upload.")
+            }
 
+            val monthString = SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(Date(if (dateMillis > 0) dateMillis else System.currentTimeMillis()))
             val formattedDate = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date(if (dateMillis > 0) dateMillis else System.currentTimeMillis()))
             val cleanExpenseId = if (expenseId.isNotBlank()) expenseId.take(6) else "exp"
             val targetFileName = "${cleanExpenseId}_${formattedDate}_$originalName"
 
-            val fileMetadata = File().apply {
-                name = targetFileName
-                parents = Collections.singletonList(monthFolderId)
+            val uploadedFile = withRetry(context, "GoogleDriveManager_Upload", times = 5) {
+                // 1. Root SplitSmith folder
+                val rootFolderId = findOrCreateFolder(driveService, ROOT_FOLDER_NAME)
+                    ?: throw java.io.IOException("Could not create Drive root folder")
+
+                // 2. Category / Group folder
+                val categoryFolderId = findOrCreateFolder(driveService, folderCategoryName, rootFolderId)
+                    ?: throw java.io.IOException("Could not create Drive category folder")
+
+                // 3. Month folder (e.g. 2026-07)
+                val monthFolderId = findOrCreateFolder(driveService, monthString, categoryFolderId)
+                    ?: throw java.io.IOException("Could not create Drive month folder")
+
+                val fileMetadata = File().apply {
+                    name = targetFileName
+                    parents = Collections.singletonList(monthFolderId)
+                }
+
+                // Re-instantiate InputStreamContent on each retry since the stream gets consumed
+                val mediaContent = InputStreamContent(mimeType, FileInputStream(uploadFile))
+
+                driveService.files().create(fileMetadata, mediaContent)
+                    .setFields("id, webViewLink, webContentLink")
+                    .execute()
             }
-
-            val mediaContent = InputStreamContent(mimeType, FileInputStream(uploadFile))
-
-            val uploadedFile = driveService.files().create(fileMetadata, mediaContent)
-                .setFields("id, webViewLink, webContentLink")
-                .execute()
 
             // Make file viewable to anyone with the link (for group members / split partners)
             try {
@@ -247,7 +281,7 @@ object GoogleDriveManager {
                     .setRole("reader")
                 driveService.permissions().create(uploadedFile.id, permission).execute()
             } catch (permError: Exception) {
-                android.util.Log.w("GoogleDriveManager", "Could not set public view permission: ${permError.message}")
+                DriveUploadLogger.logError(context, "GoogleDriveManager", "Could not set public view permission: ${permError.message}", permError)
             }
 
             // Clean up temp local file
@@ -261,7 +295,7 @@ object GoogleDriveManager {
             }
             return@withContext DriveUploadResult.Failure(DriveError.UNKNOWN, "Drive upload returned no file ID.")
         } catch (e: java.io.IOException) {
-            android.util.Log.e("GoogleDriveManager", "uploadAttachment NETWORK_ERROR", e)
+            DriveUploadLogger.logError(context, "GoogleDriveManager", "uploadAttachment NETWORK_ERROR", e)
             DriveUploadResult.Failure(DriveError.NETWORK_ERROR, "Network error during upload: ${e.message}")
         } catch (e: com.google.api.client.auth.oauth2.TokenResponseException) {
             android.util.Log.e("GoogleDriveManager", "uploadAttachment TOKEN_EXPIRED", e)
