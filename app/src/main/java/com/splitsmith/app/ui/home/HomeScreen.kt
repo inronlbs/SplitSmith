@@ -2006,7 +2006,7 @@ fun ProfileSettingsView(
             val driveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                 contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
             ) { result ->
-                val success = com.splitsmith.app.data.GoogleDriveManager.handleDrivePermissionResult(result.data)
+                val success = com.splitsmith.app.data.GoogleDriveManager.handleDrivePermissionResult(result.data, context)
                 coroutineScope.launch {
                     FirebaseManager.updateDriveSyncSetting(success)
                     if (success) {
@@ -3036,9 +3036,42 @@ fun PersonalExpenseDetailBottomSheet(
                         Text("Amount Spent", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelMedium)
                         Text("₹${expense.amount}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.inkPrimary)
                     }
-                    if (expense.note.isNotEmpty()) {
+                    if (expense.note.isNotBlank()) {
+                        val noteText = expense.note.trim()
+                        val paidTo = if (noteText.contains("Paid to ")) noteText.substringAfter("Paid to ").substringBefore(".").trim() else ""
+                        val viaApp = if (noteText.contains("Via ")) noteText.substringAfter("Via ").substringBefore(".").trim() else ""
+                        val txnId = if (noteText.contains("Txn ID: ")) noteText.substringAfter("Txn ID: ").substringBefore(".").trim() else ""
+                        val cleanRemarks = noteText
+                            .replace(Regex("Paid to [^.]+\\."), "")
+                            .replace(Regex("Via [^.]+\\."), "")
+                            .replace(Regex("Txn ID: [^.]+"), "")
+                            .trim()
+
                         HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
-                        Text("Note: ${expense.note}", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelSmall)
+                        if (paidTo.isNotBlank()) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Paid To", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelMedium)
+                                Text(paidTo, fontFamily = OutfitFamily, fontWeight = FontWeight.Medium, color = colors.inkPrimary, fontSize = d.textLabelMedium)
+                            }
+                        }
+                        if (viaApp.isNotBlank()) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Payment Via", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelMedium)
+                                Text(viaApp, fontFamily = OutfitFamily, fontWeight = FontWeight.Medium, color = colors.inkPrimary, fontSize = d.textLabelMedium)
+                            }
+                        }
+                        if (txnId.isNotBlank()) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Txn ID", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelMedium)
+                                Text(txnId, fontFamily = OutfitFamily, fontWeight = FontWeight.Medium, color = colors.inkPrimary, fontSize = d.textLabelMedium)
+                            }
+                        }
+                        if (cleanRemarks.isNotBlank()) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Note / Remarks", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelMedium)
+                                Text(cleanRemarks, fontFamily = OutfitFamily, color = colors.inkPrimary, fontSize = d.textLabelMedium)
+                            }
+                        }
                     }
                     val attachmentUrls = remember(expense) { expense.receiptUrls }
                     if (attachmentUrls.isNotEmpty()) {

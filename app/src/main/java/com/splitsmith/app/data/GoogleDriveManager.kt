@@ -39,15 +39,33 @@ object GoogleDriveManager {
         return GoogleSignIn.hasPermissions(account, com.google.android.gms.common.api.Scope(DriveScopes.DRIVE_FILE))
     }
 
-    fun handleDrivePermissionResult(intentData: android.content.Intent?): Boolean {
-        if (intentData == null) return false
+    suspend fun verifyDriveAccess(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val account = GoogleSignIn.getLastSignedInAccount(context) ?: return@withContext false
+        if (!GoogleSignIn.hasPermissions(account, com.google.android.gms.common.api.Scope(DriveScopes.DRIVE_FILE))) {
+            return@withContext false
+        }
+        val driveService = getDriveService(context) ?: return@withContext false
+        return@withContext try {
+            val listResult = driveService.files().list().setPageSize(1).setFields("files(id)").execute()
+            listResult != null
+        } catch (e: Exception) {
+            android.util.Log.w("GoogleDriveManager", "verifyDriveAccess live test failed: ${e.message}")
+            false
+        }
+    }
+
+    fun handleDrivePermissionResult(intentData: android.content.Intent?, context: Context? = null): Boolean {
+        if (context != null && hasDrivePermission(context)) {
+            return true
+        }
+        if (intentData == null) return context?.let { hasDrivePermission(it) } ?: false
         return try {
             val task = GoogleSignIn.getSignedInAccountFromIntent(intentData)
             val account = task.getResult(com.google.android.gms.common.api.ApiException::class.java)
             account != null && GoogleSignIn.hasPermissions(account, com.google.android.gms.common.api.Scope(DriveScopes.DRIVE_FILE))
         } catch (e: Exception) {
-            e.printStackTrace()
-            false
+            android.util.Log.w("GoogleDriveManager", "handleDrivePermissionResult task result error: ${e.message}")
+            context?.let { hasDrivePermission(it) } ?: false
         }
     }
 

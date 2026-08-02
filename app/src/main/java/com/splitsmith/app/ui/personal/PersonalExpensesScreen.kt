@@ -960,31 +960,76 @@ fun PersonalExpensesScreen(
 
                     // Details metadata list
                     Column(verticalArrangement = Arrangement.spacedBy(d.space12)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Category", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
-                            Text(exp.category, fontFamily = OutfitFamily, fontWeight = FontWeight.Medium, color = colors.inkPrimary, fontSize = d.textBodyLarge)
-                        }
-
-                        val formatter = remember { java.text.SimpleDateFormat("MMMM dd, yyyy", java.util.Locale.getDefault()) }
-                        val dateStr = formatter.format(java.util.Date(exp.date))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Date", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
-                            Text(dateStr, fontFamily = OutfitFamily, fontWeight = FontWeight.Medium, color = colors.inkPrimary, fontSize = d.textBodyLarge)
-                        }
-
-                        if (exp.note.isNotEmpty()) {
+                        if (exp.category.isNotBlank()) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Note", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
-                                Text(exp.note, fontFamily = OutfitFamily, color = colors.inkPrimary, fontSize = d.textBodyLarge)
+                                Text("Category", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
+                                Text(exp.category, fontFamily = OutfitFamily, fontWeight = FontWeight.Medium, color = colors.inkPrimary, fontSize = d.textBodyLarge)
+                            }
+                        }
+
+                        if (exp.date > 0) {
+                            val formatter = remember { java.text.SimpleDateFormat("MMMM dd, yyyy", java.util.Locale.getDefault()) }
+                            val dateStr = formatter.format(java.util.Date(exp.date))
+                            if (dateStr.isNotBlank()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Date", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
+                                    Text(dateStr, fontFamily = OutfitFamily, fontWeight = FontWeight.Medium, color = colors.inkPrimary, fontSize = d.textBodyLarge)
+                                }
+                            }
+                        }
+
+                        if (exp.note.isNotBlank()) {
+                            val noteText = exp.note.trim()
+                            val paidTo = if (noteText.contains("Paid to ")) noteText.substringAfter("Paid to ").substringBefore(".").trim() else ""
+                            val viaApp = if (noteText.contains("Via ")) noteText.substringAfter("Via ").substringBefore(".").trim() else ""
+                            val txnId = if (noteText.contains("Txn ID: ")) noteText.substringAfter("Txn ID: ").substringBefore(".").trim() else ""
+                            val cleanRemarks = noteText
+                                .replace(Regex("Paid to [^.]+\\."), "")
+                                .replace(Regex("Via [^.]+\\."), "")
+                                .replace(Regex("Txn ID: [^.]+"), "")
+                                .trim()
+
+                            if (paidTo.isNotBlank()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Paid To", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
+                                    Text(paidTo, fontFamily = OutfitFamily, fontWeight = FontWeight.Medium, color = colors.inkPrimary, fontSize = d.textBodyLarge)
+                                }
+                            }
+                            if (viaApp.isNotBlank()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Payment Via", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
+                                    Text(viaApp, fontFamily = OutfitFamily, fontWeight = FontWeight.Medium, color = colors.inkPrimary, fontSize = d.textBodyLarge)
+                                }
+                            }
+                            if (txnId.isNotBlank()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Txn ID", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
+                                    Text(txnId, fontFamily = OutfitFamily, fontWeight = FontWeight.Medium, color = colors.inkPrimary, fontSize = d.textBodyLarge)
+                                }
+                            }
+                            if (cleanRemarks.isNotBlank()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Note / Remarks", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
+                                    Text(cleanRemarks, fontFamily = OutfitFamily, color = colors.inkPrimary, fontSize = d.textBodyLarge)
+                                }
                             }
                         }
 
