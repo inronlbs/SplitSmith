@@ -637,21 +637,71 @@ fun PersonalExpensesScreen(
                                         )
                                         Toast.makeText(context, "Changes saved", Toast.LENGTH_SHORT).show()
                                         
-                                        // Background Drive upload via WorkManager
+                                        // Immediate Drive upload with WorkManager fallback
                                         if (localSavedUris.isNotEmpty() && profile?.driveSyncEnabled == true) {
                                             val applicationContext = context.applicationContext
-                                            localSavedUris.forEach { effectiveUri ->
-                                                com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                                    context = applicationContext,
-                                                    localUri = effectiveUri,
-                                                    folderCategoryName = "Personal Expenses",
-                                                    dateMillis = newDateMillis,
-                                                    expenseId = currentEdit.id,
-                                                    isPersonal = true,
-                                                    originalLocalUriPath = effectiveUri.toString()
-                                                )
+                                            val targetId = currentEdit.id
+                                            if (com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(applicationContext)) {
+                                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                                    localSavedUris.forEach { effectiveUri ->
+                                                        try {
+                                                            val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
+                                                                context = applicationContext,
+                                                                inputUri = effectiveUri,
+                                                                folderCategoryName = "Personal Expenses",
+                                                                dateMillis = newDateMillis,
+                                                                expenseId = targetId
+                                                            )
+                                                            when (driveResult) {
+                                                                is com.splitsmith.app.data.DriveUploadResult.Success -> {
+                                                                    FirebaseManager.attachDriveFileToPersonalExpense(
+                                                                        expenseId = targetId,
+                                                                        driveFileId = driveResult.fileId,
+                                                                        webUrl = driveResult.webViewLink,
+                                                                        localUriPath = effectiveUri.toString()
+                                                                    )
+                                                                }
+                                                                is com.splitsmith.app.data.DriveUploadResult.Failure -> {
+                                                                    com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                                        context = applicationContext,
+                                                                        localUri = effectiveUri,
+                                                                        folderCategoryName = "Personal Expenses",
+                                                                        dateMillis = newDateMillis,
+                                                                        expenseId = targetId,
+                                                                        isPersonal = true,
+                                                                        originalLocalUriPath = effectiveUri.toString()
+                                                                    )
+                                                                    com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
+                                                                }
+                                                            }
+                                                        } catch (e: Exception) {
+                                                            com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                                context = applicationContext,
+                                                                localUri = effectiveUri,
+                                                                folderCategoryName = "Personal Expenses",
+                                                                dateMillis = newDateMillis,
+                                                                expenseId = targetId,
+                                                                isPersonal = true,
+                                                                originalLocalUriPath = effectiveUri.toString()
+                                                            )
+                                                            com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                localSavedUris.forEach { effectiveUri ->
+                                                    com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                        context = applicationContext,
+                                                        localUri = effectiveUri,
+                                                        folderCategoryName = "Personal Expenses",
+                                                        dateMillis = newDateMillis,
+                                                        expenseId = targetId,
+                                                        isPersonal = true,
+                                                        originalLocalUriPath = effectiveUri.toString()
+                                                    )
+                                                }
+                                                Toast.makeText(context, "Receipt saved locally. Link Google Drive in Settings to sync.", Toast.LENGTH_LONG).show()
                                             }
-                                            com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
                                         }
                                     } else {
                                         val newExpenseId = FirebaseManager.addPersonalExpense(
@@ -665,21 +715,71 @@ fun PersonalExpensesScreen(
                                         )
                                         Toast.makeText(context, "Expense saved to wallet", Toast.LENGTH_SHORT).show()
 
-                                        // Background Drive upload via WorkManager
+                                        // Immediate Drive upload with WorkManager fallback
                                         if (localSavedUris.isNotEmpty() && profile?.driveSyncEnabled == true) {
                                             val applicationContext = context.applicationContext
-                                            localSavedUris.forEach { effectiveUri ->
-                                                com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                                    context = applicationContext,
-                                                    localUri = effectiveUri,
-                                                    folderCategoryName = "Personal Expenses",
-                                                    dateMillis = newDateMillis,
-                                                    expenseId = newExpenseId,
-                                                    isPersonal = true,
-                                                    originalLocalUriPath = effectiveUri.toString()
-                                                )
+                                            val targetId = newExpenseId
+                                            if (com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(applicationContext)) {
+                                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                                    localSavedUris.forEach { effectiveUri ->
+                                                        try {
+                                                            val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
+                                                                context = applicationContext,
+                                                                inputUri = effectiveUri,
+                                                                folderCategoryName = "Personal Expenses",
+                                                                dateMillis = newDateMillis,
+                                                                expenseId = targetId
+                                                            )
+                                                            when (driveResult) {
+                                                                is com.splitsmith.app.data.DriveUploadResult.Success -> {
+                                                                    FirebaseManager.attachDriveFileToPersonalExpense(
+                                                                        expenseId = targetId,
+                                                                        driveFileId = driveResult.fileId,
+                                                                        webUrl = driveResult.webViewLink,
+                                                                        localUriPath = effectiveUri.toString()
+                                                                    )
+                                                                }
+                                                                is com.splitsmith.app.data.DriveUploadResult.Failure -> {
+                                                                    com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                                        context = applicationContext,
+                                                                        localUri = effectiveUri,
+                                                                        folderCategoryName = "Personal Expenses",
+                                                                        dateMillis = newDateMillis,
+                                                                        expenseId = targetId,
+                                                                        isPersonal = true,
+                                                                        originalLocalUriPath = effectiveUri.toString()
+                                                                    )
+                                                                    com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
+                                                                }
+                                                            }
+                                                        } catch (e: Exception) {
+                                                            com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                                context = applicationContext,
+                                                                localUri = effectiveUri,
+                                                                folderCategoryName = "Personal Expenses",
+                                                                dateMillis = newDateMillis,
+                                                                expenseId = targetId,
+                                                                isPersonal = true,
+                                                                originalLocalUriPath = effectiveUri.toString()
+                                                            )
+                                                            com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                localSavedUris.forEach { effectiveUri ->
+                                                    com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                        context = applicationContext,
+                                                        localUri = effectiveUri,
+                                                        folderCategoryName = "Personal Expenses",
+                                                        dateMillis = newDateMillis,
+                                                        expenseId = targetId,
+                                                        isPersonal = true,
+                                                        originalLocalUriPath = effectiveUri.toString()
+                                                    )
+                                                }
+                                                Toast.makeText(context, "Receipt saved locally. Link Google Drive in Settings to sync.", Toast.LENGTH_LONG).show()
                                             }
-                                            com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
                                         }
                                     }
                                     showAddPersonalSheet = false

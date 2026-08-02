@@ -692,22 +692,74 @@ fun QuickSplitScreen(
                                     )
                                     Toast.makeText(context, "Quick Split saved!", Toast.LENGTH_SHORT).show()
 
-                                    // Step 3: Upload to Drive in background with real ID
+                                    // Immediate Drive upload with WorkManager fallback
                                     if (localSavedUris.isNotEmpty() && userProfileState.value?.driveSyncEnabled == true) {
                                         val applicationContext = context.applicationContext
-                                        localSavedUris.forEach { effectiveUri ->
-                                            com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                                context = applicationContext,
-                                                localUri = effectiveUri,
-                                                originalLocalUriPath = effectiveUri.toString(),
-                                                folderCategoryName = "Direct Splits",
-                                                dateMillis = selectedDateMillis,
-                                                expenseId = newSplitId,
-                                                isPersonal = false,
-                                                groupId = ""
-                                            )
+                                        val targetId = newSplitId
+                                        if (com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(applicationContext)) {
+                                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                                localSavedUris.forEach { effectiveUri ->
+                                                    try {
+                                                        val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
+                                                            context = applicationContext,
+                                                            inputUri = effectiveUri,
+                                                            folderCategoryName = "Direct Splits",
+                                                            dateMillis = selectedDateMillis,
+                                                            expenseId = targetId
+                                                        )
+                                                        when (driveResult) {
+                                                            is com.splitsmith.app.data.DriveUploadResult.Success -> {
+                                                                FirebaseManager.attachDriveFileToDirectSplit(
+                                                                    splitId = targetId,
+                                                                    driveFileId = driveResult.fileId,
+                                                                    webUrl = driveResult.webViewLink,
+                                                                    localUriPath = effectiveUri.toString()
+                                                                )
+                                                            }
+                                                            is com.splitsmith.app.data.DriveUploadResult.Failure -> {
+                                                                com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                                    context = applicationContext,
+                                                                    localUri = effectiveUri,
+                                                                    originalLocalUriPath = effectiveUri.toString(),
+                                                                    folderCategoryName = "Direct Splits",
+                                                                    dateMillis = selectedDateMillis,
+                                                                    expenseId = targetId,
+                                                                    isPersonal = false,
+                                                                    groupId = ""
+                                                                )
+                                                                com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
+                                                            }
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                            context = applicationContext,
+                                                            localUri = effectiveUri,
+                                                            originalLocalUriPath = effectiveUri.toString(),
+                                                            folderCategoryName = "Direct Splits",
+                                                            dateMillis = selectedDateMillis,
+                                                            expenseId = targetId,
+                                                            isPersonal = false,
+                                                            groupId = ""
+                                                        )
+                                                        com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            localSavedUris.forEach { effectiveUri ->
+                                                com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                    context = applicationContext,
+                                                    localUri = effectiveUri,
+                                                    originalLocalUriPath = effectiveUri.toString(),
+                                                    folderCategoryName = "Direct Splits",
+                                                    dateMillis = selectedDateMillis,
+                                                    expenseId = targetId,
+                                                    isPersonal = false,
+                                                    groupId = ""
+                                                )
+                                            }
+                                            Toast.makeText(context, "Receipt saved locally. Link Google Drive in Settings to sync.", Toast.LENGTH_LONG).show()
                                         }
-                                        com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
                                     }
                                     onBack()
                                 } catch (e: Exception) {

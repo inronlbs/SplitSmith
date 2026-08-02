@@ -2012,6 +2012,9 @@ fun ProfileSettingsView(
                     if (success) {
                         Toast.makeText(context, "Google Drive linked! Syncing pending attachments...", Toast.LENGTH_SHORT).show()
                         com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
+                        coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
+                        }
                     }
                 }
             }
@@ -2030,6 +2033,9 @@ fun ProfileSettingsView(
                                         FirebaseManager.updateDriveSyncSetting(enabled)
                                         if (enabled) {
                                             com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
+                                            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                                com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
+                                            }
                                         }
                                     }
                                 }
@@ -2056,6 +2062,9 @@ fun ProfileSettingsView(
                                 FirebaseManager.updateDriveSyncSetting(nextState)
                                 if (nextState) {
                                     com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
+                                    coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                        com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
+                                    }
                                 }
                             }
                         }
