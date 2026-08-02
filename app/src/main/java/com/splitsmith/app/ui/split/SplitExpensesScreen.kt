@@ -1015,7 +1015,7 @@ fun CreateGroupBottomSheet(
                         } else {
                             FirebaseManager.searchUserByCode(scannedCode)
                         }
-                        if (resolved != null) {
+                        if (resolved != null && resolved.uid.isNotEmpty()) {
                             FirebaseManager.addConnection(resolved.uid)
                             if (addedMembers.none { it.uid == resolved.uid }) {
                                 addedMembers = addedMembers + resolved
@@ -1027,7 +1027,7 @@ fun CreateGroupBottomSheet(
                             Toast.makeText(context, "User not found", Toast.LENGTH_SHORT).show()
                         }
                     } catch (e: Exception) {
-                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "QR code not recognized", Toast.LENGTH_SHORT).show()
                     } finally {
                         isSearching = false
                     }

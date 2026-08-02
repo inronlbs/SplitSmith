@@ -116,6 +116,18 @@ object GoogleDriveManager {
         ).setApplicationName("SplitSmith").build()
     }
 
+    suspend fun ensureRootFolderExists(context: Context): String? = withContext(Dispatchers.IO) {
+        try {
+            val driveService = getDriveService(context) ?: return@withContext null
+            val rootId = findOrCreateFolder(driveService, ROOT_FOLDER_NAME)
+            android.util.Log.i("GoogleDriveManager", "ensureRootFolderExists -> rootId=$rootId")
+            rootId
+        } catch (e: Exception) {
+            android.util.Log.e("GoogleDriveManager", "ensureRootFolderExists error: ${e.message}", e)
+            null
+        }
+    }
+
     private suspend fun findOrCreateFolder(
         driveService: Drive,
         folderName: String,

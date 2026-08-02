@@ -146,15 +146,15 @@ fun QuickSplitScreen(
                 val resolvedUser = FirebaseManager.searchUserByCode(payload)
                     ?: (if (cleanCode.contains("@")) FirebaseManager.searchUserByEmail(cleanCode) else null)
 
-                if (resolvedUser != null) {
+                if (resolvedUser != null && resolvedUser.uid.isNotEmpty()) {
                     FirebaseManager.addConnection(resolvedUser.uid)
                     targetUser = resolvedUser
                     Toast.makeText(context, "Connected with ${resolvedUser.displayName}!", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(context, "QR code user not found", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "User not found or invalid QR code", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Error reading QR: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Error reading QR. Please try again.", Toast.LENGTH_SHORT).show()
             } finally {
                 isLoading = false
             }

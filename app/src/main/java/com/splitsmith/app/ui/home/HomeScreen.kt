@@ -900,7 +900,7 @@ fun HomeDashboardView(
                         }
                     }
                 } catch (e: Exception) {
-                    Toast.makeText(context, "Scan error: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "QR code not recognized. Please scan a valid SplitSmith code.", Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -2009,6 +2009,7 @@ fun ProfileSettingsView(
                     FirebaseManager.updateDriveSyncSetting(true)
                     com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
                     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        com.splitsmith.app.data.GoogleDriveManager.ensureRootFolderExists(context.applicationContext)
                         com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
                     }
                 }
@@ -2024,6 +2025,12 @@ fun ProfileSettingsView(
                         Toast.makeText(context, "Google Drive linked! Syncing pending attachments...", Toast.LENGTH_SHORT).show()
                         com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
                         coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            val rootId = com.splitsmith.app.data.GoogleDriveManager.ensureRootFolderExists(context.applicationContext)
+                            if (rootId != null) {
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    Toast.makeText(context, "SplitSmith folder created in My Drive!", Toast.LENGTH_LONG).show()
+                                }
+                            }
                             com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
                         }
                     }
@@ -2660,15 +2667,15 @@ fun JoinGroupDialog(
                     isLoading = true
                     coroutineScope.launch {
                         try {
-                            val code = groupIdInput.trim()
+                            val code = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(groupIdInput)
                             val group = FirebaseManager.getGroupOnce(code)
                             if (group != null) {
                                 val uid = FirebaseManager.currentUserId
                                 if (group.members[uid] == true) {
                                     Toast.makeText(context, "Already a member!", Toast.LENGTH_SHORT).show()
-                                    onGroupJoined(code)
+                                    onGroupJoined(group.id)
                                 } else {
-                                    FirebaseManager.requestToJoinGroup(code)
+                                    FirebaseManager.requestToJoinGroup(group.id)
                                     Toast.makeText(context, "Request sent!", Toast.LENGTH_SHORT).show()
                                     onDismiss()
                                 }
@@ -2676,7 +2683,7 @@ fun JoinGroupDialog(
                                 Toast.makeText(context, "Group not found", Toast.LENGTH_SHORT).show()
                             }
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Could not join group. Please check the ID.", Toast.LENGTH_LONG).show()
                         } finally { isLoading = false }
                     }
                 },

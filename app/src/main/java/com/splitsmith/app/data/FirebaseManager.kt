@@ -229,7 +229,9 @@ object FirebaseManager {
 
     suspend fun requestToJoinGroup(groupId: String) {
         val uid = currentUserId ?: throw RuntimeException("Not authenticated")
-        db.collection("groups").document(groupId).update("joinRequests.$uid", true).await()
+        val cleanId = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(groupId)
+        if (cleanId.isBlank() || !com.splitsmith.app.util.QrPayloadParser.isValidFirestoreDocId(cleanId)) return
+        db.collection("groups").document(cleanId).update("joinRequests.$uid", true).await()
     }
 
     suspend fun approveJoinRequest(groupId: String, applicantUid: String) {
@@ -854,11 +856,19 @@ object FirebaseManager {
     }
 
     // SEARCH USERS
+    private fun com.google.firebase.firestore.DocumentSnapshot.toUserProfileWithUid(): UserProfile? {
+        val profile = toObject(UserProfile::class.java) ?: return null
+        val effectiveUid = profile.uid.ifEmpty { id }
+        val effectiveShortCode = profile.shortCode.ifEmpty { effectiveUid.take(6).uppercase() }
+        return profile.copy(uid = effectiveUid, shortCode = effectiveShortCode)
+    }
+
     suspend fun searchUserByEmail(email: String): UserProfile? {
+        if (email.isBlank()) return null
         val result = db.collection("users")
             .whereEqualTo("email", email.trim().lowercase())
             .get().await()
-        return result.documents.firstOrNull()?.toObject(UserProfile::class.java)
+        return result.documents.firstOrNull()?.toUserProfileWithUid()
     }
 
     suspend fun searchUserByCode(code: String): UserProfile? {
@@ -881,9 +891,12 @@ object FirebaseManager {
             try {
                 val doc = db.collection("users").document(targetUid).get().await()
                 if (doc.exists()) {
-                    return doc.toObject(UserProfile::class.java)
+                    val profile = doc.toUserProfileWithUid()
+                    if (profile != null) return profile
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.w("FirebaseManager", "Direct UID search failed: ${e.message}")
+            }
         }
 
         // 1. Try exact UID match (only if path is valid)
@@ -892,16 +905,22 @@ object FirebaseManager {
             try {
                 val doc = db.collection("users").document(rawCode).get().await()
                 if (doc.exists()) {
-                    return doc.toObject(UserProfile::class.java)
+                    val profile = doc.toUserProfileWithUid()
+                    if (profile != null) return profile
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.w("FirebaseManager", "Exact UID search failed: ${e.message}")
+            }
 
             try {
                 val docLower = db.collection("users").document(rawCode.lowercase()).get().await()
                 if (docLower.exists()) {
-                    return docLower.toObject(UserProfile::class.java)
+                    val profile = docLower.toUserProfileWithUid()
+                    if (profile != null) return profile
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.w("FirebaseManager", "Lowercase UID search failed: ${e.message}")
+            }
         }
 
         // 2. Query by shortCode field
@@ -911,11 +930,13 @@ object FirebaseManager {
                     .whereEqualTo("shortCode", trimmed)
                     .limit(1)
                     .get().await()
-                val foundByShort = queryByShort.documents.firstOrNull()?.toObject(UserProfile::class.java)
+                val foundByShort = queryByShort.documents.firstOrNull()?.toUserProfileWithUid()
                 if (foundByShort != null) {
                     return foundByShort
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.w("FirebaseManager", "Query by shortCode failed: ${e.message}")
+            }
         }
 
         // 3. Fallback client-side scan for maximum reliability across existing databases
@@ -923,14 +944,23 @@ object FirebaseManager {
             try {
                 val allUsers = db.collection("users").get().await()
                 for (d in allUsers.documents) {
-                    val profile = d.toObject(UserProfile::class.java)
+                    val profile = d.toUserProfileWithUid()
                     if (profile != null) {
-                        if (profile.uid.take(6).uppercase() == trimmed || profile.uid.uppercase() == trimmed) {
+                        val docId = d.id.trim()
+                        val uidMatches = profile.uid.equals(trimmed, ignoreCase = true) ||
+                                         profile.uid.take(6).equals(trimmed, ignoreCase = true) ||
+                                         docId.equals(trimmed, ignoreCase = true) ||
+                                         docId.take(6).equals(trimmed, ignoreCase = true)
+                        val codeMatches = profile.shortCode.equals(trimmed, ignoreCase = true)
+
+                        if (uidMatches || codeMatches) {
                             return profile
                         }
                     }
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.w("FirebaseManager", "Fallback user search failed: ${e.message}")
+            }
         }
         return null
     }
@@ -938,15 +968,16 @@ object FirebaseManager {
     // ── CONNECTIONS SYSTEM ──────────────────────────────────
     suspend fun addConnection(targetUid: String) {
         val uid = currentUserId ?: return
-        if (targetUid == uid) return
+        val cleanTargetUid = targetUid.trim()
+        if (cleanTargetUid.isBlank() || cleanTargetUid == uid || !com.splitsmith.app.util.QrPayloadParser.isValidFirestoreDocId(cleanTargetUid)) return
         val now = System.currentTimeMillis()
         // Save in current user's connections
-        db.collection("users").document(uid).collection("connections").document(targetUid).set(
+        db.collection("users").document(uid).collection("connections").document(cleanTargetUid).set(
             mapOf("connectedAt" to now)
         ).await()
         // Save in target user's connections (mutual connection)
         try {
-            db.collection("users").document(targetUid).collection("connections").document(uid).set(
+            db.collection("users").document(cleanTargetUid).collection("connections").document(uid).set(
                 mapOf("connectedAt" to now)
             ).await()
         } catch (e: Exception) {
