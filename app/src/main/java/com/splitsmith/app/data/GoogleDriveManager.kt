@@ -82,6 +82,7 @@ object GoogleDriveManager {
                 }
             }
             .requestEmail()
+            .requestProfile()
             .requestScopes(com.google.android.gms.common.api.Scope(DriveScopes.DRIVE_FILE))
             .build()
         val intent = GoogleSignIn.getClient(context, gso).signInIntent
@@ -90,7 +91,6 @@ object GoogleDriveManager {
 
     private fun getDriveService(context: Context): Drive? {
         val account = GoogleSignIn.getLastSignedInAccount(context) ?: return null
-        // Verify the DRIVE_FILE scope was actually granted
         if (!GoogleSignIn.hasPermissions(account, com.google.android.gms.common.api.Scope(DriveScopes.DRIVE_FILE))) {
             android.util.Log.w("GoogleDriveManager", "Drive scope not granted – skipping upload")
             return null
@@ -99,12 +99,15 @@ object GoogleDriveManager {
             context,
             Collections.singleton(DriveScopes.DRIVE_FILE)
         )
-        val accountName = account.email ?: account.account?.name
-        if (account.account != null) {
-            credential.selectedAccount = account.account
+        val sysAccount = account.account
+        val accountName = account.email ?: sysAccount?.name
+        if (sysAccount != null) {
+            credential.selectedAccount = sysAccount
         } else if (accountName != null) {
             credential.selectedAccountName = accountName
         }
+
+        android.util.Log.i("GoogleDriveManager", "getDriveService initialized for account: ${accountName ?: "unknown"}")
 
         return Drive.Builder(
             NetHttpTransport(),
