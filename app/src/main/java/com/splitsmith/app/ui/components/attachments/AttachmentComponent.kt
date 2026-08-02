@@ -85,10 +85,16 @@ fun AttachmentComponent(
                     }
                 },
                 onEditAttachment = { idx ->
-                    if (idx >= existingUrls.size) {
+                    if (idx < existingUrls.size) {
+                        editingIndex = idx
+                        val rawUrl = existingUrls[idx]
+                        editingUri = try { android.net.Uri.parse(rawUrl) } catch (e: Exception) { null }
+                    } else {
                         val uriIdx = idx - existingUrls.size
-                        editingIndex = uriIdx
-                        editingUri = selectedUris[uriIdx]
+                        if (uriIdx in selectedUris.indices) {
+                            editingIndex = uriIdx
+                            editingUri = selectedUris[uriIdx]
+                        }
                     }
                 }
             )
@@ -134,13 +140,24 @@ fun AttachmentComponent(
     if (editingUri != null) {
         ReceiptEditorModal(
             imageUri = editingUri!!,
-            onDismiss = { editingUri = null },
+            onDismiss = { editingUri = null; editingIndex = -1 },
             onEditedImageSaved = { newUri ->
                 if (editingIndex in selectedUris.indices) {
                     val updatedList = selectedUris.toMutableList().also { it[editingIndex] = newUri }
                     onUrisChanged(updatedList)
+                } else if (editingIndex >= 0 && editingIndex < existingUrls.size) {
+                    val updatedList = existingUrls.toMutableList().also { it[editingIndex] = newUri.toString() }
+                    onExistingUrlsChanged(updatedList)
+                } else if (editingIndex == -2) {
+                    // Was an existing URL without fixed index
+                    val updatedList = existingUrls.toMutableList()
+                    if (updatedList.isNotEmpty()) {
+                        updatedList[0] = newUri.toString()
+                        onExistingUrlsChanged(updatedList)
+                    }
                 }
                 editingUri = null
+                editingIndex = -1
             }
         )
     }

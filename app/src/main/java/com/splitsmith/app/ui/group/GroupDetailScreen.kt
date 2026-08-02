@@ -137,12 +137,13 @@ fun GroupDetailScreen(
             hasAttachments = exp.receiptDriveFileIds.isNotEmpty() || exp.receiptUrls.isNotEmpty(),
             onDismiss = { expenseToDelete = null },
             onConfirmDelete = { deleteFromDrive ->
+                if (deleteFromDrive && exp.receiptDriveFileIds.isNotEmpty()) {
+                    com.splitsmith.app.data.PendingDriveUploadsManager.enqueueDeletion(context, exp.receiptDriveFileIds)
+                    com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
+                }
                 coroutineScope.launch {
                     try {
                         FirebaseManager.deleteExpense(groupId, exp.id)
-                        if (deleteFromDrive && exp.receiptDriveFileIds.isNotEmpty()) {
-                            com.splitsmith.app.data.GoogleDriveManager.deleteFiles(context, exp.receiptDriveFileIds)
-                        }
                         Toast.makeText(context, "Expense deleted", Toast.LENGTH_SHORT).show()
                     } catch (e: Exception) {
                         Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()

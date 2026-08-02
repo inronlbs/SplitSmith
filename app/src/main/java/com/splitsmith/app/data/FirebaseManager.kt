@@ -507,36 +507,53 @@ object FirebaseManager {
         return expenseRef.id
     }
 
-    suspend fun attachDriveFileToPersonalExpense(expenseId: String, driveFileId: String, webUrl: String) {
+    suspend fun attachDriveFileToPersonalExpense(expenseId: String, driveFileId: String, webUrl: String, localUriPath: String = "") {
         val uid = currentUserId ?: return
         if (expenseId.isBlank() || driveFileId.isBlank()) return
         val docRef = db.collection("users").document(uid).collection("personal_expenses").document(expenseId)
         db.runTransaction { transaction ->
             val snapshot = transaction.get(docRef)
-            val currentDriveIds = snapshot.get("receiptDriveFileIds") as? List<String> ?: emptyList()
-            val currentUrls = snapshot.get("receiptUrls") as? List<String> ?: emptyList()
+            val currentDriveIds = (snapshot.get("receiptDriveFileIds") as? List<String> ?: emptyList()).toMutableList()
+            val currentUrls = (snapshot.get("receiptUrls") as? List<String> ?: emptyList()).toMutableList()
 
-            val newDriveIds = (currentDriveIds + driveFileId).distinct()
-            val newUrls = (currentUrls + webUrl).distinct()
+            // Find the matching local URI and replace it at the same index
+            val localIndex = if (localUriPath.isNotBlank()) currentUrls.indexOfFirst { it == localUriPath || it.contains(localUriPath) } else -1
+            if (localIndex >= 0) {
+                currentUrls[localIndex] = webUrl
+                // Ensure driveFileIds list is at least as long, then set at same index
+                while (currentDriveIds.size <= localIndex) currentDriveIds.add("")
+                currentDriveIds[localIndex] = driveFileId
+            } else {
+                // No matching local URI found — append both to keep them aligned
+                currentUrls.add(webUrl)
+                currentDriveIds.add(driveFileId)
+            }
 
-            transaction.update(docRef, "receiptDriveFileIds", newDriveIds)
-            transaction.update(docRef, "receiptUrls", newUrls)
+            transaction.update(docRef, "receiptDriveFileIds", currentDriveIds)
+            transaction.update(docRef, "receiptUrls", currentUrls)
         }.await()
     }
 
-    suspend fun attachDriveFileToGroupExpense(groupId: String, expenseId: String, driveFileId: String, webUrl: String) {
+    suspend fun attachDriveFileToGroupExpense(groupId: String, expenseId: String, driveFileId: String, webUrl: String, localUriPath: String = "") {
         if (groupId.isBlank() || expenseId.isBlank() || driveFileId.isBlank()) return
         val docRef = db.collection("groups").document(groupId).collection("expenses").document(expenseId)
         db.runTransaction { transaction ->
             val snapshot = transaction.get(docRef)
-            val currentDriveIds = snapshot.get("receiptDriveFileIds") as? List<String> ?: emptyList()
-            val currentUrls = snapshot.get("receiptUrls") as? List<String> ?: emptyList()
+            val currentDriveIds = (snapshot.get("receiptDriveFileIds") as? List<String> ?: emptyList()).toMutableList()
+            val currentUrls = (snapshot.get("receiptUrls") as? List<String> ?: emptyList()).toMutableList()
 
-            val newDriveIds = (currentDriveIds + driveFileId).distinct()
-            val newUrls = (currentUrls + webUrl).distinct()
+            val localIndex = if (localUriPath.isNotBlank()) currentUrls.indexOfFirst { it == localUriPath || it.contains(localUriPath) } else -1
+            if (localIndex >= 0) {
+                currentUrls[localIndex] = webUrl
+                while (currentDriveIds.size <= localIndex) currentDriveIds.add("")
+                currentDriveIds[localIndex] = driveFileId
+            } else {
+                currentUrls.add(webUrl)
+                currentDriveIds.add(driveFileId)
+            }
 
-            transaction.update(docRef, "receiptDriveFileIds", newDriveIds)
-            transaction.update(docRef, "receiptUrls", newUrls)
+            transaction.update(docRef, "receiptDriveFileIds", currentDriveIds)
+            transaction.update(docRef, "receiptUrls", currentUrls)
         }.await()
     }
 
@@ -595,17 +612,38 @@ object FirebaseManager {
         receiptDriveFileIds: List<String>? = null
     ) {
          val uid = currentUserId ?: throw RuntimeException("Not authenticated")
-         val updates = mutableMapOf<String, Any>(
-             "description" to description,
-             "amount" to amount,
-             "category" to category,
-             "note" to note,
-             "date" to date
-         )
-         if (receiptUrls != null) updates["receiptUrls"] = receiptUrls
-         if (receiptDriveFileIds != null) updates["receiptDriveFileIds"] = receiptDriveFileIds
-         db.collection("users").document(uid).collection("personal_expenses").document(id)
-             .update(updates).await()
+         val docRef = db.collection("users").document(uid).collection("personal_expenses").document(id)
+         db.runTransaction { transaction ->
+             val snapshot = transaction.get(docRef)
+             val updates = mutableMapOf<String, Any>(
+                 "description" to description,
+                 "amount" to amount,
+                 "category" to category,
+                 "note" to note,
+                 "date" to date
+             )
+             if (receiptUrls != null) {
+                 // Merge: keep any Drive URLs/IDs that background upload added but UI doesn't know about
+                 val existingUrls = (snapshot.get("receiptUrls") as? List<String> ?: emptyList()).toMutableList()
+                 val existingDriveIds = (snapshot.get("receiptDriveFileIds") as? List<String> ?: emptyList()).toMutableList()
+                 val mergedUrls = receiptUrls.toMutableList()
+                 val mergedDriveIds = (receiptDriveFileIds ?: emptyList()).toMutableList()
+                 // Add any Drive-backed URLs from Firestore that the UI state didn't have
+                 for (i in existingUrls.indices) {
+                     val url = existingUrls[i]
+                     val driveId = existingDriveIds.getOrNull(i) ?: ""
+                     if (driveId.isNotBlank() && !mergedUrls.contains(url)) {
+                         mergedUrls.add(url)
+                         mergedDriveIds.add(driveId)
+                     }
+                 }
+                 updates["receiptUrls"] = mergedUrls
+                 updates["receiptDriveFileIds"] = mergedDriveIds
+             } else if (receiptDriveFileIds != null) {
+                 updates["receiptDriveFileIds"] = receiptDriveFileIds
+             }
+             transaction.update(docRef, updates)
+         }.await()
      }
 
     // CUSTOM CATEGORIES ACTIONS
@@ -714,19 +752,26 @@ object FirebaseManager {
         return splitRef.id
     }
 
-    suspend fun attachDriveFileToDirectSplit(splitId: String, driveFileId: String, webUrl: String) {
+    suspend fun attachDriveFileToDirectSplit(splitId: String, driveFileId: String, webUrl: String, localUriPath: String = "") {
         if (splitId.isBlank() || driveFileId.isBlank()) return
         val docRef = db.collection("direct_splits").document(splitId)
         db.runTransaction { transaction ->
             val snapshot = transaction.get(docRef)
-            val currentDriveIds = snapshot.get("receiptDriveFileIds") as? List<String> ?: emptyList()
-            val currentUrls = snapshot.get("receiptUrls") as? List<String> ?: emptyList()
+            val currentDriveIds = (snapshot.get("receiptDriveFileIds") as? List<String> ?: emptyList()).toMutableList()
+            val currentUrls = (snapshot.get("receiptUrls") as? List<String> ?: emptyList()).toMutableList()
 
-            val newDriveIds = (currentDriveIds + driveFileId).distinct()
-            val newUrls = (currentUrls + webUrl).distinct()
+            val localIndex = if (localUriPath.isNotBlank()) currentUrls.indexOfFirst { it == localUriPath || it.contains(localUriPath) } else -1
+            if (localIndex >= 0) {
+                currentUrls[localIndex] = webUrl
+                while (currentDriveIds.size <= localIndex) currentDriveIds.add("")
+                currentDriveIds[localIndex] = driveFileId
+            } else {
+                currentUrls.add(webUrl)
+                currentDriveIds.add(driveFileId)
+            }
 
-            transaction.update(docRef, "receiptDriveFileIds", newDriveIds)
-            transaction.update(docRef, "receiptUrls", newUrls)
+            transaction.update(docRef, "receiptDriveFileIds", currentDriveIds)
+            transaction.update(docRef, "receiptUrls", currentUrls)
         }.await()
     }
 
@@ -1025,19 +1070,38 @@ object FirebaseManager {
         receiptUrls: List<String>? = null,
         receiptDriveFileIds: List<String>? = null
     ) {
-        val updates = mutableMapOf<String, Any>(
-            "description" to description,
-            "amount" to amount,
-            "paidBy" to paidBy,
-            "category" to category,
-            "splitMode" to splitMode,
-            "splits" to splits,
-            "date" to date
-        )
-        if (receiptUrls != null) updates["receiptUrls"] = receiptUrls
-        if (receiptDriveFileIds != null) updates["receiptDriveFileIds"] = receiptDriveFileIds
-        db.collection("groups").document(groupId).collection("expenses").document(expenseId)
-            .update(updates).await()
+        val docRef = db.collection("groups").document(groupId).collection("expenses").document(expenseId)
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(docRef)
+            val updates = mutableMapOf<String, Any>(
+                "description" to description,
+                "amount" to amount,
+                "paidBy" to paidBy,
+                "category" to category,
+                "splitMode" to splitMode,
+                "splits" to splits,
+                "date" to date
+            )
+            if (receiptUrls != null) {
+                val existingUrls = (snapshot.get("receiptUrls") as? List<String> ?: emptyList()).toMutableList()
+                val existingDriveIds = (snapshot.get("receiptDriveFileIds") as? List<String> ?: emptyList()).toMutableList()
+                val mergedUrls = receiptUrls.toMutableList()
+                val mergedDriveIds = (receiptDriveFileIds ?: emptyList()).toMutableList()
+                for (i in existingUrls.indices) {
+                    val url = existingUrls[i]
+                    val driveId = existingDriveIds.getOrNull(i) ?: ""
+                    if (driveId.isNotBlank() && !mergedUrls.contains(url)) {
+                        mergedUrls.add(url)
+                        mergedDriveIds.add(driveId)
+                    }
+                }
+                updates["receiptUrls"] = mergedUrls
+                updates["receiptDriveFileIds"] = mergedDriveIds
+            } else if (receiptDriveFileIds != null) {
+                updates["receiptDriveFileIds"] = receiptDriveFileIds
+            }
+            transaction.update(docRef, updates)
+        }.await()
     }
 
     fun observeAllUserGroupExpenses(): Flow<List<GroupExpenseWithContext>> = callbackFlow {

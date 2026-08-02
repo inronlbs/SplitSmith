@@ -339,50 +339,23 @@ fun AddExpenseScreen(
                                     Toast.makeText(context, "Expense added!", Toast.LENGTH_SHORT).show()
 
                                     // Step 3: Upload to Drive in background with real ID
+                                    // Background Drive upload via WorkManager
                                     if (localSavedUris.isNotEmpty() && userProfile?.driveSyncEnabled == true) {
                                         val folderCategory = currentGroup?.name ?: "Group Expenses"
                                         val applicationContext = context.applicationContext
-                                        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                            localSavedUris.forEach { effectiveUri ->
-                                                try {
-                                                    val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
-                                                        context = applicationContext,
-                                                        inputUri = effectiveUri,
-                                                        folderCategoryName = folderCategory,
-                                                        dateMillis = selectedDateMillis,
-                                                        expenseId = newExpenseId
-                                                    )
-                                                    if (driveResult != null) {
-                                                        FirebaseManager.attachDriveFileToGroupExpense(
-                                                            groupId = groupId,
-                                                            expenseId = newExpenseId,
-                                                            driveFileId = driveResult.fileId,
-                                                            webUrl = driveResult.webViewLink
-                                                        )
-                                                    } else {
-                                                        com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                                            context = applicationContext,
-                                                            localUri = effectiveUri,
-                                                            folderCategoryName = folderCategory,
-                                                            dateMillis = selectedDateMillis,
-                                                            expenseId = newExpenseId,
-                                                            isPersonal = false,
-                                                            groupId = groupId
-                                                        )
-                                                    }
-                                                } catch (e: Exception) {
-                                                    com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                                        context = applicationContext,
-                                                        localUri = effectiveUri,
-                                                        folderCategoryName = folderCategory,
-                                                        dateMillis = selectedDateMillis,
-                                                        expenseId = newExpenseId,
-                                                        isPersonal = false,
-                                                        groupId = groupId
-                                                    )
-                                                }
-                                            }
+                                        localSavedUris.forEach { effectiveUri ->
+                                            com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
+                                                context = applicationContext,
+                                                localUri = effectiveUri,
+                                                originalLocalUriPath = effectiveUri.toString(),
+                                                folderCategoryName = folderCategory,
+                                                dateMillis = selectedDateMillis,
+                                                expenseId = newExpenseId,
+                                                isPersonal = false,
+                                                groupId = groupId
+                                            )
                                         }
+                                        com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
                                     }
                                 }
                                 onBack()

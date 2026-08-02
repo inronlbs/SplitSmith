@@ -163,10 +163,26 @@ object AttachmentCompressor {
 
     fun getFileName(context: Context, uri: Uri): String {
         var name = "attachment"
-        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-            if (nameIndex != -1 && cursor.moveToFirst()) {
-                name = cursor.getString(nameIndex)
+        if (uri.scheme == "file") {
+            // For file:// URIs, ContentResolver.query doesn't work — use path directly
+            val segment = uri.lastPathSegment
+            if (!segment.isNullOrBlank()) {
+                name = segment
+            }
+            return name
+        }
+        try {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (nameIndex != -1 && cursor.moveToFirst()) {
+                    name = cursor.getString(nameIndex) ?: name
+                }
+            }
+        } catch (e: Exception) {
+            // Fallback to lastPathSegment for unknown URI schemes
+            val segment = uri.lastPathSegment
+            if (!segment.isNullOrBlank()) {
+                name = segment
             }
         }
         return name

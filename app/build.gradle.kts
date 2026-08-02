@@ -12,8 +12,8 @@ android {
         applicationId = "com.splitsmith.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 31
-        versionName = "0.3.3.3"
+        versionCode = 32
+        versionName = "0.3.3.4"
     }
 
     signingConfigs {
@@ -135,6 +135,9 @@ dependencies {
   implementation("com.google.http-client:google-http-client-gson:1.43.3") {
       exclude(group = "org.apache.httpcomponents")
   }
+
+  // Android WorkManager
+  implementation("androidx.work:work-runtime-ktx:2.9.0")
 }
 
 

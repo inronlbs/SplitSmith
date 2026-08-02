@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
@@ -149,9 +150,7 @@ fun HomeScreen(
     // Process any pending Google Drive uploads on app startup if scope is granted
     LaunchedEffect(Unit) {
         if (com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) {
-            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
-            }
+            com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
         }
     }
     val pendingJoinCode = FirebaseManager.pendingGroupJoinCode
@@ -179,11 +178,22 @@ fun HomeScreen(
         }
     }
 
+    var selectedSplitForDetail by remember { mutableStateOf<DirectSplit?>(null) }
+    var selectedPersonalForDetail by remember { mutableStateOf<com.splitsmith.app.data.PersonalExpense?>(null) }
+    var selectedGroupExpenseForDetail by remember { mutableStateOf<com.splitsmith.app.data.GroupExpenseWithContext?>(null) }
+    var targetPersonalExpenseId by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(pagerState.currentPage) {
         savedHomeTab = pagerState.currentPage
         if (pagerState.currentPage != 2) {
             showAddPersonalInitially = false
+            targetPersonalExpenseId = null
         }
+        selectedPersonalForDetail = null
+        selectedGroupExpenseForDetail = null
+        selectedSplitForDetail = null
+        FirebaseManager.pendingExpenseAttachmentUri = null
+        FirebaseManager.pendingExpenseAmount = null
     }
 
     var showScannerOptionsSheet by remember { mutableStateOf(false) }
@@ -205,10 +215,6 @@ fun HomeScreen(
         }
     }
 
-    var selectedSplitForDetail by remember { mutableStateOf<DirectSplit?>(null) }
-    var selectedPersonalForDetail by remember { mutableStateOf<com.splitsmith.app.data.PersonalExpense?>(null) }
-    var selectedGroupExpenseForDetail by remember { mutableStateOf<com.splitsmith.app.data.GroupExpenseWithContext?>(null) }
-    var targetPersonalExpenseId by remember { mutableStateOf<String?>(null) }
     val isAnySheetOpen = showQuickAddSheet || showCreateGroupSheet || showJoinGroupSheet || showSplitActionsSheet || showScannerOptionsSheet || selectedSplitForDetail != null || selectedPersonalForDetail != null || selectedGroupExpenseForDetail != null
 
     // Smart System Back Navigation & Double-Back Exit Guard
@@ -1090,50 +1096,7 @@ fun HomeDashboardView(
                                     )
                                 }
 
-                                Spacer(modifier = Modifier.height(d.space8))
-
-                                Surface(
-                                    shape = RoundedCornerShape(d.radiusMD),
-                                    color = colors.surfaceCard,
-                                    border = BorderStroke(1.dp, colors.borderWhisper),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = d.space16, vertical = d.space12),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = "Google Drive Backup",
-                                                fontFamily = OutfitFamily,
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontSize = d.textBodyMedium,
-                                                color = colors.inkPrimary
-                                            )
-                                            Text(
-                                                text = "Auto-save receipts to Drive/SplitSmith",
-                                                fontFamily = OutfitFamily,
-                                                fontSize = d.textLabelSmall,
-                                                color = colors.inkMuted
-                                            )
-                                        }
-                                        Switch(
-                                            checked = userProfile.driveSyncEnabled,
-                                            onCheckedChange = { enabled ->
-                                                coroutineScope.launch {
-                                                    FirebaseManager.updateDriveSyncSetting(enabled)
-                                                }
-                                            },
-                                            colors = SwitchDefaults.colors(
-                                                checkedThumbColor = colors.canvasChalk,
-                                                checkedTrackColor = colors.inkPrimary
-                                            )
-                                        )
-                                    }
-                                }
+                                Spacer(modifier = Modifier.height(d.space4))
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1157,7 +1120,13 @@ fun HomeDashboardView(
                                         colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.inkPrimary),
                                         modifier = Modifier.weight(1f).height(d.buttonHeight)
                                     ) {
-                                        Text("Scan QR", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(imageVector = Icons.Default.QrCodeScanner, contentDescription = "Scan QR", modifier = Modifier.size(18.dp))
+                                            Text("Scan QR", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold)
+                                        }
                                     }
 
                                     Spacer(modifier = Modifier.width(d.space12))
@@ -1171,7 +1140,13 @@ fun HomeDashboardView(
                                         colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
                                         modifier = Modifier.weight(1f).height(d.buttonHeight)
                                     ) {
-                                        Text("Show QR", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.canvasChalk)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(imageVector = Icons.Default.QrCode, contentDescription = "Show QR", modifier = Modifier.size(18.dp), tint = colors.canvasChalk)
+                                            Text("Show QR", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.canvasChalk)
+                                        }
                                     }
                                 }
 
@@ -1480,16 +1455,6 @@ fun ProfileSettingsView(
                 showUpdateDialog = true
             }
         } catch (e: Exception) {}
-
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                if (com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) {
-                    com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
     }
 
     LaunchedEffect(profile) {
@@ -2046,7 +2011,7 @@ fun ProfileSettingsView(
                     FirebaseManager.updateDriveSyncSetting(success)
                     if (success) {
                         Toast.makeText(context, "Google Drive linked! Syncing pending attachments...", Toast.LENGTH_SHORT).show()
-                        com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
+                        com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
                     }
                 }
             }
@@ -2063,6 +2028,9 @@ fun ProfileSettingsView(
                                         com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(driveLauncher, context)
                                     } else {
                                         FirebaseManager.updateDriveSyncSetting(enabled)
+                                        if (enabled) {
+                                            com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
+                                        }
                                     }
                                 }
                             },
@@ -2080,11 +2048,15 @@ fun ProfileSettingsView(
                     d = d,
                     onClick = {
                         val current = profile?.driveSyncEnabled ?: false
+                        val nextState = !current
                         coroutineScope.launch {
-                            if (!current && !com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) {
+                            if (nextState && !com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) {
                                 com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(driveLauncher, context)
                             } else {
-                                FirebaseManager.updateDriveSyncSetting(!current)
+                                FirebaseManager.updateDriveSyncSetting(nextState)
+                                if (nextState) {
+                                    com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
+                                }
                             }
                         }
                     }

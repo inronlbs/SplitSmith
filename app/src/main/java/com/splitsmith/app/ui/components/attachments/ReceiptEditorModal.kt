@@ -85,6 +85,7 @@ fun ReceiptEditorModal(
     val coroutineScope = rememberCoroutineScope()
 
     var activeTool by remember { mutableStateOf(EditTool.BRIGHTNESS) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
     var brightness by remember { mutableFloatStateOf(0f) }
     var contrast by remember { mutableFloatStateOf(0f) }
     var rotationDegrees by remember { mutableFloatStateOf(0f) }
@@ -101,6 +102,7 @@ fun ReceiptEditorModal(
     // Undo / Redo history stacks
     var undoStack by remember { mutableStateOf(listOf<EditState>()) }
     var redoStack by remember { mutableStateOf(listOf<EditState>()) }
+    val hasEdits by remember { derivedStateOf { undoStack.size > 1 } }
 
     fun currentState(bmpOverride: Bitmap? = null) = EditState(
         brightness = brightness,
@@ -153,7 +155,17 @@ fun ReceiptEditorModal(
     LaunchedEffect(imageUri) {
         withContext(Dispatchers.IO) {
             try {
-                val inputStream = context.contentResolver.openInputStream(imageUri)
+                val scheme = imageUri.scheme ?: ""
+                val inputStream = when {
+                    scheme == "http" || scheme == "https" -> {
+                        // Download remote URL to local temp cache file first
+                        val url = java.net.URL(imageUri.toString())
+                        val tempFile = java.io.File(context.cacheDir, "edit_temp_${System.currentTimeMillis()}.jpg")
+                        url.openStream().use { input -> tempFile.outputStream().use { input.copyTo(it) } }
+                        java.io.FileInputStream(tempFile)
+                    }
+                    else -> context.contentResolver.openInputStream(imageUri)
+                }
                 val bitmap = BitmapFactory.decodeStream(inputStream)
                 inputStream?.close()
                 previewBitmap = bitmap
@@ -162,15 +174,48 @@ fun ReceiptEditorModal(
                     undoStack = listOf(initialState)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                android.util.Log.e("ReceiptEditorModal", "Failed to load image: ${e.message}", e)
             } finally {
                 isLoading = false
             }
         }
     }
 
+    if (showDiscardDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDialog = false },
+            title = {
+                Text(
+                    text = "Discard edits?",
+                    fontFamily = OutfitFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "Your changes to this image will be lost.",
+                    fontFamily = OutfitFamily,
+                    color = colors.inkMuted
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showDiscardDialog = false; onDismiss() }) {
+                    Text("Discard", fontFamily = OutfitFamily, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardDialog = false }) {
+                    Text("Keep editing", fontFamily = OutfitFamily, color = colors.inkPrimary)
+                }
+            },
+            containerColor = colors.surfaceCard,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (hasEdits) showDiscardDialog = true else onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
@@ -191,7 +236,9 @@ fun ReceiptEditorModal(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onDismiss) {
+                        IconButton(onClick = {
+                            if (hasEdits) showDiscardDialog = true else onDismiss()
+                        }) {
                             Icon(
                                 imageVector = Icons.Outlined.Close,
                                 contentDescription = "Cancel",

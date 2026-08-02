@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.MoreVert
@@ -47,6 +48,10 @@ import com.splitsmith.app.theme.JetBrainsMonoFamily
 import com.splitsmith.app.theme.LocalDimens
 import com.splitsmith.app.theme.LocalSplitColors
 import com.splitsmith.app.theme.OutfitFamily
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import com.splitsmith.app.ui.components.UserAvatar
 import com.splitsmith.app.ui.components.dotGridBackground
 import kotlinx.coroutines.launch
@@ -79,7 +84,7 @@ fun SplitExpensesScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var searchQuery by remember { mutableStateOf("") }
-    var selectedFilter by remember { mutableStateOf("ALL") } // ALL, GROUPS, INDIVIDUAL
+    var selectedSegment by remember { mutableIntStateOf(0) } // 0 = GROUPS, 1 = PEOPLE
     var showCreateGroup by remember { mutableStateOf(false) }
     var fabExpanded by remember { mutableStateOf(false) }
     var selectedSplitForDetail by remember { mutableStateOf<DirectSplit?>(null) }
@@ -173,6 +178,13 @@ fun SplitExpensesScreen(
         }.sortedByDescending { Math.abs(it.netBalance) }
     }
 
+    val totalOwedToYou = remember(individualPeers) {
+        individualPeers.filter { it.netBalance > 0 }.sumOf { it.netBalance }
+    }
+    val totalYouOwe = remember(individualPeers) {
+        individualPeers.filter { it.netBalance < 0 }.sumOf { -it.netBalance }
+    }
+
     // Bottom sheet for group creation
     if (showCreateGroup) {
         CreateGroupBottomSheet(
@@ -243,7 +255,7 @@ fun SplitExpensesScreen(
                 )
             }
 
-            // Search Bar
+            // Global Search Bar
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -263,25 +275,78 @@ fun SplitExpensesScreen(
                 textStyle = androidx.compose.ui.text.TextStyle(fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = colors.inkPrimary)
             )
 
-            // Filter Chips
+            // Minimalist Financial Standing Summary Row (Flat, clean, no heavy cards)
             Row(
-                horizontalArrangement = Arrangement.spacedBy(d.space8),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(d.space4)
+                ) {
+                    Text(
+                        text = "Owed to you: ",
+                        fontFamily = OutfitFamily,
+                        fontSize = d.textLabelMedium,
+                        color = colors.inkMuted
+                    )
+                    Text(
+                        text = "\u20b9${"%.0f".format(totalOwedToYou)}",
+                        fontFamily = JetBrainsMonoFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = d.textBodyLarge,
+                        color = colors.inkPrimary
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(d.space4)
+                ) {
+                    Text(
+                        text = "You owe: ",
+                        fontFamily = OutfitFamily,
+                        fontSize = d.textLabelMedium,
+                        color = colors.inkMuted
+                    )
+                    Text(
+                        text = "\u20b9${"%.0f".format(totalYouOwe)}",
+                        fontFamily = JetBrainsMonoFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = d.textBodyLarge,
+                        color = if (totalYouOwe > 0) colors.alertRed else colors.inkMuted
+                    )
+                }
+            }
+
+            // Segmented Pill Control (Groups vs People)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(d.space12),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                listOf("ALL" to "All", "GROUPS" to "Groups", "DIRECT" to "Individual").forEach { (filterVal, label) ->
-                    val isSelected = selectedFilter == filterVal
+                listOf("Groups (${filteredGroups.size})", "People (${individualPeers.size})").forEachIndexed { index, label ->
+                    val isSelected = selectedSegment == index
                     Surface(
-                        onClick = { selectedFilter = filterVal },
+                        onClick = { selectedSegment = index },
                         shape = RoundedCornerShape(d.radiusFull),
                         color = if (isSelected) colors.inkPrimary else colors.surfaceCard,
-                        border = if (!isSelected) BorderStroke(1.dp, colors.borderWhisper) else null,
-                        modifier = Modifier.height(36.dp)
+                        border = BorderStroke(1.dp, if (isSelected) colors.inkPrimary else colors.borderWhisper),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 44.dp)
+                            .semantics {
+                                role = Role.Tab
+                                selected = isSelected
+                            }
                     ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space16)) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(horizontal = d.space16, vertical = d.space8)
+                        ) {
                             Text(
                                 text = label,
                                 fontFamily = OutfitFamily,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = d.textLabelLarge,
                                 color = if (isSelected) colors.canvasChalk else colors.inkMuted
                             )
@@ -290,7 +355,7 @@ fun SplitExpensesScreen(
                 }
             }
 
-            // List
+            // List View
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(d.space12),
@@ -310,37 +375,29 @@ fun SplitExpensesScreen(
                         }
                     }
                 } else {
-                    if (selectedFilter == "ALL" || selectedFilter == "GROUPS") {
+                    if (selectedSegment == 0) {
+                        // GROUPS TAB
                         if (filteredGroups.isNotEmpty()) {
-                            item {
-                                Text(
-                                    text = "GROUPS",
-                                    fontFamily = OutfitFamily,
-                                    fontSize = d.textLabelSmall,
-                                    color = colors.inkMuted,
-                                    letterSpacing = 1.5.sp,
-                                    modifier = Modifier.padding(vertical = d.space4)
-                                )
-                            }
                             items(filteredGroups) { group ->
                                 GroupListItem(group, onNavigateToGroup, colors, d)
                             }
-                        }
-                    }
-
-                    if (selectedFilter == "ALL" || selectedFilter == "DIRECT") {
-                        if (individualPeers.isNotEmpty()) {
+                        } else {
                             item {
-                                Spacer(modifier = Modifier.height(d.space4))
-                                Text(
-                                    text = "INDIVIDUALS",
-                                    fontFamily = OutfitFamily,
-                                    fontSize = d.textLabelSmall,
-                                    color = colors.inkMuted,
-                                    letterSpacing = 1.5.sp,
-                                    modifier = Modifier.padding(vertical = d.space4)
-                                )
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(d.space8)
+                                ) {
+                                    val emptyTitle = if (searchQuery.isNotEmpty()) "No groups found for \"$searchQuery\"" else "No groups yet"
+                                    val emptySubtitle = if (searchQuery.isNotEmpty()) "Try searching for a different group name." else "Tap + to create a group."
+                                    Text(emptyTitle, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = colors.inkPrimary, textAlign = TextAlign.Center)
+                                    Text(emptySubtitle, fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkMuted, textAlign = TextAlign.Center)
+                                }
                             }
+                        }
+                    } else {
+                        // PEOPLE TAB
+                        if (individualPeers.isNotEmpty()) {
                             items(individualPeers) { peerGroup ->
                                 IndividualPeerListItem(
                                     peerGroup = peerGroup,
@@ -349,18 +406,18 @@ fun SplitExpensesScreen(
                                     onClick = { selectedPeerGroupForDetail = peerGroup }
                                 )
                             }
-                        }
-                    }
-
-                    if (filteredGroups.isEmpty() && individualPeers.isEmpty()) {
-                        item {
-                            Column(
-                                modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(d.space8)
-                            ) {
-                                Text("No groups or individuals yet", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = colors.inkPrimary)
-                                Text("Tap + to create a group or split with someone.", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkMuted, textAlign = TextAlign.Center)
+                        } else {
+                            item {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(d.space8)
+                                ) {
+                                    val emptyTitle = if (searchQuery.isNotEmpty()) "No people found for \"$searchQuery\"" else "No individual splits yet"
+                                    val emptySubtitle = if (searchQuery.isNotEmpty()) "Try searching for a different name." else "Tap + to split with a contact."
+                                    Text(emptyTitle, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = colors.inkPrimary, textAlign = TextAlign.Center)
+                                    Text(emptySubtitle, fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkMuted, textAlign = TextAlign.Center)
+                                }
                             }
                         }
                     }
@@ -478,13 +535,31 @@ fun DirectSplitListItem(
             UserAvatar(avatarUrl = peerAvatar, displayName = peerName, size = d.avatarMd)
             Spacer(modifier = Modifier.width(d.space12))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = split.description.ifEmpty { "P2P Split" },
-                    fontFamily = OutfitFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = d.textTitleMedium,
-                    color = if (isSettled) colors.inkMuted else colors.inkPrimary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = split.description.ifEmpty { "P2P Split" },
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = d.textTitleMedium,
+                        color = if (isSettled) colors.inkMuted else colors.inkPrimary
+                    )
+                    val attachCount = split.receiptUrls.size.coerceAtLeast(split.receiptDriveFileIds.size)
+                    if (attachCount > 0) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.AttachFile,
+                            contentDescription = "Has attachment",
+                            tint = colors.inkMuted,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "($attachCount)",
+                            fontFamily = OutfitFamily,
+                            fontSize = 11.sp,
+                            color = colors.inkMuted
+                        )
+                    }
+                }
                 Text(
                     text = owedText,
                     fontFamily = OutfitFamily,
@@ -621,6 +696,10 @@ fun DirectSplitDetailBottomSheet(
                                 text = { Text("Delete Split", fontFamily = OutfitFamily, color = colors.alertRed) },
                                 onClick = {
                                     showMenu = false
+                                    if (split.receiptDriveFileIds.isNotEmpty()) {
+                                        com.splitsmith.app.data.PendingDriveUploadsManager.enqueueDeletion(context, split.receiptDriveFileIds)
+                                        com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
+                                    }
                                     coroutineScope.launch {
                                         try {
                                             FirebaseManager.deleteDirectSplit(split.id)
