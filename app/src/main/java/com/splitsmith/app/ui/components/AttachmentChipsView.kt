@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,12 +17,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.CloudQueue
-import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,13 +42,16 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.splitsmith.app.theme.LocalSplitColors
 import com.splitsmith.app.theme.OutfitFamily
+import com.splitsmith.app.util.AttachmentDisplayHelper
 
 data class DisplayAttachment(
     val uri: Uri? = null,
     val url: String = "",
     val name: String = "Attachment",
     val isPdf: Boolean = false,
-    val isPending: Boolean = false
+    val isPending: Boolean = false,
+    val isDriveSynced: Boolean = false,
+    val driveFileId: String = ""
 )
 
 @Composable
@@ -60,10 +65,12 @@ fun AttachmentChipsView(
     if (attachments.isEmpty()) return
 
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
     var previewImageUri by remember { mutableStateOf<Uri?>(null) }
     var previewIndex by remember { mutableIntStateOf(-1) }
     var previewFileName by remember { mutableStateOf("") }
+    var isDownloading by remember { mutableStateOf(false) }
 
     val colors = LocalSplitColors.current
 
@@ -75,18 +82,53 @@ fun AttachmentChipsView(
             itemsIndexed(attachments) { index, item ->
                 AttachmentChip(
                     item = item,
+                    index = index,
                     isEditable = isEditable,
                     onRemove = { onRemoveAttachment?.invoke(index) },
                     onEdit = { onEditAttachment?.invoke(index) },
                     onClick = {
-                        openAttachment(context, item, onShowImagePreview = { url, uri ->
-                            previewImageUrl = url
-                            previewImageUri = uri
-                            previewIndex = index
-                            previewFileName = item.name
-                        })
+                        coroutineScope.launch {
+                            isDownloading = true
+                            val fetchedUri = com.splitsmith.app.util.AttachmentDownloader.getOrFetchAttachment(
+                                context = context,
+                                urlOrPath = item.url.ifBlank { item.uri?.toString() ?: "" },
+                                driveFileId = item.driveFileId
+                            )
+                            isDownloading = false
+                            if (fetchedUri != null) {
+                                previewImageUri = fetchedUri
+                                previewImageUrl = item.url
+                                previewIndex = index
+                                previewFileName = item.name
+                            } else {
+                                openAttachment(context, item, onShowImagePreview = { url, uri ->
+                                    previewImageUrl = url
+                                    previewImageUri = uri
+                                    previewIndex = index
+                                    previewFileName = item.name
+                                })
+                            }
+                        }
                     }
                 )
+            }
+        }
+    }
+
+    if (isDownloading) {
+        Dialog(onDismissRequest = {}) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = colors.surfaceCard
+            ) {
+                Row(
+                    modifier = Modifier.padding(24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = colors.inkPrimary)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Fetching shared receipt...", fontFamily = OutfitFamily, color = colors.inkPrimary, fontSize = 14.sp)
+                }
             }
         }
     }
@@ -105,16 +147,22 @@ fun AttachmentChipsView(
             var offsetX by remember { mutableFloatStateOf(0f) }
             var offsetY by remember { mutableFloatStateOf(0f) }
 
+            val rawModel: Any? = previewImageUri ?: previewImageUrl?.ifBlank { null }
             val isDriveUrl = previewImageUrl?.contains("drive.google.com") == true || previewImageUrl?.contains("google.com") == true
-            val imageModel = when {
-                previewImageUri != null -> previewImageUri
-                !isDriveUrl && previewImageUrl != null -> previewImageUrl
-                isDriveUrl && previewImageUrl != null -> {
-                    val parsed = Uri.parse(previewImageUrl)
-                    if (parsed.scheme == "file") parsed else null
+
+            // Check if model points to a non-existent local file from another device
+            val isLocalFileMissing = remember(rawModel) {
+                if (rawModel is Uri && rawModel.scheme == "file" && rawModel.path != null) {
+                    !java.io.File(rawModel.path!!).exists()
+                } else if (rawModel is String && (rawModel.startsWith("file://") || rawModel.startsWith("/data/"))) {
+                    val cleanPath = rawModel.removePrefix("file://")
+                    !java.io.File(cleanPath).exists()
+                } else {
+                    false
                 }
-                else -> null
             }
+
+            val imageModel = if (isLocalFileMissing) null else rawModel
 
             Box(
                 modifier = Modifier
@@ -153,7 +201,38 @@ fun AttachmentChipsView(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    if (imageModel != null) {
+                    if (isLocalFileMissing) {
+                        Column(
+                            modifier = Modifier
+                                .padding(32.dp)
+                                .fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Cloud,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = Color.White.copy(alpha = 0.8f)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Receipt Stored on Other Phone",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 18.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "This receipt was saved locally on your other phone. Once Google Drive Sync completes on your other phone, the receipt will be available here.",
+                                fontFamily = OutfitFamily,
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 14.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    } else if (imageModel != null) {
                         AsyncImage(
                             model = imageModel,
                             contentDescription = "Receipt photo full screen",
@@ -212,17 +291,18 @@ fun AttachmentChipsView(
                     }
                 }
 
-                // Top Bar overlay
+                // Top Bar overlay — dark scrim ensures icons visible on any background
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.40f))
                         .statusBarsPadding()
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = previewFileName,
+                        text = AttachmentDisplayHelper.cleanAttachmentLabel(previewFileName, previewIndex.coerceAtLeast(0), previewFileName.endsWith(".pdf", ignoreCase = true)),
                         fontFamily = OutfitFamily,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White,
@@ -303,13 +383,14 @@ fun AttachmentChipsView(
 @Composable
 private fun AttachmentChip(
     item: DisplayAttachment,
+    index: Int,
     isEditable: Boolean,
     onRemove: () -> Unit,
     onEdit: () -> Unit,
     onClick: () -> Unit
 ) {
     val colors = LocalSplitColors.current
-    val isDriveSynced = item.url.contains("drive.google.com") || item.url.contains("google.com")
+    val isDriveSynced = item.isDriveSynced || item.driveFileId.isNotBlank() || item.url.contains("drive.google.com") || item.url.contains("google.com")
     
     // Minimal & subtle color styling
     val accentColor = if (item.isPdf) Color(0xFF0284C7) else Color(0xFF64748B)
@@ -325,22 +406,22 @@ private fun AttachmentChip(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Minimal Leading Icon Replacement (Zero Extra Width)
+            // Standardized icon mapping per design system
             val iconVector = when {
-                isDriveSynced -> Icons.Outlined.Cloud
-                item.isPending -> Icons.Outlined.CloudQueue
-                item.isPdf -> Icons.Outlined.Description
-                else -> Icons.Outlined.Image
+                isDriveSynced -> Icons.Default.CloudDone
+                item.isPending -> Icons.Default.CloudUpload
+                item.isPdf -> Icons.Default.Description
+                else -> Icons.Default.AttachFile
             }
             Icon(
                 imageVector = iconVector,
                 contentDescription = null,
-                tint = if (isDriveSynced) Color(0xFF4F46E5) else accentColor,
+                tint = if (isDriveSynced) Color(0xFF34A853) else accentColor,
                 modifier = Modifier.size(15.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = item.name,
+                text = AttachmentDisplayHelper.cleanAttachmentLabel(item.name, index, item.isPdf),
                 fontFamily = OutfitFamily,
                 fontWeight = FontWeight.Medium,
                 fontSize = 13.sp,
