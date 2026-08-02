@@ -12,8 +12,8 @@ android {
         applicationId = "com.splitsmith.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 36
-        versionName = "0.3.3.8"
+        versionCode = 37
+        versionName = "0.3.3.9"
     }
 
     signingConfigs {

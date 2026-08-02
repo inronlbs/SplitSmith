@@ -122,10 +122,8 @@ object GoogleDriveManager {
         parentId: String? = null
     ): String? = withContext(Dispatchers.IO) {
         try {
-            var query = "mimeType = 'application/vnd.google-apps.folder' and name = '$folderName' and trashed = false"
-            if (parentId != null) {
-                query += " and '$parentId' in parents"
-            }
+            val effectiveParentId = parentId ?: "root"
+            val query = "mimeType = 'application/vnd.google-apps.folder' and name = '$folderName' and '$effectiveParentId' in parents and trashed = false"
 
             val resultList = try {
                 driveService.files().list()
@@ -143,20 +141,18 @@ object GoogleDriveManager {
                 return@withContext existingFolder.id
             }
 
-            // Folder doesn't exist, create it
+            // Folder doesn't exist, create it inside explicit parent (root if null)
             val folderMetadata = File().apply {
                 name = folderName
                 mimeType = "application/vnd.google-apps.folder"
-                if (parentId != null) {
-                    parents = Collections.singletonList(parentId)
-                }
+                parents = Collections.singletonList(effectiveParentId)
             }
 
             val createdFolder = driveService.files().create(folderMetadata)
                 .setFields("id")
                 .execute()
 
-            android.util.Log.i("GoogleDriveManager", "Created new folder '$folderName' -> id=${createdFolder?.id}")
+            android.util.Log.i("GoogleDriveManager", "Created new folder '$folderName' in parent '$effectiveParentId' -> id=${createdFolder?.id}")
             return@withContext createdFolder?.id
         } catch (e: Exception) {
             android.util.Log.e("GoogleDriveManager", "findOrCreateFolder error for '$folderName': ${e.message}", e)
