@@ -2003,6 +2003,17 @@ fun ProfileSettingsView(
             Spacer(modifier = Modifier.height(d.space8))
 
             val hasDrivePermission = remember(context) { com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context) }
+
+            LaunchedEffect(hasDrivePermission) {
+                if (hasDrivePermission) {
+                    FirebaseManager.updateDriveSyncSetting(true)
+                    com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
+                    }
+                }
+            }
+
             val driveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                 contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
             ) { result ->

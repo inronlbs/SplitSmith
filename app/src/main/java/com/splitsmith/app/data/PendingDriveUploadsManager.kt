@@ -262,9 +262,8 @@ object PendingDriveUploadsManager {
             // Process deletions first
             processPendingDeletions(context)
 
-            val uid = FirebaseManager.currentUserId
-            val profile = if (uid != null) try { FirebaseManager.getUserProfile(uid) } catch (_: Exception) { null } else null
-            if (profile?.driveSyncEnabled == false) {
+            if (!GoogleDriveManager.hasDrivePermission(context)) {
+                android.util.Log.w("PendingDriveUploads", "Process queue skipped: Drive permission not granted on device")
                 isProcessing = false
                 return@withContext
             }

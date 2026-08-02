@@ -127,15 +127,16 @@ object GoogleDriveManager {
             val resultList = try {
                 driveService.files().list()
                     .setQ(query)
-                    .setSpaces("drive")
                     .setFields("files(id, name)")
                     .execute()
-            } catch (e: Exception) {
+            } catch (listErr: Exception) {
+                android.util.Log.w("GoogleDriveManager", "findOrCreateFolder list failed for '$folderName': ${listErr.message}")
                 null
             }
 
             val existingFolder = resultList?.files?.firstOrNull()
             if (existingFolder != null) {
+                android.util.Log.i("GoogleDriveManager", "Found existing folder '$folderName' -> id=${existingFolder.id}")
                 return@withContext existingFolder.id
             }
 
@@ -152,9 +153,10 @@ object GoogleDriveManager {
                 .setFields("id")
                 .execute()
 
+            android.util.Log.i("GoogleDriveManager", "Created new folder '$folderName' -> id=${createdFolder?.id}")
             return@withContext createdFolder?.id
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("GoogleDriveManager", "findOrCreateFolder error for '$folderName': ${e.message}", e)
             null
         }
     }
