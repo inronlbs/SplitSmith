@@ -12,8 +12,8 @@ android {
         applicationId = "com.splitsmith.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 39
-        versionName = "0.3.4.1"
+        versionCode = 40
+        versionName = "0.3.5"
     }
 
     signingConfigs {
@@ -125,16 +125,8 @@ dependencies {
   // Google ML Kit on-device Text Recognition for offline fallback OCR
   implementation("com.google.mlkit:text-recognition:16.0.1")
 
-  // Google Drive API
-  implementation("com.google.apis:google-api-services-drive:v3-rev20230822-2.0.0") {
-      exclude(group = "org.apache.httpcomponents")
-  }
-  implementation("com.google.api-client:google-api-client-android:2.2.0") {
-      exclude(group = "org.apache.httpcomponents")
-  }
-  implementation("com.google.http-client:google-http-client-gson:1.43.3") {
-      exclude(group = "org.apache.httpcomponents")
-  }
+  // Cloudinary SDK for Receipt Uploads
+  implementation("com.cloudinary:cloudinary-android:2.5.0")
 
   // Android WorkManager
   implementation("androidx.work:work-runtime-ktx:2.9.0")

@@ -12,7 +12,7 @@ data class UserProfile(
     val customCategories: List<String> = emptyList(),
     val shortCode: String = "",
     val budget: BudgetConfig = BudgetConfig(limit = 15000.0, type = "MONTHLY", threshold = 80),
-    val driveSyncEnabled: Boolean = true
+    val cloudBackupReceipts: Boolean = true
 )
 
 @Serializable
@@ -48,7 +48,6 @@ data class Expense(
     val splits: Map<String, Double> = emptyMap(), // uid -> amount
     val receiptUrl: String = "",
     val receiptUrls: List<String> = emptyList(),
-    val receiptDriveFileIds: List<String> = emptyList(),
     val createdBy: String = ""
 ) {
     fun getEffectiveReceiptUrls(): List<String> {
@@ -78,8 +77,7 @@ data class PersonalExpense(
     val category: String = "Other",
     val note: String = "",
     val date: Long = 0,
-    val receiptUrls: List<String> = emptyList(),
-    val receiptDriveFileIds: List<String> = emptyList()
+    val receiptUrls: List<String> = emptyList()
 )
 
 @Serializable
@@ -95,8 +93,7 @@ data class DirectSplit(
     val method: String = "UPI",        // UPI or CASH
     val date: Long = 0,
     val createdBy: String = "",
-    val receiptUrls: List<String> = emptyList(),
-    val receiptDriveFileIds: List<String> = emptyList()
+    val receiptUrls: List<String> = emptyList()
 )
 
 data class Debt(

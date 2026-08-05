@@ -102,6 +102,7 @@ fun SlipImportScreen(
 
     val profileState = FirebaseManager.observeUserProfile().collectAsState(initial = null)
     val profile = profileState.value
+    var isCloudBackupEnabled by remember(profile) { mutableStateOf(profile?.cloudBackupReceipts ?: true) }
     val baseCategories = remember { listOf("Food", "Travel", "Stay", "Groceries", "Shopping", "Entertainment", "Rent", "Other") }
     val allCategories = remember(profile?.customCategories) {
         baseCategories + (profile?.customCategories ?: emptyList())
@@ -988,6 +989,8 @@ fun SlipImportScreen(
                     com.splitsmith.app.ui.components.attachments.AttachmentComponent(
                         selectedUris = selectedAttachmentUris,
                         existingUrls = emptyList(),
+                        isCloudBackupEnabled = isCloudBackupEnabled,
+                        onCloudBackupToggle = { isCloudBackupEnabled = it },
                         onUrisChanged = { newUris ->
                             selectedAttachmentUris.clear()
                             selectedAttachmentUris.addAll(newUris)
@@ -997,89 +1000,6 @@ fun SlipImportScreen(
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(d.space8))
-
-            // Google Drive Backup Toggle Card
-            var uploadToDrive by remember(profileState.value) { mutableStateOf(profileState.value?.driveSyncEnabled ?: true) }
-            val hasDrivePermission = remember(context) { com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context) }
-            val driveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-                contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
-            ) { result ->
-                val success = com.splitsmith.app.data.GoogleDriveManager.handleDrivePermissionResult(result.data)
-                uploadToDrive = success
-            }
-
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(d.radiusLG),
-                border = BorderStroke(1.dp, colors.borderWhisper),
-                color = colors.surfaceCard
-            ) {
-                Column(modifier = Modifier.padding(d.space16)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Backup Receipt to Google Drive", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textBodyMedium, color = colors.inkPrimary)
-                            Text("Save a copy of this slip to your SplitSmith Drive folder", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
-                        }
-                        Switch(
-                            checked = uploadToDrive,
-                            onCheckedChange = { checked ->
-                                uploadToDrive = checked
-                                if (checked && !hasDrivePermission) {
-                                    com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(driveLauncher, context)
-                                }
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = colors.canvasChalk,
-                                checkedTrackColor = colors.inkPrimary,
-                                uncheckedThumbColor = colors.inkMuted,
-                                uncheckedTrackColor = colors.borderWhisper
-                            )
-                        )
-                    }
-
-                    if (uploadToDrive && !hasDrivePermission) {
-                        Spacer(modifier = Modifier.height(d.space8))
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = Color(0xFFFEF3C7),
-                            border = BorderStroke(1.dp, Color(0xFFF59E0B)),
-                            shape = RoundedCornerShape(d.radiusSM)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(d.space12),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "Google Drive Access Required",
-                                    fontFamily = OutfitFamily,
-                                    fontSize = d.textLabelMedium,
-                                    color = Color(0xFF92400E),
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Button(
-                                    onClick = {
-                                        com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(driveLauncher, context)
-                                    },
-                                    shape = RoundedCornerShape(d.radiusSM),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706), contentColor = Color.White),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text("Grant Access", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(d.space8))
 
             // Action Options Row
             Text("WHAT WOULD YOU LIKE TO DO?", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.2.sp)
@@ -1105,98 +1025,36 @@ fun SlipImportScreen(
                                 if (transactionId.isNotEmpty()) append("Txn ID: $transactionId")
                             }.trim()
 
-                            // Save images locally first
-                            val localReceiptUrls = mutableListOf<String>()
-                            val localSavedUris = mutableListOf<Uri>()
+                            // Save attachments according to cloud backup preference
+                            val finalReceiptUrls = mutableListOf<String>()
                             if (selectedAttachmentUris.isNotEmpty()) {
+                                val currentUserId = FirebaseManager.currentUserId ?: "anon"
                                 selectedAttachmentUris.forEach { uri ->
-                                    val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "personal")
-                                    val effectiveUri = localSavedUri ?: uri
-                                    localSavedUris.add(effectiveUri)
-                                    localReceiptUrls.add(effectiveUri.toString())
+                                    val finalUrl = if (isCloudBackupEnabled) {
+                                        val result = com.splitsmith.app.data.CloudinaryManager.uploadReceipt(context, uri, currentUserId)
+                                        result.getOrNull() ?: run {
+                                            val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "personal")
+                                            (localSavedUri ?: uri).toString()
+                                        }
+                                    } else {
+                                        val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "personal")
+                                        (localSavedUri ?: uri).toString()
+                                    }
+                                    finalReceiptUrls.add(finalUrl)
                                 }
                             }
 
-                            // Save to Firebase (returns real document ID)
-                            val expId = FirebaseManager.addPersonalExpense(
+                            // Save to Firebase
+                            FirebaseManager.addPersonalExpense(
                                 description = entryTitle,
                                 amount = amt,
                                 category = selectedCategory,
                                 note = personalNote,
                                 date = parsedDateMillis ?: System.currentTimeMillis(),
-                                receiptUrls = localReceiptUrls
+                                receiptUrls = finalReceiptUrls
                             )
 
                             Toast.makeText(context, "Logged as Personal Expense!", Toast.LENGTH_SHORT).show()
-
-                            // Immediate Drive upload with WorkManager fallback
-                            if (uploadToDrive && localSavedUris.isNotEmpty() && expId.isNotBlank()) {
-                                val applicationContext = context.applicationContext
-                                val targetId = expId
-                                val dateMillis = parsedDateMillis ?: System.currentTimeMillis()
-                                if (com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(applicationContext)) {
-                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                        localSavedUris.forEach { effectiveUri ->
-                                            try {
-                                                val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
-                                                    context = applicationContext,
-                                                    inputUri = effectiveUri,
-                                                    folderCategoryName = "Personal Expenses",
-                                                    dateMillis = dateMillis,
-                                                    expenseId = targetId
-                                                )
-                                                when (driveResult) {
-                                                    is com.splitsmith.app.data.DriveUploadResult.Success -> {
-                                                        FirebaseManager.attachDriveFileToPersonalExpense(
-                                                            expenseId = targetId,
-                                                            driveFileId = driveResult.fileId,
-                                                            webUrl = driveResult.webViewLink,
-                                                            localUriPath = effectiveUri.toString()
-                                                        )
-                                                    }
-                                                    is com.splitsmith.app.data.DriveUploadResult.Failure -> {
-                                                        com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                                            context = applicationContext,
-                                                            localUri = effectiveUri,
-                                                            originalLocalUriPath = effectiveUri.toString(),
-                                                            folderCategoryName = "Personal Expenses",
-                                                            dateMillis = dateMillis,
-                                                            expenseId = targetId,
-                                                            isPersonal = true
-                                                        )
-                                                        com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
-                                                    }
-                                                }
-                                            } catch (e: Exception) {
-                                                com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                                    context = applicationContext,
-                                                    localUri = effectiveUri,
-                                                    originalLocalUriPath = effectiveUri.toString(),
-                                                    folderCategoryName = "Personal Expenses",
-                                                    dateMillis = dateMillis,
-                                                    expenseId = targetId,
-                                                    isPersonal = true
-                                                )
-                                                com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    localSavedUris.forEach { effectiveUri ->
-                                        com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                            context = applicationContext,
-                                            localUri = effectiveUri,
-                                            originalLocalUriPath = effectiveUri.toString(),
-                                            folderCategoryName = "Personal Expenses",
-                                            dateMillis = dateMillis,
-                                            expenseId = targetId,
-                                            isPersonal = true
-                                        )
-                                    }
-                                    Toast.makeText(context, "Receipt saved locally. Link Google Drive in Settings to sync.", Toast.LENGTH_LONG).show()
-                                }
-                            }
-
                             onBack()
                         } catch (e: Exception) {
                             Toast.makeText(context, "Error saving: ${e.message}", Toast.LENGTH_LONG).show()

@@ -543,7 +543,7 @@ fun DirectSplitListItem(
                         fontSize = d.textTitleMedium,
                         color = if (isSettled) colors.inkMuted else colors.inkPrimary
                     )
-                    val attachCount = split.receiptUrls.size.coerceAtLeast(split.receiptDriveFileIds.size)
+                    val attachCount = split.receiptUrls.size
                     if (attachCount > 0) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(
@@ -696,10 +696,6 @@ fun DirectSplitDetailBottomSheet(
                                 text = { Text("Delete Split", fontFamily = OutfitFamily, color = colors.alertRed) },
                                 onClick = {
                                     showMenu = false
-                                    if (split.receiptDriveFileIds.isNotEmpty()) {
-                                        com.splitsmith.app.data.PendingDriveUploadsManager.enqueueDeletion(context, split.receiptDriveFileIds)
-                                        com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
-                                    }
                                     coroutineScope.launch {
                                         try {
                                             FirebaseManager.deleteDirectSplit(split.id)

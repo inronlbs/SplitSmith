@@ -134,13 +134,9 @@ fun GroupDetailScreen(
     if (expenseToDelete != null) {
         val exp = expenseToDelete!!
         com.splitsmith.app.ui.components.DeleteExpenseDialog(
-            hasAttachments = exp.receiptDriveFileIds.isNotEmpty() || exp.receiptUrls.isNotEmpty(),
+            hasAttachments = exp.receiptUrls.isNotEmpty(),
             onDismiss = { expenseToDelete = null },
-            onConfirmDelete = { deleteFromDrive ->
-                if (deleteFromDrive && exp.receiptDriveFileIds.isNotEmpty()) {
-                    com.splitsmith.app.data.PendingDriveUploadsManager.enqueueDeletion(context, exp.receiptDriveFileIds)
-                    com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
-                }
+            onConfirmDelete = { _ ->
                 coroutineScope.launch {
                     try {
                         FirebaseManager.deleteExpense(groupId, exp.id)

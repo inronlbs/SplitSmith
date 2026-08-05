@@ -54,6 +54,31 @@ data class DisplayAttachment(
     val driveFileId: String = ""
 )
 
+fun isAttachmentAvailableLocally(context: Context, item: DisplayAttachment): Boolean {
+    if (item.url.startsWith("http://", ignoreCase = true) || item.url.startsWith("https://", ignoreCase = true)) {
+        return true
+    }
+    val targetUriStr = item.uri?.toString() ?: item.url
+    if (targetUriStr.isBlank()) return false
+    return try {
+        val uri = Uri.parse(targetUriStr)
+        if (uri.scheme == "file") {
+            val file = java.io.File(uri.path ?: "")
+            file.exists() && file.length() > 0
+        } else if (uri.scheme == "content") {
+            val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+            val exists = pfd != null
+            pfd?.close()
+            exists
+        } else {
+            val file = java.io.File(targetUriStr)
+            file.exists() && file.length() > 0
+        }
+    } catch (e: Exception) {
+        false
+    }
+}
+
 @Composable
 fun AttachmentChipsView(
     attachments: List<DisplayAttachment>,
@@ -62,9 +87,12 @@ fun AttachmentChipsView(
     onEditAttachment: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    if (attachments.isEmpty()) return
-
     val context = LocalContext.current
+    val visibleAttachments = remember(attachments, context) {
+        if (isEditable) attachments else attachments.filter { isAttachmentAvailableLocally(context, it) }
+    }
+    if (visibleAttachments.isEmpty()) return
+
     val coroutineScope = rememberCoroutineScope()
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
     var previewImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -79,7 +107,7 @@ fun AttachmentChipsView(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(vertical = 4.dp)
         ) {
-            itemsIndexed(attachments) { index, item ->
+            itemsIndexed(visibleAttachments) { index, item ->
                 AttachmentChip(
                     item = item,
                     index = index,
@@ -273,20 +301,7 @@ fun AttachmentChipsView(
                                 text = previewFileName,
                                 fontFamily = OutfitFamily,
                                 color = Color.White.copy(alpha = 0.7f),
-                                fontSize = 14.sp
                             )
-                            Spacer(modifier = Modifier.height(20.dp))
-                            Button(
-                                onClick = {
-                                    previewImageUrl?.let { openInGoogleDrive(context, it) }
-                                },
-                                shape = RoundedCornerShape(24.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
-                            ) {
-                                Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Open in Google Drive", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold)
-                            }
                         }
                     }
                 }
@@ -316,25 +331,6 @@ fun AttachmentChipsView(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (isDriveUrl && previewImageUrl != null) {
-                            Surface(
-                                onClick = {
-                                    openInGoogleDrive(context, previewImageUrl!!)
-                                },
-                                shape = RoundedCornerShape(20.dp),
-                                color = Color.White.copy(alpha = 0.15f),
-                                contentColor = Color.White
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Outlined.Cloud, contentDescription = "View in Drive", modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("View in Drive", fontFamily = OutfitFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
 
                         if (isEditable && previewIndex >= 0 && onEditAttachment != null) {
                             Surface(
@@ -454,27 +450,6 @@ private fun AttachmentChip(
     }
 }
 
-private fun openInGoogleDrive(context: Context, driveUrl: String) {
-    try {
-        val driveIntent = Intent(Intent.ACTION_VIEW, Uri.parse(driveUrl)).apply {
-            setPackage("com.google.android.apps.docs")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        if (driveIntent.resolveActivity(context.packageManager) != null) {
-            context.startActivity(driveIntent)
-        } else {
-            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(driveUrl))
-            context.startActivity(browserIntent)
-        }
-    } catch (e: Exception) {
-        try {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(driveUrl)))
-        } catch (e2: Exception) {
-            Toast.makeText(context, "Could not open link", Toast.LENGTH_SHORT).show()
-        }
-    }
-}
-
 private fun openAttachment(
     context: Context,
     item: DisplayAttachment,
@@ -482,17 +457,23 @@ private fun openAttachment(
 ) {
     if (item.isPdf) {
         try {
-            if (item.url.isNotBlank()) {
-                openInGoogleDrive(context, item.url)
-            } else if (item.uri != null) {
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(item.uri, "application/pdf")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                context.startActivity(intent)
+            val targetUri = if (item.uri != null) item.uri else Uri.parse(item.url)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(targetUri, "application/pdf")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+            context.startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(context, "No PDF viewer found on device", Toast.LENGTH_SHORT).show()
+            if (item.url.isNotBlank()) {
+                try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.url)))
+                } catch (e2: Exception) {
+                    Toast.makeText(context, "No PDF viewer found on device", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(context, "No PDF viewer found on device", Toast.LENGTH_SHORT).show()
+            }
         }
     } else {
         if (item.url.isNotBlank() || item.uri != null) {

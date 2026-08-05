@@ -147,40 +147,8 @@ fun HomeScreen(
     var joinConfirmGroup by remember { mutableStateOf<Group?>(null) }
     var connectedUserPopup by remember { mutableStateOf<UserProfile?>(null) }
 
-    var hasDrivePermission by remember { mutableStateOf(com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) }
-    var showDriveSnackbar by remember { mutableStateOf(false) }
-
-    val homeDriveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val success = com.splitsmith.app.data.GoogleDriveManager.handleDrivePermissionResult(result.data, context)
-        hasDrivePermission = success
-        if (success) {
-            showDriveSnackbar = false
-            Toast.makeText(context, "Google Drive linked! Syncing...", Toast.LENGTH_SHORT).show()
-            coroutineScope.launch {
-                com.splitsmith.app.data.GoogleDriveManager.ensureRootFolderExists(context)
-                com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context)
-                com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
-            }
-        }
-    }
-
-    LaunchedEffect(userProfileState.value) {
-        val wantsSync = userProfileState.value?.driveSyncEnabled == true
-        val hasPerm = com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)
-        hasDrivePermission = hasPerm
-        showDriveSnackbar = wantsSync && !hasPerm
-    }
-
-    // Process any pending Google Drive uploads on app startup if scope is granted
     LaunchedEffect(Unit) {
         com.splitsmith.app.migration.FolderMigration.runFolderMigration(context)
-        if (com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) {
-            com.splitsmith.app.data.GoogleDriveManager.ensureRootFolderExists(context)
-            com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
-            com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context)
-        }
     }
     val pendingJoinCode = FirebaseManager.pendingGroupJoinCode
     LaunchedEffect(pendingJoinCode) {
@@ -710,19 +678,6 @@ fun HomeScreen(
                         }
                     }
                 }
-            }
-            if (showDriveSnackbar) {
-                com.splitsmith.app.ui.PermissionSnackbar(
-                    showSnackbar = true,
-                    onDismiss = { showDriveSnackbar = false },
-                    onGrantPermission = {
-                        com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(homeDriveLauncher, context)
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = d.navDockHeight + d.space24)
-                        .padding(horizontal = d.space16)
-                )
             }
         }
     }
@@ -1407,7 +1362,7 @@ fun HomeDashboardView(
                                 fontFamily = OutfitFamily,
                                 fontWeight = FontWeight.Medium,
                                 fontSize = d.textBodyLarge,
-                                color = if (item.isSettled) colors.inkMuted else colors.inkPrimary,
+                                color = colors.inkPrimary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -2043,96 +1998,6 @@ fun ProfileSettingsView(
             Spacer(modifier = Modifier.height(d.space24))
             Text("STORAGE & CLOUD BACKUP", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
             Spacer(modifier = Modifier.height(d.space8))
-
-            val hasDrivePermission = remember(context) { com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context) }
-
-            LaunchedEffect(hasDrivePermission) {
-                if (hasDrivePermission) {
-                    FirebaseManager.updateDriveSyncSetting(true)
-                    com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                        com.splitsmith.app.data.GoogleDriveManager.ensureRootFolderExists(context.applicationContext)
-                        com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
-                    }
-                }
-            }
-
-            val driveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-                contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
-            ) { result ->
-                val success = com.splitsmith.app.data.GoogleDriveManager.handleDrivePermissionResult(result.data, context)
-                coroutineScope.launch {
-                    FirebaseManager.updateDriveSyncSetting(success)
-                    if (success) {
-                        Toast.makeText(context, "Google Drive linked! Syncing pending attachments...", Toast.LENGTH_SHORT).show()
-                        com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
-                        coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                            val rootId = com.splitsmith.app.data.GoogleDriveManager.ensureRootFolderExists(context.applicationContext)
-                            if (rootId != null) {
-                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                    Toast.makeText(context, "SplitSmith folder created in My Drive!", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                            com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
-                        }
-                    }
-                }
-            }
-
-            Column(modifier = Modifier.fillMaxWidth()) {
-                ProfileSettingsRow(
-                    label = "Google Drive Auto-Sync",
-                    trailingContent = {
-                        Switch(
-                            checked = profile?.driveSyncEnabled ?: false,
-                            onCheckedChange = { enabled ->
-                                coroutineScope.launch {
-                                    if (enabled && !com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) {
-                                        com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(driveLauncher, context)
-                                    } else {
-                                        FirebaseManager.updateDriveSyncSetting(enabled)
-                                        if (enabled) {
-                                            com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
-                                            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                                com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = colors.canvasChalk,
-                                checkedTrackColor = colors.inkPrimary,
-                                uncheckedThumbColor = colors.inkMuted,
-                                uncheckedTrackColor = colors.borderWhisper
-                            )
-                        )
-                    },
-                    inkPrimary = colors.inkPrimary,
-                    inkMuted = colors.inkMuted,
-                    borderWhisper = colors.borderWhisper,
-                    d = d,
-                    onClick = {
-                        val current = profile?.driveSyncEnabled ?: false
-                        val nextState = !current
-                        coroutineScope.launch {
-                            if (nextState && !com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(context)) {
-                                com.splitsmith.app.data.GoogleDriveManager.requestDrivePermission(driveLauncher, context)
-                            } else {
-                                FirebaseManager.updateDriveSyncSetting(nextState)
-                                if (nextState) {
-                                    com.splitsmith.app.data.DriveSyncWorker.enqueue(context.applicationContext)
-                                    coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                        com.splitsmith.app.data.PendingDriveUploadsManager.processPendingQueue(context.applicationContext)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                )
-
-                // Banner removed: Now handled globally by PermissionSnackbar at the Scaffold level
-            }
         }
 
         // SECURITY section
@@ -2209,6 +2074,43 @@ fun ProfileSettingsView(
                 borderWhisper = colors.borderWhisper,
                 d = d,
                 onClick = { themeController.toggleTheme() }
+            )
+        }
+
+        // STORAGE & CLOUD BACKUP section
+        item {
+            Spacer(modifier = Modifier.height(d.space24))
+            Text("STORAGE & CLOUD BACKUP", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
+            Spacer(modifier = Modifier.height(d.space8))
+
+            ProfileSettingsRow(
+                label = "Cloud Backup for Receipts",
+                trailingContent = {
+                    Switch(
+                        checked = profile?.cloudBackupReceipts ?: true,
+                        onCheckedChange = { enabled ->
+                            coroutineScope.launch {
+                                FirebaseManager.updateCloudBackupReceiptsSetting(enabled)
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colors.canvasChalk,
+                            checkedTrackColor = colors.inkPrimary,
+                            uncheckedThumbColor = colors.inkMuted,
+                            uncheckedTrackColor = colors.borderWhisper
+                        )
+                    )
+                },
+                inkPrimary = colors.inkPrimary,
+                inkMuted = colors.inkMuted,
+                borderWhisper = colors.borderWhisper,
+                d = d,
+                onClick = {
+                    val current = profile?.cloudBackupReceipts ?: true
+                    coroutineScope.launch {
+                        FirebaseManager.updateCloudBackupReceiptsSetting(!current)
+                    }
+                }
             )
         }
 

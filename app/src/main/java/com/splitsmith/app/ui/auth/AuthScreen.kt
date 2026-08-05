@@ -29,8 +29,6 @@ import com.splitsmith.app.R
 import com.splitsmith.app.theme.LocalSplitColors
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.Scope
-import com.google.api.services.drive.DriveScopes
 import com.google.android.gms.common.api.ApiException
 import com.splitsmith.app.data.FirebaseManager
 import com.splitsmith.app.theme.LocalDimens
@@ -92,7 +90,6 @@ fun AuthScreen(
                 }
             }
             .requestEmail()
-            .requestScopes(Scope(DriveScopes.DRIVE_FILE))
             .build()
         GoogleSignIn.getClient(context, gso)
     }

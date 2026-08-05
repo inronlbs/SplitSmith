@@ -54,7 +54,6 @@ fun OnboardingScreen(
     val d = LocalDimens.current
     var upiId by remember { mutableStateOf("") }
     var monthlyBudgetLimit by remember { mutableStateOf("15000") }
-    var budgetThreshold by remember { mutableStateOf(80f) }
     var isLoading by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
@@ -185,39 +184,6 @@ fun OnboardingScreen(
                         textStyle = androidx.compose.ui.text.TextStyle(fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = inkPrimary)
                     )
                 }
-
-                // Threshold Slider
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Alert threshold",
-                            fontFamily = OutfitFamily,
-                            fontSize = d.textLabelMedium,
-                            color = inkMuted
-                        )
-                        Text(
-                            text = "${budgetThreshold.toInt()}%",
-                            fontFamily = OutfitFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = d.textLabelMedium,
-                            color = inkPrimary
-                        )
-                    }
-                    Slider(
-                        value = budgetThreshold,
-                        onValueChange = { budgetThreshold = it },
-                        valueRange = 50f..95f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = inkPrimary,
-                            activeTrackColor = inkPrimary,
-                            inactiveTrackColor = borderWhisper
-                        )
-                    )
-                }
             }
         }
 
@@ -239,8 +205,7 @@ fun OnboardingScreen(
                         try {
                             FirebaseManager.updateUpiId(upiId.trim())
                             val limit = monthlyBudgetLimit.toIntOrNull() ?: 15000
-                            val threshold = budgetThreshold.toInt()
-                            FirebaseManager.updateBudgetSettings(limit, threshold)
+                            FirebaseManager.updateBudgetSettings(limit)
                             Toast.makeText(context, "Setup completed!", Toast.LENGTH_SHORT).show()
                             onOnboardingComplete()
                         } catch (e: Exception) {

@@ -69,7 +69,8 @@ fun QuickSplitScreen(
 
     var selectedAttachmentUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var existingAttachmentUrls by remember { mutableStateOf<List<String>>(emptyList()) }
-    var existingDriveFileIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    val userProfile = userProfileState.value
+    var isCloudBackupEnabled by remember(userProfile) { mutableStateOf(userProfile?.cloudBackupReceipts ?: true) }
 
     LaunchedEffect(Unit) {
         val pAmt = FirebaseManager.pendingExpenseAmount
@@ -608,10 +609,10 @@ fun QuickSplitScreen(
                         com.splitsmith.app.ui.components.attachments.AttachmentComponent(
                             selectedUris = selectedAttachmentUris,
                             existingUrls = existingAttachmentUrls,
-                            existingDriveFileIds = existingDriveFileIds,
+                            isCloudBackupEnabled = isCloudBackupEnabled,
+                            onCloudBackupToggle = { isCloudBackupEnabled = it },
                             onUrisChanged = { selectedAttachmentUris = it },
-                            onExistingUrlsChanged = { existingAttachmentUrls = it },
-                            onDriveFileIdsChanged = { existingDriveFileIds = it }
+                            onExistingUrlsChanged = { existingAttachmentUrls = it }
                         )
                     }
 
@@ -664,22 +665,28 @@ fun QuickSplitScreen(
                             isLoading = true
                             coroutineScope.launch {
                                 try {
-                                    val finalUploadedUrls = existingAttachmentUrls.toMutableList()
-                                    val finalDriveFileIds = existingDriveFileIds.toMutableList()
+                                    val finalUploadedUrls = mutableListOf<String>()
 
-                                    // Step 1: Save attachments locally first
-                                    val localSavedUris = mutableListOf<android.net.Uri>()
+                                    // Save attachments according to cloud backup preference
                                     if (selectedAttachmentUris.isNotEmpty()) {
+                                        val currentUserId = FirebaseManager.currentUserId ?: "anon"
                                         selectedAttachmentUris.forEach { uri ->
-                                            val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "quick")
-                                            val effectiveUri = localSavedUri ?: uri
-                                            localSavedUris.add(effectiveUri)
-                                            finalUploadedUrls.add(effectiveUri.toString())
+                                            val finalUrl = if (isCloudBackupEnabled) {
+                                                val result = com.splitsmith.app.data.CloudinaryManager.uploadReceipt(context, uri, currentUserId)
+                                                result.getOrNull() ?: run {
+                                                    val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "split")
+                                                    (localSavedUri ?: uri).toString()
+                                                }
+                                            } else {
+                                                val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "split")
+                                                (localSavedUri ?: uri).toString()
+                                            }
+                                            finalUploadedUrls.add(finalUrl)
                                         }
                                     }
 
-                                    // Step 2: Save to Firebase (get real document ID)
-                                    val newSplitId = FirebaseManager.createDirectSplit(
+                                    // Step 2: Save to Firebase
+                                    FirebaseManager.createDirectSplit(
                                         withUserId = user.uid,
                                         description = description.trim(),
                                         amount = amountVal,
@@ -687,80 +694,9 @@ fun QuickSplitScreen(
                                         paidBy = finalPaidBy,
                                         category = selectedCategory,
                                         date = selectedDateMillis,
-                                        receiptUrls = finalUploadedUrls,
-                                        receiptDriveFileIds = finalDriveFileIds
+                                        receiptUrls = finalUploadedUrls
                                     )
                                     Toast.makeText(context, "Quick Split saved!", Toast.LENGTH_SHORT).show()
-
-                                    // Immediate Drive upload with WorkManager fallback
-                                    if (localSavedUris.isNotEmpty() && userProfileState.value?.driveSyncEnabled == true) {
-                                        val applicationContext = context.applicationContext
-                                        val targetId = newSplitId
-                                        if (com.splitsmith.app.data.GoogleDriveManager.hasDrivePermission(applicationContext)) {
-                                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                                localSavedUris.forEach { effectiveUri ->
-                                                    try {
-                                                        val driveResult = com.splitsmith.app.data.GoogleDriveManager.uploadAttachment(
-                                                            context = applicationContext,
-                                                            inputUri = effectiveUri,
-                                                            folderCategoryName = "Direct Splits",
-                                                            dateMillis = selectedDateMillis,
-                                                            expenseId = targetId
-                                                        )
-                                                        when (driveResult) {
-                                                            is com.splitsmith.app.data.DriveUploadResult.Success -> {
-                                                                FirebaseManager.attachDriveFileToDirectSplit(
-                                                                    splitId = targetId,
-                                                                    driveFileId = driveResult.fileId,
-                                                                    webUrl = driveResult.webViewLink,
-                                                                    localUriPath = effectiveUri.toString()
-                                                                )
-                                                            }
-                                                            is com.splitsmith.app.data.DriveUploadResult.Failure -> {
-                                                                com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                                                    context = applicationContext,
-                                                                    localUri = effectiveUri,
-                                                                    originalLocalUriPath = effectiveUri.toString(),
-                                                                    folderCategoryName = "Direct Splits",
-                                                                    dateMillis = selectedDateMillis,
-                                                                    expenseId = targetId,
-                                                                    isPersonal = false,
-                                                                    groupId = ""
-                                                                )
-                                                                com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
-                                                            }
-                                                        }
-                                                    } catch (e: Exception) {
-                                                        com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                                            context = applicationContext,
-                                                            localUri = effectiveUri,
-                                                            originalLocalUriPath = effectiveUri.toString(),
-                                                            folderCategoryName = "Direct Splits",
-                                                            dateMillis = selectedDateMillis,
-                                                            expenseId = targetId,
-                                                            isPersonal = false,
-                                                            groupId = ""
-                                                        )
-                                                        com.splitsmith.app.data.DriveSyncWorker.enqueue(applicationContext)
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            localSavedUris.forEach { effectiveUri ->
-                                                com.splitsmith.app.data.PendingDriveUploadsManager.enqueueUpload(
-                                                    context = applicationContext,
-                                                    localUri = effectiveUri,
-                                                    originalLocalUriPath = effectiveUri.toString(),
-                                                    folderCategoryName = "Direct Splits",
-                                                    dateMillis = selectedDateMillis,
-                                                    expenseId = targetId,
-                                                    isPersonal = false,
-                                                    groupId = ""
-                                                )
-                                            }
-                                            Toast.makeText(context, "Receipt saved locally. Link Google Drive in Settings to sync.", Toast.LENGTH_LONG).show()
-                                        }
-                                    }
                                     onBack()
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Save failed: ${e.message}", Toast.LENGTH_LONG).show()

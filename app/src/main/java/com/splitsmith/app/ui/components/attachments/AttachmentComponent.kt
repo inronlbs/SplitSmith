@@ -27,8 +27,8 @@ fun AttachmentComponent(
     existingUrls: List<String>,
     onUrisChanged: (List<Uri>) -> Unit,
     onExistingUrlsChanged: (List<String>) -> Unit,
-    onDriveFileIdsChanged: ((List<String>) -> Unit)? = null,
-    existingDriveFileIds: List<String> = emptyList(),
+    isCloudBackupEnabled: Boolean = true,
+    onCloudBackupToggle: ((Boolean) -> Unit)? = null,
     isEditable: Boolean = true,
     maxLimit: Int = AttachmentCompressor.MAX_ATTACHMENTS,
     modifier: Modifier = Modifier
@@ -44,7 +44,7 @@ fun AttachmentComponent(
     val displayAttachments = remember(selectedUris, existingUrls) {
         val list = mutableListOf<DisplayAttachment>()
         existingUrls.forEach { url ->
-            val name = url.substringAfterLast("/").substringBefore("?").ifBlank { "Drive Attachment" }
+            val name = url.substringAfterLast("/").substringBefore("?").ifBlank { "Receipt Document" }
             val isPdf = url.contains(".pdf", ignoreCase = true)
             list.add(DisplayAttachment(url = url, name = name, isPdf = isPdf))
         }
@@ -74,10 +74,6 @@ fun AttachmentComponent(
                     if (idx < existingUrls.size) {
                         val updatedUrls = existingUrls.toMutableList().also { it.removeAt(idx) }
                         onExistingUrlsChanged(updatedUrls)
-                        if (idx < existingDriveFileIds.size) {
-                            val updatedDriveIds = existingDriveFileIds.toMutableList().also { it.removeAt(idx) }
-                            onDriveFileIdsChanged?.invoke(updatedDriveIds)
-                        }
                     } else {
                         val uriIdx = idx - existingUrls.size
                         val updatedUris = selectedUris.toMutableList().also { it.removeAt(uriIdx) }
@@ -120,6 +116,43 @@ fun AttachmentComponent(
                     fontFamily = OutfitFamily,
                     fontSize = d.textLabelMedium,
                     color = colors.inkPrimary
+                )
+            }
+        }
+
+        if (isEditable && onCloudBackupToggle != null && displayAttachments.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(d.space12))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Cloud Backup for Receipt",
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = d.textBodyMedium,
+                        color = colors.inkPrimary
+                    )
+                    Text(
+                        text = if (isCloudBackupEnabled) "Accessible on all your devices and group members" else "Kept strictly on this device only",
+                        fontFamily = OutfitFamily,
+                        fontSize = d.textLabelSmall,
+                        color = colors.inkMuted
+                    )
+                }
+                Switch(
+                    checked = isCloudBackupEnabled,
+                    onCheckedChange = onCloudBackupToggle,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = colors.canvasChalk,
+                        checkedTrackColor = colors.inkPrimary,
+                        uncheckedThumbColor = colors.inkMuted,
+                        uncheckedTrackColor = colors.borderWhisper
+                    )
                 )
             }
         }
