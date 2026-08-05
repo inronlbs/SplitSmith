@@ -62,7 +62,7 @@ object FirebaseManager {
         val profile = UserProfile(
             uid = uid,
             displayName = displayName,
-            email = email,
+            email = email.trim().lowercase(),
             upiId = upiId,
             shortCode = uid.take(6).uppercase()
         )
@@ -84,7 +84,7 @@ object FirebaseManager {
         try {
             val userDoc = db.collection("users").document(user.uid).get().await()
             if (!userDoc.exists()) {
-                val userEmail = user.email
+                val userEmail = user.email?.trim()?.lowercase()
                 val emailQuery = if (!userEmail.isNullOrEmpty()) {
                     try { db.collection("users").whereEqualTo("email", userEmail).get().await() } catch (e: Exception) { null }
                 } else null
@@ -107,7 +107,7 @@ object FirebaseManager {
                     val profile = UserProfile(
                         uid = user.uid,
                         displayName = user.displayName ?: "SplitSmith User",
-                        email = user.email ?: "",
+                        email = (user.email ?: "").trim().lowercase(),
                         avatarUrl = user.photoUrl?.toString() ?: "",
                         shortCode = user.uid.take(6).uppercase()
                     )
@@ -118,11 +118,11 @@ object FirebaseManager {
             val profile = UserProfile(
                 uid = user.uid,
                 displayName = user.displayName ?: "SplitSmith User",
-                email = user.email ?: "",
+                email = (user.email ?: "").trim().lowercase(),
                 avatarUrl = user.photoUrl?.toString() ?: "",
                 shortCode = user.uid.take(6).uppercase()
             )
-            db.collection("users").document(user.uid).set(profile, com.google.firebase.firestore.SetOptions.merge())
+            db.collection("users").document(user.uid).set(profile, com.google.firebase.firestore.SetOptions.merge()).await()
         }
         return result
     }
@@ -210,13 +210,14 @@ object FirebaseManager {
     suspend fun createGroup(name: String, iconName: String, type: String, memberUids: List<String> = emptyList()): String {
         val uid = currentUserId ?: throw RuntimeException("Not authenticated")
         val groupRef = db.collection("groups").document()
-        val allMembers = (memberUids + uid).distinct().associateWith { true }
+        val pendingMap = memberUids.filter { it != uid }.distinct().associateWith { true }
         val group = Group(
             id = groupRef.id,
             name = name,
             iconName = iconName,
             type = type,
-            members = allMembers,
+            members = mapOf(uid to true),
+            pendingMembers = pendingMap,
             adminId = uid,
             admins = mapOf(uid to true)
         )
@@ -227,6 +228,20 @@ object FirebaseManager {
     suspend fun joinGroup(groupId: String) {
         val uid = currentUserId ?: throw RuntimeException("Not authenticated")
         db.collection("groups").document(groupId).update("members.$uid", true).await()
+    }
+
+    suspend fun acceptGroupInvitation(groupId: String) {
+        val uid = currentUserId ?: throw RuntimeException("Not authenticated")
+        val docRef = db.collection("groups").document(groupId)
+        db.runTransaction { transaction ->
+            transaction.update(docRef, "members.$uid", true)
+            transaction.update(docRef, "pendingMembers.$uid", com.google.firebase.firestore.FieldValue.delete())
+        }.await()
+    }
+
+    suspend fun declineGroupInvitation(groupId: String) {
+        val uid = currentUserId ?: throw RuntimeException("Not authenticated")
+        db.collection("groups").document(groupId).update("pendingMembers.$uid", com.google.firebase.firestore.FieldValue.delete()).await()
     }
 
     suspend fun makeUserAdmin(groupId: String, targetUid: String) {
@@ -296,9 +311,10 @@ object FirebaseManager {
 
         var memberGroups = emptyList<Group>()
         var requestedGroups = emptyList<Group>()
+        var pendingGroups = emptyList<Group>()
 
         fun sendMerged() {
-            val merged = (memberGroups + requestedGroups).distinctBy { it.id }
+            val merged = (memberGroups + requestedGroups + pendingGroups).distinctBy { it.id }
             trySend(merged)
         }
 
@@ -332,9 +348,25 @@ object FirebaseManager {
                 }
             }
 
+        val pendingListener = db.collection("groups")
+            .whereEqualTo("pendingMembers.$uid", true)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    android.util.Log.e("FirebaseManager", "Firestore Listen Error: ${error.message}", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    pendingGroups = snapshot.documents.mapNotNull { doc ->
+                        try { doc.toObject(Group::class.java) } catch (e: Exception) { null }
+                    }
+                    sendMerged()
+                }
+            }
+
         awaitClose {
             memberListener.remove()
             requestListener.remove()
+            pendingListener.remove()
         }
     }
 
@@ -770,10 +802,35 @@ object FirebaseManager {
 
     suspend fun searchUserByEmail(email: String): UserProfile? {
         if (email.isBlank()) return null
-        val result = db.collection("users")
-            .whereEqualTo("email", email.trim().lowercase())
-            .get().await()
-        return result.documents.firstOrNull()?.toUserProfileWithUid()
+        val cleaned = email.trim().replace(Regex("[\\u200B\\uFEFF\\u00A0]"), "")
+        if (cleaned.isEmpty()) return null
+        val lower = cleaned.lowercase()
+
+        // 1. Try lowercase match
+        try {
+            val result = db.collection("users")
+                .whereEqualTo("email", lower)
+                .get().await()
+            val profile = result.documents.firstOrNull()?.toUserProfileWithUid()
+            if (profile != null) return profile
+        } catch (e: Exception) {
+            android.util.Log.w("FirebaseManager", "searchUserByEmail (lower) failed: ${e.message}")
+        }
+
+        // 2. Try raw cleaned input match if different from lower
+        if (lower != cleaned) {
+            try {
+                val result = db.collection("users")
+                    .whereEqualTo("email", cleaned)
+                    .get().await()
+                val profile = result.documents.firstOrNull()?.toUserProfileWithUid()
+                if (profile != null) return profile
+            } catch (e: Exception) {
+                android.util.Log.w("FirebaseManager", "searchUserByEmail (raw) failed: ${e.message}")
+            }
+        }
+
+        return null
     }
 
     suspend fun searchUserByCode(code: String): UserProfile? {
@@ -892,7 +949,14 @@ object FirebaseManager {
 
     suspend fun removeConnection(targetUid: String) {
         val uid = currentUserId ?: return
-        db.collection("users").document(uid).collection("connections").document(targetUid).delete().await()
+        val cleanTargetUid = targetUid.trim()
+        if (cleanTargetUid.isBlank() || !com.splitsmith.app.util.QrPayloadParser.isValidFirestoreDocId(cleanTargetUid)) return
+        db.collection("users").document(uid).collection("connections").document(cleanTargetUid).delete().await()
+        try {
+            db.collection("users").document(cleanTargetUid).collection("connections").document(uid).delete().await()
+        } catch (e: Exception) {
+            android.util.Log.w("FirebaseManager", "Could not remove reverse connection: ${e.message}")
+        }
     }
 
     fun observeConnections(): Flow<List<UserProfile>> = callbackFlow {

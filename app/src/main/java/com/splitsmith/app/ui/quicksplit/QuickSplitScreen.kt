@@ -39,6 +39,7 @@ import com.splitsmith.app.theme.JetBrainsMonoFamily
 import com.splitsmith.app.theme.LocalDimens
 import com.splitsmith.app.theme.LocalSplitColors
 import com.splitsmith.app.theme.OutfitFamily
+import com.splitsmith.app.ui.components.UserAvatar
 import com.splitsmith.app.ui.components.dotGridBackground
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -55,6 +56,7 @@ fun QuickSplitScreen(
 
     var searchQuery by remember { mutableStateOf("") }
     var targetUser by remember { mutableStateOf<UserProfile?>(null) }
+    var searchedUserForProfile by remember { mutableStateOf<UserProfile?>(null) }
     var recentContacts by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
     val userProfileState = FirebaseManager.observeUserProfile().collectAsState(initial = null)
 
@@ -125,14 +127,16 @@ fun QuickSplitScreen(
         (connectedUsers + recentContacts).distinctBy { it.uid }
     }
 
-    // Filter contacts strictly by displayName locally
+    // Filter contacts by displayName, email, or shortCode locally
     val filteredLocalContacts = remember(searchQuery, allContacts) {
         val trimmed = searchQuery.trim()
         if (trimmed.isEmpty()) {
             allContacts
         } else {
             allContacts.filter {
-                it.displayName.contains(trimmed, ignoreCase = true)
+                it.displayName.contains(trimmed, ignoreCase = true) ||
+                it.email.contains(trimmed, ignoreCase = true) ||
+                it.shortCode.contains(trimmed, ignoreCase = true)
             }
         }
     }
@@ -343,7 +347,7 @@ fun QuickSplitScreen(
                                             }
                                             isLoading = false
                                             if (resolved != null) {
-                                                targetUser = resolved
+                                                searchedUserForProfile = resolved
                                             } else {
                                                 Toast.makeText(context, "No user found for '$trimmedQuery'", Toast.LENGTH_SHORT).show()
                                             }
@@ -672,7 +676,7 @@ fun QuickSplitScreen(
                                         val currentUserId = FirebaseManager.currentUserId ?: "anon"
                                         selectedAttachmentUris.forEach { uri ->
                                             val finalUrl = if (isCloudBackupEnabled) {
-                                                val result = com.splitsmith.app.data.CloudinaryManager.uploadReceipt(context, uri, currentUserId)
+                                                val result = com.splitsmith.app.data.CloudinaryManager.uploadReceipt(context, uri, currentUserId, "split")
                                                 result.getOrNull() ?: run {
                                                     val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "split")
                                                     (localSavedUri ?: uri).toString()
@@ -721,6 +725,73 @@ fun QuickSplitScreen(
                     }
                 }
             }
+        }
+
+        if (searchedUserForProfile != null) {
+            val profile = searchedUserForProfile!!
+            val isConnected = connectedUsers.any { it.uid == profile.uid }
+            AlertDialog(
+                onDismissRequest = { searchedUserForProfile = null },
+                containerColor = colors.surfaceCard,
+                title = {
+                    Text("User Profile", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = inkPrimary)
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(d.space12)
+                    ) {
+                        UserAvatar(avatarUrl = profile.avatarUrl, displayName = profile.displayName, size = 64.dp)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(profile.displayName, fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
+                            Text(profile.email, fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                            if (profile.shortCode.isNotEmpty()) {
+                                Text("ID Code: ${profile.shortCode}", fontFamily = JetBrainsMonoFamily, fontSize = d.textLabelSmall, color = inkMuted)
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(d.radiusFull),
+                            color = if (isConnected) colors.canvasChalk else inkPrimary,
+                            border = if (isConnected) BorderStroke(1.dp, borderWhisper) else null,
+                            modifier = Modifier.clickable {
+                                coroutineScope.launch {
+                                    if (isConnected) {
+                                        FirebaseManager.removeConnection(profile.uid)
+                                    } else {
+                                        FirebaseManager.addConnection(profile.uid)
+                                    }
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = if (isConnected) "✓ Connected (Tap to Disconnect)" else "+ Add Connection",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = d.textLabelMedium,
+                                color = if (isConnected) inkMuted else canvasChalk,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            targetUser = profile
+                            searchedUserForProfile = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = inkPrimary)
+                    ) {
+                        Text("Start Split", fontFamily = OutfitFamily, color = canvasChalk)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { searchedUserForProfile = null }) {
+                        Text("Cancel", fontFamily = OutfitFamily, color = inkMuted)
+                    }
+                }
+            )
         }
     }
 }

@@ -614,7 +614,7 @@ fun PersonalExpensesScreen(
                                         val currentUserId = FirebaseManager.currentUserId ?: "anon"
                                         selectedAttachmentUris.forEach { uri ->
                                             val finalUrl = if (isCloudBackupEnabled) {
-                                                val result = com.splitsmith.app.data.CloudinaryManager.uploadReceipt(context, uri, currentUserId)
+                                                val result = com.splitsmith.app.data.CloudinaryManager.uploadReceipt(context, uri, currentUserId, "personal")
                                                 result.getOrNull() ?: run {
                                                     val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "personal")
                                                     (localSavedUri ?: uri).toString()

@@ -44,15 +44,32 @@ object CloudinaryManager {
         }
     }
 
+    private fun deriveKey(userId: String): ByteArray {
+        val seed = "SplitSmith_Secret_Receipt_Key_$userId"
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        return md.digest(seed.toByteArray(Charsets.UTF_8))
+    }
+
+    fun xorTransform(data: ByteArray, userId: String): ByteArray {
+        if (userId.isBlank()) return data
+        val key = deriveKey(userId)
+        val result = ByteArray(data.size)
+        for (i in data.indices) {
+            result[i] = (data[i].toInt() xor key[i % key.size].toInt()).toByte()
+        }
+        return result
+    }
+
     /**
      * Compresses the image at [imageUri] to max 1280px dimension and ~80% JPEG quality,
-     * strips EXIF metadata, and uploads to Cloudinary.
-     * Returns the secure HTTPS URL of the uploaded image.
+     * encrypts bytes via XOR transformation for privacy, and uploads to Cloudinary as raw binary.
+     * Returns the secure HTTPS URL of the uploaded asset.
      */
     suspend fun uploadReceipt(
         context: Context,
         imageUri: Uri,
-        userId: String = "anonymous"
+        userId: String = "anonymous",
+        category: String = "general"
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             init(context)
@@ -61,18 +78,27 @@ object CloudinaryManager {
             val compressedFile = createCompressedTempFile(context, imageUri)
                 ?: return@withContext Result.failure(Exception("Failed to process image file"))
 
-            val securePublicId = "receipts/$userId/${UUID.randomUUID()}"
+            // 2. XOR byte encryption to protect file privacy on Cloudinary
+            val rawBytes = compressedFile.readBytes()
+            val encBytes = xorTransform(rawBytes, userId)
+            
+            val encFile = File.createTempFile("receipt_enc_", ".enc", context.cacheDir)
+            FileOutputStream(encFile).use { it.write(encBytes) }
 
-            // 2. Execute upload via Cloudinary SDK
+            val cleanCategory = category.trim().lowercase().replace(Regex("[^a-z0-9]"), "").ifEmpty { "general" }
+            val securePublicId = "receipts/$userId/$cleanCategory/${UUID.randomUUID()}.enc"
+
+            // 3. Execute upload via Cloudinary SDK
             suspendCancellableCoroutine { continuation ->
                 try {
-                    val requestId = MediaManager.get().upload(Uri.fromFile(compressedFile))
+                    val requestId = MediaManager.get().upload(Uri.fromFile(encFile))
                         .unsigned(uploadPreset)
                         .option("public_id", securePublicId)
-                        .option("folder", "receipts")
+                        .option("resource_type", "raw")
                         .callback(object : UploadCallback {
                             override fun onSuccess(requestId: String, resultData: Map<*, *>) {
-                                compressedFile.delete() // Clean up temp file
+                                compressedFile.delete()
+                                encFile.delete()
                                 val secureUrl = resultData["secure_url"] as? String
                                 if (!secureUrl.isNullOrBlank()) {
                                     Log.d(TAG, "Cloudinary upload success: $secureUrl")
@@ -84,6 +110,7 @@ object CloudinaryManager {
 
                             override fun onError(requestId: String, error: ErrorInfo) {
                                 compressedFile.delete()
+                                encFile.delete()
                                 Log.e(TAG, "Cloudinary upload error: ${error.description}")
                                 continuation.resume(Result.failure(Exception(error.description)))
                             }
@@ -103,6 +130,7 @@ object CloudinaryManager {
                     }
                 } catch (e: Exception) {
                     compressedFile.delete()
+                    encFile.delete()
                     continuation.resume(Result.failure(e))
                 }
             }

@@ -62,9 +62,19 @@ object AttachmentDownloader {
             connection.connect()
 
             if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                connection.inputStream.use { input ->
-                    FileOutputStream(cacheFile).use { output ->
-                        input.copyTo(output)
+                val isEncrypted = targetDownloadUrl.contains(".enc") || urlOrPath.contains(".enc")
+                if (isEncrypted) {
+                    val userId = if (targetDownloadUrl.contains("/receipts/")) {
+                        targetDownloadUrl.substringAfter("/receipts/").substringBefore("/")
+                    } else ""
+                    val downloadedBytes = connection.inputStream.use { it.readBytes() }
+                    val decryptedBytes = com.splitsmith.app.data.CloudinaryManager.xorTransform(downloadedBytes, userId)
+                    FileOutputStream(cacheFile).use { it.write(decryptedBytes) }
+                } else {
+                    connection.inputStream.use { input ->
+                        FileOutputStream(cacheFile).use { output ->
+                            input.copyTo(output)
+                        }
                     }
                 }
                 if (cacheFile.exists() && cacheFile.length() > 0) {

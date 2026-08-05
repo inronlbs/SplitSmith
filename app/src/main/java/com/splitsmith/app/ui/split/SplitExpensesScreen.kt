@@ -434,10 +434,20 @@ fun GroupListItem(
     colors: com.splitsmith.app.theme.SplitColors,
     d: com.splitsmith.app.theme.Dimens
 ) {
+    val currentUserId = FirebaseManager.currentUserId ?: ""
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val isInvited = group.pendingMembers[currentUserId] == true
+    val isJoinRequestPending = group.joinRequests[currentUserId] == true
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onNavigateToGroup(group.id) }
+            .clickable {
+                if (!isInvited && !isJoinRequestPending) {
+                    onNavigateToGroup(group.id)
+                }
+            }
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = d.space12),
@@ -457,23 +467,54 @@ fun GroupListItem(
                     color = colors.inkPrimary
                 )
                 Text(
-                    text = "${group.members.size} members",
+                    text = if (isInvited) "Group Invitation" else "${group.members.size} members",
                     fontFamily = OutfitFamily,
                     fontSize = d.textLabelMedium,
-                    color = colors.inkMuted
+                    color = if (isInvited) colors.alertRed else colors.inkMuted
                 )
             }
-            val currentUserId = FirebaseManager.currentUserId ?: ""
-            val isPendingApproval = group.members[currentUserId] != true
 
-            if (isPendingApproval) {
+            if (isInvited) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                try {
+                                    FirebaseManager.acceptGroupInvitation(group.id)
+                                    Toast.makeText(context, "Joined ${group.name}!", Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
+                    ) {
+                        Text("Accept", fontFamily = OutfitFamily, fontSize = 12.sp, color = colors.canvasChalk)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                try {
+                                    FirebaseManager.declineGroupInvitation(group.id)
+                                } catch (e: Exception) {}
+                            }
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Decline", fontFamily = OutfitFamily, fontSize = 12.sp, color = colors.inkMuted)
+                    }
+                }
+            } else if (isJoinRequestPending) {
                 Surface(
                     shape = RoundedCornerShape(999.dp),
                     color = colors.surfaceCard,
                     border = BorderStroke(1.dp, colors.borderWhisper)
                 ) {
                     Text(
-                        text = "Pending",
+                        text = "Requested",
                         fontFamily = OutfitFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 10.sp,
@@ -1485,7 +1526,7 @@ fun PersonDetailBottomSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(d.space8)
             ) {
-                listOf("Expenses", "Balances").forEachIndexed { index, label ->
+                listOf("Expenses", "Balances", "Settings").forEachIndexed { index, label ->
                     val isActive = selectedSubTab == index
                     Surface(
                         onClick = { selectedSubTab = index },
@@ -1689,6 +1730,117 @@ fun PersonDetailBottomSheet(
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                    2 -> {
+                        // ── SETTINGS TAB ──
+                        val connectionsState = FirebaseManager.observeConnections().collectAsState(initial = emptyList())
+                        val isConnected = connectionsState.value.any { it.uid == peerGroup.peerUid }
+                        var showDisconnectConfirm by remember { mutableStateOf(false) }
+
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(d.radiusMD),
+                                color = colors.canvasChalk,
+                                border = BorderStroke(1.dp, colors.borderWhisper),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = "USER DETAILS",
+                                        fontFamily = OutfitFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colors.inkMuted,
+                                        letterSpacing = 1.5.sp
+                                    )
+                                    Text(peerGroup.peerName, fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.inkPrimary)
+                                    if (peerGroup.peerUpi.isNotEmpty()) {
+                                        Text("UPI ID: ${peerGroup.peerUpi}", fontFamily = JetBrainsMonoFamily, fontSize = 12.sp, color = colors.inkMuted)
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text("Connection Status:", fontFamily = OutfitFamily, fontSize = 12.sp, color = colors.inkMuted)
+                                        Text(
+                                            text = if (isConnected) "Connected" else "Not Connected",
+                                            fontFamily = OutfitFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            color = if (isConnected) colors.inkPrimary else colors.alertRed
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (isConnected) {
+                                Button(
+                                    onClick = { showDisconnectConfirm = true },
+                                    modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                                    shape = RoundedCornerShape(d.radiusMD),
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.alertRed)
+                                ) {
+                                    Text("Disconnect User", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                                }
+                            } else {
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            try {
+                                                FirebaseManager.addConnection(peerGroup.peerUid)
+                                                Toast.makeText(context, "Connected with ${peerGroup.peerName}!", Toast.LENGTH_SHORT).show()
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                                    shape = RoundedCornerShape(d.radiusMD),
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
+                                ) {
+                                    Text("Reconnect User", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                                }
+                            }
+
+                            if (showDisconnectConfirm) {
+                                AlertDialog(
+                                    onDismissRequest = { showDisconnectConfirm = false },
+                                    containerColor = colors.surfaceCard,
+                                    title = { Text("Disconnect ${peerGroup.peerName}?", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.inkPrimary) },
+                                    text = {
+                                        Text(
+                                            "Disconnecting removes them from your connected friends for quick splits. Your past split history will NOT be deleted.",
+                                            fontFamily = OutfitFamily,
+                                            fontSize = 14.sp,
+                                            color = colors.inkMuted
+                                        )
+                                    },
+                                    confirmButton = {
+                                        Button(
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    try {
+                                                        FirebaseManager.removeConnection(peerGroup.peerUid)
+                                                        showDisconnectConfirm = false
+                                                        Toast.makeText(context, "Disconnected", Toast.LENGTH_SHORT).show()
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = colors.alertRed)
+                                        ) {
+                                            Text("Disconnect", fontFamily = OutfitFamily, color = colors.canvasChalk)
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { showDisconnectConfirm = false }) {
+                                            Text("Cancel", fontFamily = OutfitFamily, color = colors.inkMuted)
+                                        }
+                                    }
+                                )
                             }
                         }
                     }

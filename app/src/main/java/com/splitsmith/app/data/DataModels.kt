@@ -30,6 +30,7 @@ data class Group(
     val type: String = "Other", // Trip, Home, Office, Food, Other
     val budget: BudgetConfig = BudgetConfig(),
     val members: Map<String, Boolean> = emptyMap(),
+    val pendingMembers: Map<String, Boolean> = emptyMap(),
     val adminId: String = "",
     val admins: Map<String, Boolean> = emptyMap(),
     val joinRequests: Map<String, Boolean> = emptyMap(),
