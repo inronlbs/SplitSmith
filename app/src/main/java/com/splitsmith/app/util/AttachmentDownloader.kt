@@ -50,7 +50,18 @@ object AttachmentDownloader {
         val cacheFile = File(context.cacheDir, "shared_receipt_$cleanId.jpg")
 
         if (cacheFile.exists() && cacheFile.length() > 0) {
-            return@withContext Uri.fromFile(cacheFile)
+            // Validate cached file isn't corrupted (check JPEG magic bytes)
+            val cachedBytes = cacheFile.readBytes()
+            if (cachedBytes.size >= 3 &&
+                cachedBytes[0] == 0xFF.toByte() &&
+                cachedBytes[1] == 0xD8.toByte() &&
+                cachedBytes[2] == 0xFF.toByte()
+            ) {
+                return@withContext Uri.fromFile(cacheFile)
+            } else {
+                android.util.Log.w("AttachmentDownloader", "Cached file is corrupted, deleting and re-fetching")
+                cacheFile.delete()
+            }
         }
 
         // Stream from web / Google Drive into cache
@@ -69,7 +80,18 @@ object AttachmentDownloader {
                     } else ""
                     val downloadedBytes = connection.inputStream.use { it.readBytes() }
                     val decryptedBytes = com.splitsmith.app.data.CloudinaryManager.xorTransform(downloadedBytes, userId)
-                    FileOutputStream(cacheFile).use { it.write(decryptedBytes) }
+
+                    // Verify decrypted output is a valid JPEG before caching
+                    if (decryptedBytes.size >= 3 &&
+                        decryptedBytes[0] == 0xFF.toByte() &&
+                        decryptedBytes[1] == 0xD8.toByte() &&
+                        decryptedBytes[2] == 0xFF.toByte()
+                    ) {
+                        FileOutputStream(cacheFile).use { it.write(decryptedBytes) }
+                    } else {
+                        android.util.Log.e("AttachmentDownloader", "Decrypted data is not a valid JPEG — likely wrong decryption key (userId=$userId). Skipping cache.")
+                        return@withContext null
+                    }
                 } else {
                     connection.inputStream.use { input ->
                         FileOutputStream(cacheFile).use { output ->

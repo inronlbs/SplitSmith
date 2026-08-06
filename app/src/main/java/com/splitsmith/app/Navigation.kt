@@ -81,6 +81,9 @@ fun MainNavigation() {
                     onNavigateToSlipImport = { uriStr ->
                         backStack.add(SlipImportKey(uriStr))
                     },
+                    onNavigateToDirectSplit = { peerUid ->
+                        backStack.add(DirectSplitDetailKey(peerUid))
+                    },
                     onSignOut = {
                         backStack.removeLastOrNull()
                         backStack.add(Auth)
@@ -133,6 +136,15 @@ fun MainNavigation() {
                     onNavigateToAddExpense = { gid, eid ->
                         backStack.removeLastOrNull()
                         backStack.add(AddExpense(gid, eid))
+                    }
+                )
+            }
+            entry<DirectSplitDetailKey> { key ->
+                com.splitsmith.app.ui.split.DirectSplitDetailScreen(
+                    peerUid = key.peerUid,
+                    onBack = { backStack.removeLastOrNull() },
+                    onNavigateToQuickSplit = { profile ->
+                        backStack.add(QuickSplit)
                     }
                 )
             }

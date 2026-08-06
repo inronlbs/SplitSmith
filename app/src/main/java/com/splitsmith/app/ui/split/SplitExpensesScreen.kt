@@ -76,6 +76,7 @@ data class IndividualPeerGroup(
 fun SplitExpensesScreen(
     onNavigateToGroup: (groupId: String) -> Unit,
     onNavigateToQuickSplit: () -> Unit,
+    onNavigateToDirectSplit: (peerUid: String) -> Unit = {},
     onBack: () -> Unit
 ) {
     val d = LocalDimens.current
@@ -227,8 +228,8 @@ fun SplitExpensesScreen(
     }
 
     Scaffold(
-        containerColor = colors.surfaceCard,
-        modifier = Modifier.dotGridBackground(colors.dotColor),
+        containerColor = colors.canvasChalk,
+        modifier = Modifier.dotGridBackground(colors.dotColor.copy(alpha = 0.4f)),
         contentWindowInsets = WindowInsets(0)
     ) { paddingValues ->
         Column(
@@ -403,7 +404,7 @@ fun SplitExpensesScreen(
                                     peerGroup = peerGroup,
                                     colors = colors,
                                     d = d,
-                                    onClick = { selectedPeerGroupForDetail = peerGroup }
+                                    onClick = { onNavigateToDirectSplit(peerGroup.peerUid) }
                                 )
                             }
                         } else {
@@ -444,7 +445,7 @@ fun GroupListItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable {
-                if (!isInvited && !isJoinRequestPending) {
+                if (!isJoinRequestPending) {
                     onNavigateToGroup(group.id)
                 }
             }
@@ -482,6 +483,7 @@ fun GroupListItem(
                                 try {
                                     FirebaseManager.acceptGroupInvitation(group.id)
                                     Toast.makeText(context, "Joined ${group.name}!", Toast.LENGTH_SHORT).show()
+                                    onNavigateToGroup(group.id)
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                                 }
@@ -1735,7 +1737,7 @@ fun PersonDetailBottomSheet(
                     }
                     2 -> {
                         // ── SETTINGS TAB ──
-                        val connectionsState = FirebaseManager.observeConnections().collectAsState(initial = emptyList())
+                        val connectionsState = FirebaseManager.observeConnections().collectAsState(initial = emptyList<UserProfile>())
                         val isConnected = connectionsState.value.any { it.uid == peerGroup.peerUid }
                         var showDisconnectConfirm by remember { mutableStateOf(false) }
 

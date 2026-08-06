@@ -33,3 +33,6 @@ data class ReportsScreenKey(val initialGroupId: String? = null) : NavKey
 @Serializable
 data class SlipImportKey(val imageUriStr: String) : NavKey
 
+@Serializable
+data class DirectSplitDetailKey(val peerUid: String) : NavKey
+

@@ -62,6 +62,7 @@ import com.splitsmith.app.ui.split.SplitExpensesScreen
 import com.splitsmith.app.ui.split.DirectSplitDetailBottomSheet
 import com.splitsmith.app.ui.components.UserAvatar
 import com.splitsmith.app.ui.components.dotGridBackground
+import com.splitsmith.app.ui.components.meshGradientBackground
 import com.splitsmith.app.theme.LocalSplitColors
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.material3.*
@@ -102,6 +103,7 @@ fun HomeScreen(
     onNavigateToReports: () -> Unit,
     onNavigateToAddExpense: (groupId: String, expenseId: String?) -> Unit,
     onNavigateToSlipImport: (imageUriStr: String) -> Unit = {},
+    onNavigateToDirectSplit: (peerUid: String) -> Unit = {},
     onSignOut: () -> Unit
 ) {
     val d = LocalDimens.current
@@ -330,6 +332,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(colors.canvasChalk)
+                .meshGradientBackground(colors.inkPrimary)
                 .dotGridBackground(colors.dotColor)
                 .padding(paddingValues)
         ) {
@@ -354,6 +357,7 @@ fun HomeScreen(
                     1 -> SplitExpensesScreen(
                         onNavigateToGroup = onNavigateToGroup,
                         onNavigateToQuickSplit = onNavigateToQuickSplit,
+                        onNavigateToDirectSplit = onNavigateToDirectSplit,
                         onBack = { coroutineScope.launch { pagerState.animateScrollToPage(0) } }
                     )
                     2 -> PersonalExpensesScreen(

@@ -9,6 +9,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -93,7 +94,8 @@ object FirebaseManager {
                     val oldDoc = emailQuery.documents.first()
                     val oldUid = oldDoc.id
                     val oldData = oldDoc.data ?: emptyMap()
-                    val updatedProfile = oldData + mapOf("uid" to user.uid)
+                    val photoUrl = user.photoUrl?.toString() ?: ""
+                    val updatedProfile = oldData + mapOf("uid" to user.uid) + (if (photoUrl.isNotEmpty()) mapOf("avatarUrl" to photoUrl) else emptyMap())
                     db.collection("users").document(user.uid).set(updatedProfile, com.google.firebase.firestore.SetOptions.merge()).await()
                     
                     // Link group memberships to new UID
@@ -112,6 +114,14 @@ object FirebaseManager {
                         shortCode = user.uid.take(6).uppercase()
                     )
                     db.collection("users").document(user.uid).set(profile, com.google.firebase.firestore.SetOptions.merge()).await()
+                }
+            } else {
+                val photoUrl = user.photoUrl?.toString() ?: ""
+                if (photoUrl.isNotEmpty()) {
+                    val existingAvatar = userDoc.getString("avatarUrl") ?: ""
+                    if (existingAvatar.isEmpty()) {
+                        db.collection("users").document(user.uid).set(mapOf("avatarUrl" to photoUrl), com.google.firebase.firestore.SetOptions.merge())
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -162,6 +172,16 @@ object FirebaseManager {
             profileCache[uid]?.let { profileCache[uid] = it.copy(upiId = upiId) }
         } catch (e: Exception) {
             db.collection("users").document(uid).set(mapOf("upiId" to upiId), com.google.firebase.firestore.SetOptions.merge())
+        }
+    }
+
+    suspend fun updateProfileAvatarUrl(avatarUrl: String) {
+        val uid = currentUserId ?: return
+        try {
+            db.collection("users").document(uid).set(mapOf("avatarUrl" to avatarUrl), com.google.firebase.firestore.SetOptions.merge()).await()
+            profileCache[uid]?.let { profileCache[uid] = it.copy(avatarUrl = avatarUrl) }
+        } catch (e: Exception) {
+            db.collection("users").document(uid).set(mapOf("avatarUrl" to avatarUrl), com.google.firebase.firestore.SetOptions.merge())
         }
     }
 

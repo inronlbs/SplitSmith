@@ -35,13 +35,14 @@ class SplitSmithMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
 
-        val title = remoteMessage.notification?.title ?: remoteMessage.data["title"] ?: "SplitSmith Alert"
-        val body  = remoteMessage.notification?.body  ?: remoteMessage.data["body"]  ?: "You have a new update in your ledger."
+        val title   = remoteMessage.notification?.title ?: remoteMessage.data["title"] ?: "SplitSmith Alert"
+        val body    = remoteMessage.notification?.body  ?: remoteMessage.data["body"]  ?: "You have a new update in your ledger."
+        val groupId = remoteMessage.data["groupId"] ?: ""
 
-        showNotification(title, body)
+        showNotification(title, body, groupId)
     }
 
-    private fun showNotification(title: String, message: String) {
+    private fun showNotification(title: String, message: String, groupId: String = "") {
         val channelId = "splitsmith_updates_channel"
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -51,17 +52,20 @@ class SplitSmithMessagingService : FirebaseMessagingService() {
                 "SplitSmith Updates",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notifications for expenses, settlements, and group activity."
+                description = "Notifications for expenses, settlements, and group invitations."
             }
             notificationManager.createNotificationChannel(channel)
         }
 
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            if (groupId.isNotEmpty()) {
+                putExtra("targetGroupId", groupId)
+            }
         }
 
         val pendingIntent = PendingIntent.getActivity(
-            this, 0, intent,
+            this, System.currentTimeMillis().toInt(), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 

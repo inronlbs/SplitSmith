@@ -51,8 +51,13 @@ object CloudinaryManager {
     }
 
     fun xorTransform(data: ByteArray, userId: String): ByteArray {
-        if (userId.isBlank()) return data
-        val key = deriveKey(userId)
+        val effectiveUserId = if (userId.isBlank()) {
+            android.util.Log.w("CloudinaryManager", "xorTransform called with blank userId — using fallback key. File will still be encrypted.")
+            "splitsmith_fallback_user"
+        } else {
+            userId
+        }
+        val key = deriveKey(effectiveUserId)
         val result = ByteArray(data.size)
         for (i in data.indices) {
             result[i] = (data[i].toInt() xor key[i % key.size].toInt()).toByte()

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import com.splitsmith.app.ui.components.UserAvatar
 import com.splitsmith.app.ui.components.GroupIconView
+import com.splitsmith.app.ui.components.dotGridBackground
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -80,6 +81,7 @@ fun GroupDetailScreen(
     var memberProfilesMap by remember { mutableStateOf<Map<String, UserProfile>>(emptyMap()) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var expenseToDelete by remember { mutableStateOf<Expense?>(null) }
+    var pendingConfirmUpiSettlement by remember { mutableStateOf<Debt?>(null) }
 
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -99,6 +101,7 @@ fun GroupDetailScreen(
     val currentUserId = FirebaseManager.currentUserId
     val isMember = currentGroup?.members?.get(currentUserId ?: "") == true
     val isPending = currentGroup?.joinRequests?.get(currentUserId ?: "") == true
+    val isInvited = currentGroup?.pendingMembers?.get(currentUserId ?: "") == true
 
     LaunchedEffect(currentGroup) {
         if (currentGroup == null) return@LaunchedEffect
@@ -170,6 +173,7 @@ fun GroupDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(canvasChalk)
+                .dotGridBackground(colors.dotColor.copy(alpha = 0.4f))
                 .padding(paddingValues)
                 .statusBarsPadding()
                 .padding(top = d.space24),
@@ -204,7 +208,65 @@ fun GroupDetailScreen(
                         textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(d.space8))
-                    if (isPending) {
+                    if (isInvited) {
+                        Text(
+                            text = "Group Invitation",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = d.textTitleMedium,
+                            color = positiveGreen,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(d.space12))
+                        Text(
+                            text = "You have been invited to join ${currentGroup.name}. Accept the invitation to view expenses and participate in splits.",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textBodyMedium,
+                            color = inkMuted,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(d.space32))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(d.space12)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        try {
+                                            FirebaseManager.declineGroupInvitation(groupId)
+                                            Toast.makeText(context, "Invitation declined", Toast.LENGTH_SHORT).show()
+                                            onBack()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(d.radiusMD),
+                                border = BorderStroke(1.dp, borderWhisper),
+                                modifier = Modifier.weight(1f).height(d.buttonHeight)
+                            ) {
+                                Text("Decline", fontFamily = OutfitFamily, color = alertRed)
+                            }
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        try {
+                                            FirebaseManager.acceptGroupInvitation(groupId)
+                                            Toast.makeText(context, "Joined ${currentGroup.name}!", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = inkPrimary),
+                                shape = RoundedCornerShape(d.radiusMD),
+                                modifier = Modifier.weight(1f).height(d.buttonHeight)
+                            ) {
+                                Text("Accept & Join", fontFamily = OutfitFamily, color = colors.canvasChalk)
+                            }
+                        }
+                    } else if (isPending) {
                         Text(
                             text = "Pending Admin Approval",
                             fontFamily = OutfitFamily,
@@ -344,6 +406,18 @@ fun GroupDetailScreen(
                 val myUid = FirebaseManager.currentUserId
                 val currentUserSpend = remember(expenses, myUid) { expenses.sumOf { it.splits[myUid ?: ""] ?: 0.0 } }
 
+                val myNetBalance = remember(netBalances) { netBalances[myUid] ?: 0.0 }
+                val netText = when {
+                    myNetBalance > 0.01  -> "You are owed \u20b9${"%.0f".format(myNetBalance)}"
+                    myNetBalance < -0.01 -> "You owe \u20b9${"%.0f".format(-myNetBalance)}"
+                    else                 -> "Settled up"
+                }
+                val netColor = when {
+                    myNetBalance > 0.01  -> positiveGreen
+                    myNetBalance < -0.01 -> alertRed
+                    else                 -> inkMuted
+                }
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -363,28 +437,20 @@ fun GroupDetailScreen(
                                 color = inkMuted
                             )
                             Text(
-                                text = "₹${"%.0f".format(totalGroupSpend)}",
+                                text = "\u20b9${"%.0f".format(totalGroupSpend)}",
                                 fontFamily = JetBrainsMonoFamily,
                                 fontSize = d.textLabelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = inkPrimary
                             )
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "Your Share:",
-                                fontFamily = OutfitFamily,
-                                fontSize = d.textLabelMedium,
-                                color = inkMuted
-                            )
-                            Text(
-                                text = "₹${"%.0f".format(currentUserSpend)}",
-                                fontFamily = JetBrainsMonoFamily,
-                                fontSize = d.textLabelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = inkPrimary
-                            )
-                        }
+                        Text(
+                            text = netText,
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = netColor
+                        )
                     }
 
                     if (groupBudgetLimit > 0.0) {
@@ -610,8 +676,7 @@ fun GroupDetailScreen(
                                     val upiUri = Uri.parse("upi://pay?pa=$receiverUpi&pn=$toName&am=${debt.amount}&cu=INR&tn=$comment")
                                     val intent = Intent(Intent.ACTION_VIEW, upiUri)
                                     context.startActivity(Intent.createChooser(intent, "Pay via UPI App"))
-                                    FirebaseManager.addSettlement(groupId, debt.toUser, debt.amount, "UPI", "UPI_REF_AUTO")
-                                    Toast.makeText(context, "UPI intent launched.", Toast.LENGTH_LONG).show()
+                                    pendingConfirmUpiSettlement = debt
                                     selectedDebtForSettlement = null
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -641,6 +706,43 @@ fun GroupDetailScreen(
                     ) { Text("Mark Paid in Cash", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge) }
                 }
             }
+        }
+
+        if (pendingConfirmUpiSettlement != null) {
+            val debt = pendingConfirmUpiSettlement!!
+            val toName = userNamesMap[debt.toUser] ?: "User"
+            AlertDialog(
+                onDismissRequest = { pendingConfirmUpiSettlement = null },
+                containerColor = colors.surfaceCard,
+                title = { Text("Confirm UPI Payment", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.inkPrimary) },
+                text = {
+                    Text("Did your payment of \u20b9${debt.amount} to $toName complete successfully in your UPI app?", fontFamily = OutfitFamily, color = colors.inkMuted)
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                try {
+                                    FirebaseManager.addSettlement(groupId, debt.toUser, debt.amount, "UPI", "UPI_REF_AUTO")
+                                    Toast.makeText(context, "Settlement recorded!", Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                } finally {
+                                    pendingConfirmUpiSettlement = null
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
+                    ) {
+                        Text("Yes, Payment Complete", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingConfirmUpiSettlement = null }) {
+                        Text("No / Cancelled", fontFamily = OutfitFamily, color = colors.inkMuted)
+                    }
+                }
+            )
         }
     }
 }
@@ -961,14 +1063,25 @@ private fun StyledBalancesTab(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Button(
-                    onClick = { /* show settlement sheet for first own debt */ },
+                    onClick = {
+                        val myDebt = debts.find { it.fromUser == currentUserId } ?: debts.firstOrNull()
+                        if (myDebt != null) {
+                            onSettleClick(myDebt)
+                        } else {
+                            Toast.makeText(context, "No outstanding debts to settle!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
                     shape = RoundedCornerShape(d.radiusMD),
                     colors = ButtonDefaults.buttonColors(containerColor = inkPrimary)
                 ) {
                     Text("Settle Up", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge, color = colors.canvasChalk)
                 }
-                TextButton(onClick = {}) {
+                TextButton(
+                    onClick = {
+                        Toast.makeText(context, "Debts are automatically simplified using graph optimization.", Toast.LENGTH_LONG).show()
+                    }
+                ) {
                     Text("Simplify Debts", fontFamily = OutfitFamily, fontSize = d.textLabelLarge, color = accentIndigo)
                 }
             }

@@ -147,8 +147,8 @@ fun PersonalExpensesScreen(
     }
 
     Scaffold(
-        containerColor = colors.surfaceCard,
-        modifier = Modifier.dotGridBackground(colors.dotColor),
+        containerColor = colors.canvasChalk,
+        modifier = Modifier.dotGridBackground(colors.dotColor.copy(alpha = 0.4f)),
         contentWindowInsets = WindowInsets(0)
     ) { paddingValues ->
         Column(

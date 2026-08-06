@@ -397,21 +397,11 @@ fun QuickSplitScreen(
                                     .padding(vertical = d.space8),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(d.avatarMd)
-                                        .clip(CircleShape)
-                                        .background(inkPrimary),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = contact.displayName.firstOrNull()?.uppercase() ?: "?",
-                                        fontFamily = OutfitFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = d.textBodyMedium,
-                                        color = canvasChalk
-                                    )
-                                }
+                                UserAvatar(
+                                    avatarUrl = contact.avatarUrl,
+                                    displayName = contact.displayName,
+                                    size = d.avatarMd
+                                )
                                 Spacer(modifier = Modifier.width(d.space12))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(contact.displayName, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
@@ -463,23 +453,13 @@ fun QuickSplitScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space12)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(d.avatarLg)
-                                            .clip(CircleShape)
-                                            .background(inkPrimary),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = user.displayName.firstOrNull()?.uppercase() ?: "?",
-                                            fontFamily = OutfitFamily,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = d.textTitleMedium,
-                                            color = canvasChalk
-                                        )
-                                    }
+                                    UserAvatar(
+                                        avatarUrl = user.avatarUrl,
+                                        displayName = user.displayName,
+                                        size = d.avatarLg
+                                    )
                                     Column {
-                                        Text(user.displayName, fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
+                                        Text(user.displayName.ifEmpty { user.email }, fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
                                         Text(user.email, fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
                                     }
                                 }
@@ -541,7 +521,8 @@ fun QuickSplitScreen(
                         Text("WHO PAID?", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
                         Spacer(modifier = Modifier.height(d.space8))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(d.space8)) {
-                            listOf(true to "You Paid", false to "${user.displayName} Paid").forEach { (isMe, label) ->
+                            val peerLabel = user.displayName.ifEmpty { user.email.substringBefore("@").ifEmpty { "Them" } }
+                            listOf(true to "You Paid", false to "$peerLabel Paid").forEach { (isMe, label) ->
                                 val isSelected = paidByMe == isMe
                                 Surface(
                                     onClick = { paidByMe = isMe },
