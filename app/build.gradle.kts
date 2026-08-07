@@ -53,7 +53,7 @@ android {
     }
 
 base {
-    archivesName.set("SplitSmith-v${android.defaultConfig.versionName}")
+    archivesName.set("SplitSmith-v0.3.8")
 }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
