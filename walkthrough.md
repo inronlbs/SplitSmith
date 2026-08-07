@@ -1,10 +1,33 @@
-## [2026-08-07 16:55] P0 & P1 Production Release Hardening & R8 Minification
+## [2026-08-07 18:07] Deployed v0.3.8 Direct Binary via Firebase Hosting (`/splitsmith.bin`)
 
 ### Key Technical Accomplishments
-1. **Enabled R8 Code Shrinking & Minification (`app/build.gradle.kts`)**: Configured `isMinifyEnabled = true` and `isShrinkResources = true` in `buildTypes.release` to strip dead code and obfuscate production DEX binaries against reverse engineering.
-2. **Established Production ProGuard Rules (`app/proguard-rules.pro`)**: Created comprehensive keep & dontwarn rules preserving `kotlinx.serialization` route models, Firestore DTO reflection, Cloudinary SDK models, MLKit OCR, and suppressing optional third-party SDK warnings (`Glide`, `Picasso`, `Ktor`).
-3. **Data Model `@Keep` Annotations (`DataModels.kt`)**: Annotated `UserProfile`, `BudgetConfig`, `Group`, `Expense`, `Settlement`, `PersonalExpense`, `DirectSplit`, `Debt`, and `GroupExpenseWithContext` with `@androidx.annotation.Keep`.
-4. **Empirical Release Verification**: Executed `./gradlew.bat assembleRelease` with **BUILD SUCCESSFUL in 41s**. Successfully produced signed, minified release APK [`SplitSmith-v0.3.7-release.apk`](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/build/outputs/apk/release/SplitSmith-v0.3.7-release.apk).
+1. **Updated `/splitsmith.bin` Binary Asset**: Replaced public binary with minified, obfuscation-safe R8 build `SplitSmith-v0.3.8-release.apk` (58.2 MB).
+2. **Configured HTTP Download Headers (`firebase.json`)**: Configured Firebase response header `Content-Disposition: attachment; filename="SplitSmith-v0.3.8-release.apk"`.
+3. **Restored Direct Web Downloads (`public/index.html`)**: Pointed all download buttons directly to `/splitsmith.bin` to serve direct high-speed CDN downloads on your website without GitHub redirects or 504 gateway timeouts.
+4. **Empirical Deployment Verification**: Executed `npx firebase-tools deploy --only hosting` with **Deploy complete!**. Live at [`https://splitsmith.web.app`](https://splitsmith.web.app).
+
+---
+
+## [2026-08-07 18:01] Resolved Download Link & Deleted Legacy v0.3.7 Release Asset
+
+### Key Technical Accomplishments
+1. **Deleted Legacy Release Asset**: Executed `gh release delete-asset v0.3.8 SplitSmith-v0.3.7-release.apk` to ensure ONLY `SplitSmith-v0.3.8-release.apk` is attached to release `v0.3.8`.
+2. **Updated Asset Selection Algorithm ([`public/index.html`](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/public/index.html))**: Modified dynamic version script to match exact release version filename (`SplitSmith-${version}-release.apk`).
+3. **Deployed Updated Web Landing Page**: Executed `npx firebase-tools deploy --only hosting` to update [`https://splitsmith-app.web.app`](https://splitsmith-app.web.app).
+
+---
+
+## [2026-08-07 17:15] Fix Launch Reflection Crash & Re-Release v0.3.8 Asset
+
+### Key Technical Accomplishments
+1. **Firestore Reflection Keep Rules (`app/proguard-rules.pro`)**: Added explicit rules keeping zero-argument default constructors (`public <init>()`), field names, and methods for `com.splitsmith.app.data.**` and `com.google.firebase.**`. Prevents R8 field renaming from breaking Firestore `doc.toObject()` deserialization and causing launch crashes.
+2. **Explicit APK Asset Naming (`app/build.gradle.kts`)**: Configured `archivesName.set("SplitSmith-v0.3.8")` to guarantee output file is named [`SplitSmith-v0.3.8-release.apk`](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/build/outputs/apk/release/SplitSmith-v0.3.8-release.apk).
+3. **Re-Published GitHub Release v0.3.8 Asset**: Executed `gh release upload v0.3.8` with `--clobber` to replace the release asset on GitHub.
+
+### Files Modified & Re-Released
+- `[MODIFY]` [app/proguard-rules.pro](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/proguard-rules.pro)
+- `[MODIFY]` [build.gradle.kts](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/build.gradle.kts)
+- `[RELEASE ASSET]` [SplitSmith-v0.3.8-release.apk](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/build/outputs/apk/release/SplitSmith-v0.3.8-release.apk)
 
 ### Files Created & Modified
 - `[NEW]` [app/proguard-rules.pro](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/proguard-rules.pro)
