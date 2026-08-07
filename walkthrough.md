@@ -314,3 +314,7 @@
 - Personal debts are shown by default to reduce cognitive overload.
 - Changed 'Simplify debts' button to 'Show full ledger'.
 - Fallback message when group has debts but user is fully settled.
+
+## [2026-08-08 01.14] v0.3.8.4 Release
+- Fixed an issue where removing receipt attachments from expenses during edit did not delete the file from Cloudinary.
+- Added orphaned receipt cleanup to both group expenses and personal expenses.

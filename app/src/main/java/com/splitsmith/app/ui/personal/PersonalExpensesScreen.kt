@@ -371,6 +371,7 @@ fun PersonalExpensesScreen(
             var showAttachmentPickerSheet by remember { mutableStateOf(false) }
             var selectedAttachmentUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
             var existingAttachmentUrls by remember(currentEdit) { mutableStateOf(currentEdit?.receiptUrls ?: emptyList()) }
+            var initialAttachmentUrls by remember(currentEdit) { mutableStateOf(currentEdit?.receiptUrls ?: emptyList()) }
             val userProfileState = FirebaseManager.observeUserProfile().collectAsState(initial = null)
             val userProfile = userProfileState.value
             var isCloudBackupEnabled by remember(userProfile, showAddPersonalSheet) { mutableStateOf(userProfile?.cloudBackupReceipts ?: true) }
@@ -628,6 +629,16 @@ fun PersonalExpensesScreen(
                                                 (localSavedUri ?: uri).toString()
                                             }
                                             finalUploadedUrls.add(finalUrl)
+                                        }
+                                    }
+
+                                    // Delete removed attachments from Cloudinary
+                                    val removedUrls = initialAttachmentUrls - existingAttachmentUrls.toSet()
+                                    removedUrls.forEach { url ->
+                                        try {
+                                            com.splitsmith.app.data.CloudinaryManager.deleteReceipt(url)
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("PersonalExpensesScreen", "Failed to delete removed receipt: $url", e)
                                         }
                                     }
 

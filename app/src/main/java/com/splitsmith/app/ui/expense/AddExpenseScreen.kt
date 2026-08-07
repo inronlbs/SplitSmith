@@ -81,6 +81,7 @@ fun AddExpenseScreen(
     var showAttachmentPickerSheet by remember { mutableStateOf(false) }
     var selectedAttachmentUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
     var existingAttachmentUrls by remember { mutableStateOf<List<String>>(emptyList()) }
+    var initialAttachmentUrls by remember { mutableStateOf<List<String>>(emptyList()) }
     val userProfileState = FirebaseManager.observeUserProfile().collectAsState(initial = null)
     val userProfile = userProfileState.value
     var isCloudBackupEnabled by remember(userProfile) { mutableStateOf(userProfile?.cloudBackupReceipts ?: true) }
@@ -153,6 +154,7 @@ fun AddExpenseScreen(
                 selectedMembers = exp.splits.keys
                 selectedDateMillis = exp.date
                 existingAttachmentUrls = exp.receiptUrls
+                initialAttachmentUrls = exp.receiptUrls
             }
         }
     }
