@@ -19,21 +19,33 @@ object FirebaseManager {
     private val auth: FirebaseAuth get() = FirebaseAuth.getInstance()
     private val db: FirebaseFirestore get() = FirebaseFirestore.getInstance()
 
-    var pendingGroupJoinCode: String? = null
-    var sharedImageUri: android.net.Uri? = null
-    var pendingExpenseAmount: String? = null
-    var pendingExpenseDesc: String? = null
-    var pendingExpenseCategory: String? = null
-    var pendingExpenseDate: Long? = null
-    var pendingExpenseAttachmentUri: android.net.Uri? = null
-    var pendingQuickSplitUser: UserProfile? = null
+    // Delegate transient properties to PendingExpenseHolder
+    var pendingGroupJoinCode: String?
+        get() = PendingExpenseHolder.pendingGroupJoinCode
+        set(value) { PendingExpenseHolder.pendingGroupJoinCode = value }
+    var sharedImageUri: android.net.Uri?
+        get() = PendingExpenseHolder.sharedImageUri
+        set(value) { PendingExpenseHolder.sharedImageUri = value }
+    var pendingExpenseAmount: String?
+        get() = PendingExpenseHolder.pendingExpenseAmount
+        set(value) { PendingExpenseHolder.pendingExpenseAmount = value }
+    var pendingExpenseDesc: String?
+        get() = PendingExpenseHolder.pendingExpenseDesc
+        set(value) { PendingExpenseHolder.pendingExpenseDesc = value }
+    var pendingExpenseCategory: String?
+        get() = PendingExpenseHolder.pendingExpenseCategory
+        set(value) { PendingExpenseHolder.pendingExpenseCategory = value }
+    var pendingExpenseDate: Long?
+        get() = PendingExpenseHolder.pendingExpenseDate
+        set(value) { PendingExpenseHolder.pendingExpenseDate = value }
+    var pendingExpenseAttachmentUri: android.net.Uri?
+        get() = PendingExpenseHolder.pendingExpenseAttachmentUri
+        set(value) { PendingExpenseHolder.pendingExpenseAttachmentUri = value }
+    var pendingQuickSplitUser: UserProfile?
+        get() = PendingExpenseHolder.pendingQuickSplitUser
+        set(value) { PendingExpenseHolder.pendingQuickSplitUser = value }
 
-    val currentUserId: String?
-        get() {
-            val email = auth.currentUser?.email
-            if (email == "amaltomsocial@gmail.com") return "0r4cYxLrGIZm4p0LQ3ZkVvG3MSh1"
-            return auth.currentUser?.uid
-        }
+    val currentUserId: String? get() = auth.currentUser?.uid
     val currentUserPhotoUrl: String? get() = auth.currentUser?.photoUrl?.toString()
 
     // Helper to suspend for task results safely

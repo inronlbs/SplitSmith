@@ -1,7 +1,9 @@
 package com.splitsmith.app.data
 
+import androidx.annotation.Keep
 import kotlinx.serialization.Serializable
 
+@Keep
 @Serializable
 data class UserProfile(
     val uid: String = "",
@@ -15,6 +17,7 @@ data class UserProfile(
     val cloudBackupReceipts: Boolean = true
 )
 
+@Keep
 @Serializable
 data class BudgetConfig(
     val limit: Double = 0.0,
@@ -22,6 +25,7 @@ data class BudgetConfig(
     val threshold: Int = 80
 )
 
+@Keep
 @Serializable
 data class Group(
     val id: String = "",
@@ -37,6 +41,7 @@ data class Group(
     val customCategories: List<String> = emptyList()
 )
 
+@Keep
 @Serializable
 data class Expense(
     val id: String = "",
@@ -58,6 +63,7 @@ data class Expense(
     }
 }
 
+@Keep
 @Serializable
 data class Settlement(
     val id: String = "",
@@ -70,6 +76,7 @@ data class Settlement(
     val timestamp: Long = 0
 )
 
+@Keep
 @Serializable
 data class PersonalExpense(
     val id: String = "",
@@ -81,6 +88,7 @@ data class PersonalExpense(
     val receiptUrls: List<String> = emptyList()
 )
 
+@Keep
 @Serializable
 data class DirectSplit(
     val id: String = "",
@@ -97,15 +105,18 @@ data class DirectSplit(
     val receiptUrls: List<String> = emptyList()
 )
 
+@Keep
 data class Debt(
     val fromUser: String,
     val toUser: String,
     val amount: Double
 )
 
+@Keep
 data class GroupExpenseWithContext(
     val expense: Expense,
     val groupId: String,
     val groupName: String
 )
+
 

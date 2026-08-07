@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import com.splitsmith.app.data.PersonalExpense
 import androidx.compose.material3.*
@@ -787,6 +788,19 @@ fun PersonalExpensesScreen(
                                         selectedExpenseDetail = null
                                     },
                                     leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = colors.inkPrimary) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Convert to Shared Split", fontFamily = OutfitFamily, color = colors.inkPrimary) },
+                                    onClick = {
+                                        showMenu = false
+                                        selectedExpenseDetail = null
+                                        FirebaseManager.pendingExpenseAmount = exp.amount.toString()
+                                        FirebaseManager.pendingExpenseDesc = exp.description
+                                        FirebaseManager.pendingExpenseCategory = exp.category
+                                        FirebaseManager.pendingExpenseDate = exp.date
+                                        onNavigateToQuickSplit()
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = colors.inkPrimary) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Delete Expense", fontFamily = OutfitFamily, color = colors.alertRed) },

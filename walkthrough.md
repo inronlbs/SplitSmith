@@ -1,3 +1,85 @@
+## [2026-08-07 16:55] P0 & P1 Production Release Hardening & R8 Minification
+
+### Key Technical Accomplishments
+1. **Enabled R8 Code Shrinking & Minification (`app/build.gradle.kts`)**: Configured `isMinifyEnabled = true` and `isShrinkResources = true` in `buildTypes.release` to strip dead code and obfuscate production DEX binaries against reverse engineering.
+2. **Established Production ProGuard Rules (`app/proguard-rules.pro`)**: Created comprehensive keep & dontwarn rules preserving `kotlinx.serialization` route models, Firestore DTO reflection, Cloudinary SDK models, MLKit OCR, and suppressing optional third-party SDK warnings (`Glide`, `Picasso`, `Ktor`).
+3. **Data Model `@Keep` Annotations (`DataModels.kt`)**: Annotated `UserProfile`, `BudgetConfig`, `Group`, `Expense`, `Settlement`, `PersonalExpense`, `DirectSplit`, `Debt`, and `GroupExpenseWithContext` with `@androidx.annotation.Keep`.
+4. **Empirical Release Verification**: Executed `./gradlew.bat assembleRelease` with **BUILD SUCCESSFUL in 41s**. Successfully produced signed, minified release APK [`SplitSmith-v0.3.7-release.apk`](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/build/outputs/apk/release/SplitSmith-v0.3.7-release.apk).
+
+### Files Created & Modified
+- `[NEW]` [app/proguard-rules.pro](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/proguard-rules.pro)
+- `[MODIFY]` [DataModels.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/data/DataModels.kt)
+- `[MODIFY]` [build.gradle.kts](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/build.gradle.kts)
+- `[OUTPUT]` [SplitSmith-v0.3.7-release.apk](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/build/outputs/apk/release/SplitSmith-v0.3.7-release.apk)
+
+---
+
+## [2026-08-07 16:37] Upgrade `android-architect-pro` Custom Skill (MAD 2026 Guidelines)
+
+### Key Technical Accomplishments
+1. **Integrated 7 Audit Passes**: Expanded `android-architect-pro` with dedicated passes covering Clean Architecture layer boundaries, UDF StateFlow hygiene, DI graph health, Navigation 3 `@Serializable` routes, Edge-to-Edge window insets, R8 `@Keep` rules, and Turbine unit testing.
+2. **Firebase & Firestore `callbackFlow` Hygiene**: Added rule requiring explicit `awaitClose { listenerRegistration.remove() }` blocks on all reactive snapshot flows to eliminate background memory leaks.
+3. **R8 Keep Rules & Navigation 3 Safety**: Added rules verifying `@Keep` annotations on `@Serializable` navigation destinations and Cloudinary network DTOs to prevent release-build obfuscation crash loops (`app-release.apk`).
+4. **Synchronized Skill Locations**: Updated both global (`C:\Users\Atomix\.gemini\config\skills\...`) and workspace (`.agents/skills\...`) skill files.
+
+### Files Modified
+- `[MODIFY]` [SKILL.md (Global)](file:///C:/Users/Atomix/.gemini/config/skills/android-architect-pro/SKILL.md)
+- `[MODIFY]` [SKILL.md (Workspace)](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/.agents/skills/android-architect-pro/SKILL.md)
+
+---
+
+## [2026-08-07 16:34] Payment UI Theme Normalization
+
+### Key Technical Accomplishments
+1. **Normalized Pending Payment Balance Color (`SplitExpensesScreen.kt`)**: Replaced hardcoded orange/amber color (`Color(0xFFE65100)`) with design system token `colors.inkPrimary`.
+2. **Normalized Payment Approval Pending Badge (`SplitExpensesScreen.kt`)**: Replaced one-off amber badge background/border/text (`Color(0xFFFFF3E0)`, `Color(0xFFFFB74D)`, `Color(0xFFE65100)`) with normalized design system tokens `colors.surfaceCard`, `colors.borderWhisper`, and `colors.inkPrimary`.
+
+### Files Modified
+- `[MODIFY]` [SplitExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/split/SplitExpensesScreen.kt)
+
+---
+
+## [2026-08-07 16:31] Pending Approval UI Theme Normalization
+
+### Key Technical Accomplishments
+1. **Normalized Pending Admin Approval Heading (`GroupDetailScreen.kt`)**: Replaced un-themed amber color (`Color(0xFFD97706)`) with core design system token `colors.inkPrimary`.
+2. **Design System Consistency**: Verified that all pending approval states (Pending Join Requests banner, Pending Cash Confirmations, and Pending Admin Approval screen) strictly adhere to SplitSmith's unified monochrome theme palette.
+
+### Files Modified
+- `[MODIFY]` [GroupDetailScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/group/GroupDetailScreen.kt)
+
+---
+
+## [2026-08-07 16:25] Comprehensive Architecture, Security, Data Layer & Flow UI/UX Implementation
+
+### Key Technical Accomplishments
+1. **Created `PendingExpenseHolder.kt`**: Encapsulated transient split navigation payloads (`pendingGroupJoinCode`, `sharedImageUri`, `pendingExpenseAmount`, `pendingExpenseDesc`, `pendingExpenseCategory`, `pendingExpenseDate`, `pendingExpenseAttachmentUri`, `pendingQuickSplitUser`) into a single-use thread-safe holder, removing static memory leaks across user sessions.
+2. **Refactored `FirebaseManager.kt`**: Removed hardcoded UID fallback check in `currentUserId` to enforce pure Firebase Auth token identity security. Delegated all transient navigation properties to `PendingExpenseHolder`.
+3. **Group Leave Financial Guard (`GroupDetailScreen.kt`)**: Added non-zero net balance check (`myNetBalance != 0.0`) preventing users from leaving a group with pending debts until they settle up.
+4. **Debt Amount 2-Decimal Formatting (`GroupDetailScreen.kt`)**: Formatted all debt list strings (`\u20b9${if (debt.amount % 1.0 == 0.0) debt.amount.toInt().toString() else String.format("%.2f", debt.amount)}`), eliminating floating-point precision artifacts.
+5. **1-on-1 UPI Settlement Integration (`DirectSplitDetailScreen.kt`)**: Enabled `UpiPaymentHelper` launching inside the 1-on-1 settlement tab. Added pending balance warning prompt when attempting to disconnect contacts with active balances.
+6. **Custom Share Input Validation (`QuickSplitScreen.kt`)**: Added input validation capping custom share inputs at total expense amount.
+7. **EXIF Camera Photo Auto-Rotation (`SlipImportScreen.kt`)**: Implemented `ExifInterface` orientation reading to auto-rotate camera photos prior to MLKit OCR text extraction.
+8. **TopAppBar CSV Badge (`ReportsScreen.kt`)**: Added explicit "CSV" badge label to the download action button in the reports app bar.
+9. **Onboarding Budget & UPI Input Validation (`OnboardingScreen.kt`)**: Enforced `KeyboardType.Number` for monthly budget inputs and regex `@` validation for UPI handles.
+10. **Interactive Empty Feed CTAs (`HomeScreen.kt`)**: Added "+ Add Expense" and "+ New Group" action buttons inside empty recent activity state.
+11. **Personal to Shared Split Data Transfer (`PersonalExpensesScreen.kt`)**: Forwarded expense `description` and `category` when converting personal expenses to quick splits.
+
+### Files Modified / Created
+- `[NEW]` [PendingExpenseHolder.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/data/PendingExpenseHolder.kt)
+- `[MODIFY]` [FirebaseManager.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/data/FirebaseManager.kt)
+- `[MODIFY]` [GroupDetailScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/group/GroupDetailScreen.kt)
+- `[MODIFY]` [DirectSplitDetailScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/split/DirectSplitDetailScreen.kt)
+- `[MODIFY]` [QuickSplitScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/quicksplit/QuickSplitScreen.kt)
+- `[MODIFY]` [SlipImportScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/slip/SlipImportScreen.kt)
+- `[MODIFY]` [ReportsScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/reports/ReportsScreen.kt)
+- `[MODIFY]` [OnboardingScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/onboarding/OnboardingScreen.kt)
+- `[MODIFY]` [HomeScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/home/HomeScreen.kt)
+- `[MODIFY]` [AddExpenseScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/expense/AddExpenseScreen.kt)
+- `[MODIFY]` [PersonalExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/personal/PersonalExpensesScreen.kt)
+
+---
+
 ## [2026-08-07 15:42] Centralized UPI Payment Launcher & Clipboard Fallback
 
 ### Key Technical Accomplishments

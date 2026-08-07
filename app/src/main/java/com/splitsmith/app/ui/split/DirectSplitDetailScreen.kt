@@ -175,7 +175,12 @@ fun DirectSplitDetailScreen(
                                 text = { Text("Disconnect Friend", fontFamily = OutfitFamily, color = colors.alertRed) },
                                 onClick = {
                                     showOverflowMenu = false
-                                    showDisconnectDialog = true
+                                    if (Math.abs(peerGroup.netBalance) > 0.01) {
+                                        val netStr = if (peerGroup.netBalance > 0) "$peerName owes you \u20b9${"%.0f".format(peerGroup.netBalance)}" else "You owe $peerName \u20b9${"%.0f".format(-peerGroup.netBalance)}"
+                                        Toast.makeText(context, "Cannot disconnect while $netStr. Settle up first!", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        showDisconnectDialog = true
+                                    }
                                 }
                             )
                         } else {
@@ -332,12 +337,33 @@ fun DirectSplitDetailScreen(
                                                 }
                                                 OutlinedButton(
                                                     onClick = {
-                                                        coroutineScope.launch {
-                                                            try {
-                                                                FirebaseManager.settleDirectSplit(split.id)
-                                                                Toast.makeText(context, "Settled!", Toast.LENGTH_SHORT).show()
-                                                            } catch (e: Exception) {
-                                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                        val iOwe = split.paidBy != currentUserId
+                                                        if (iOwe && peerUpi.isNotEmpty()) {
+                                                            com.splitsmith.app.util.UpiPaymentHelper.launchUpiPayment(
+                                                                context = context,
+                                                                receiverUpi = peerUpi,
+                                                                receiverName = peerName,
+                                                                amount = split.myShare,
+                                                                note = split.description.ifEmpty { "1-on-1 Settlement" },
+                                                                onPaymentInitiated = {
+                                                                    coroutineScope.launch {
+                                                                        try {
+                                                                            FirebaseManager.settleDirectSplit(split.id)
+                                                                            Toast.makeText(context, "Settlement logged!", Toast.LENGTH_SHORT).show()
+                                                                        } catch (e: Exception) {
+                                                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                                        }
+                                                                    }
+                                                                }
+                                                            )
+                                                        } else {
+                                                            coroutineScope.launch {
+                                                                try {
+                                                                    FirebaseManager.settleDirectSplit(split.id)
+                                                                    Toast.makeText(context, "Settled!", Toast.LENGTH_SHORT).show()
+                                                                } catch (e: Exception) {
+                                                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                                }
                                                             }
                                                         }
                                                     },

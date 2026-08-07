@@ -195,7 +195,30 @@ fun SlipImportScreen(
                     }
                 }
 
-                val finalBmp = bmp
+                val finalBmp = bmp?.let { rawBmp ->
+                    try {
+                        val inputStream = context.contentResolver.openInputStream(imageUri)
+                        val exif = inputStream?.use { androidx.exifinterface.media.ExifInterface(it) }
+                        val orientation = exif?.getAttributeInt(
+                            androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
+                            androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
+                        ) ?: androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
+
+                        val matrix = android.graphics.Matrix()
+                        when (orientation) {
+                            androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                            androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                            androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                        }
+                        if (!matrix.isIdentity) {
+                            Bitmap.createBitmap(rawBmp, 0, 0, rawBmp.width, rawBmp.height, matrix, true)
+                        } else {
+                            rawBmp
+                        }
+                    } catch (e: Exception) {
+                        rawBmp
+                    }
+                }
                 if (finalBmp != null) {
                     loadedBitmap = finalBmp
 

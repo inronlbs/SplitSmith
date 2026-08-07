@@ -562,7 +562,7 @@ fun DirectSplitListItem(
 
     val balanceColor = when {
         isSettled -> colors.inkMuted
-        isWaitingApproval -> Color(0xFFE65100)
+        isWaitingApproval -> colors.inkPrimary
         paidByMe -> colors.inkPrimary
         else -> colors.alertRed
     }
@@ -638,15 +638,15 @@ fun DirectSplitListItem(
                 } else if (isWaitingApproval) {
                     Surface(
                         shape = RoundedCornerShape(d.radiusXS),
-                        color = Color(0xFFFFF3E0),
-                        border = BorderStroke(1.dp, Color(0xFFFFB74D))
+                        color = colors.surfaceCard,
+                        border = BorderStroke(1.dp, colors.borderWhisper)
                     ) {
                         Text(
                             text = "Approval Pending",
                             fontFamily = OutfitFamily,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = d.textLabelSmall,
-                            color = Color(0xFFE65100),
+                            color = colors.inkPrimary,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }

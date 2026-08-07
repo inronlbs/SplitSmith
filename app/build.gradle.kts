@@ -24,8 +24,8 @@ android {
         applicationId = "com.splitsmith.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 42
-        versionName = "0.3.7"
+        versionCode = 43
+        versionName = "0.3.8"
 
         buildConfigField("String", "CLOUDINARY_API_KEY", "\"$cloudinaryApiKey\"")
         buildConfigField("String", "CLOUDINARY_API_SECRET", "\"$cloudinaryApiSecret\"")
@@ -45,7 +45,8 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }

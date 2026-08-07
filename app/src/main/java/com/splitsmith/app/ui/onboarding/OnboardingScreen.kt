@@ -7,8 +7,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -166,13 +168,14 @@ fun OnboardingScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     OutlinedTextField(
                         value = monthlyBudgetLimit,
-                        onValueChange = { monthlyBudgetLimit = it },
+                        onValueChange = { monthlyBudgetLimit = it.filter { char -> char.isDigit() } },
                         modifier = Modifier.fillMaxWidth().heightIn(min = d.inputHeight),
                         shape = RoundedCornerShape(d.radiusSM),
                         placeholder = {
                             Text("15000", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = inkMuted)
                         },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = inkPrimary,
                             unfocusedBorderColor = borderWhisper,
@@ -196,8 +199,9 @@ fun OnboardingScreen(
         ) {
             Button(
                 onClick = {
-                    if (upiId.trim().isEmpty()) {
-                        Toast.makeText(context, "UPI ID is required to receive splits", Toast.LENGTH_SHORT).show()
+                    val trimmedUpi = upiId.trim()
+                    if (trimmedUpi.isEmpty() || !trimmedUpi.contains("@")) {
+                        Toast.makeText(context, "Please enter a valid UPI handle (e.g. name@upi)", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
                     isLoading = true

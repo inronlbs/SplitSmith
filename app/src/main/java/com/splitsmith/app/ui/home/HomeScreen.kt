@@ -1333,6 +1333,30 @@ fun HomeDashboardView(
                             fontSize = d.textLabelSmall,
                             color = colors.inkMuted
                         )
+                        Spacer(modifier = Modifier.height(d.space12))
+                        Row(horizontalArrangement = Arrangement.spacedBy(d.space8)) {
+                            Surface(
+                                onClick = { onNavigateToQuickSplit() },
+                                shape = RoundedCornerShape(d.radiusFull),
+                                color = colors.inkPrimary,
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space12)) {
+                                    Text("+ Quick Split", fontFamily = OutfitFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                                }
+                            }
+                            Surface(
+                                onClick = { onCreateGroup() },
+                                shape = RoundedCornerShape(d.radiusFull),
+                                color = colors.surfaceCard,
+                                border = BorderStroke(1.dp, colors.borderWhisper),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space12)) {
+                                    Text("+ New Group", fontFamily = OutfitFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.inkPrimary)
+                                }
+                            }
+                        }
                     }
                 }
                 HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)

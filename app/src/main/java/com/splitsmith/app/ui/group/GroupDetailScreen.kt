@@ -273,7 +273,7 @@ fun GroupDetailScreen(
                             fontFamily = OutfitFamily,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = d.textTitleMedium,
-                            color = Color(0xFFD97706),
+                            color = colors.inkPrimary,
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(d.space12))
@@ -951,8 +951,9 @@ private fun StyledBalancesTab(
                             Text(debtorName, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
                             Text("owes $creditorName", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
                         }
+                        val formattedDebtAmount = if (debt.amount % 1.0 == 0.0) debt.amount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", debt.amount)
                         Text(
-                            text = "\u20b9${debt.amount}",
+                            text = "\u20b9$formattedDebtAmount",
                             fontFamily = JetBrainsMonoFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = d.textMonoLarge,
@@ -1121,6 +1122,15 @@ private fun StyledSettingsTab(
     var tempNameInput by remember(group?.name) { mutableStateOf(group?.name ?: "") }
 
     if (group == null) return
+
+    val expensesFlow = remember(group.id) { FirebaseManager.observeExpenses(group.id) }
+    val expensesState = expensesFlow.collectAsState(initial = emptyList())
+    val settlementsFlow = remember(group.id) { FirebaseManager.observeSettlements(group.id) }
+    val settlementsState = settlementsFlow.collectAsState(initial = emptyList())
+    val membersList = remember(group) { group.members.keys.toList() }
+    val netBalancesMap = remember(membersList, expensesState.value, settlementsState.value) {
+        DebtSolver.calculateNetBalances(membersList, expensesState.value, settlementsState.value)
+    }
 
     val qrBitmap = remember(group.id) {
         generateQRCodeBitmap(group.id, 512)
@@ -2127,7 +2137,16 @@ private fun StyledSettingsTab(
         item {
             Spacer(modifier = Modifier.height(d.space16))
             Button(
-                onClick = { showLeaveConfirm = true },
+                onClick = {
+                    val currentUserId = FirebaseManager.currentUserId ?: ""
+                    val myNet = netBalancesMap[currentUserId] ?: 0.0
+                    if (kotlin.math.abs(myNet) > 0.01) {
+                        val netStr = if (myNet > 0) "you are owed \u20b9${"%.0f".format(myNet)}" else "you owe \u20b9${"%.0f".format(-myNet)}"
+                        Toast.makeText(context, "Cannot leave group while $netStr. Please settle up first!", Toast.LENGTH_LONG).show()
+                    } else {
+                        showLeaveConfirm = true
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(d.buttonHeight),

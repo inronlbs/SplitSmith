@@ -213,7 +213,7 @@ fun QuickSplitScreen(
             "EQUAL" -> amountVal / 2.0
             "OWE_ALL" -> if (paidByMe) amountVal else 0.0
             "OWED_ALL" -> if (paidByMe) 0.0 else amountVal
-            "CUSTOM" -> customOweAmount.toDoubleOrNull() ?: 0.0
+            "CUSTOM" -> (customOweAmount.toDoubleOrNull() ?: 0.0).coerceAtMost(amountVal)
             else -> amountVal / 2.0
         }
         if (paidByMe) shareVal else -shareVal

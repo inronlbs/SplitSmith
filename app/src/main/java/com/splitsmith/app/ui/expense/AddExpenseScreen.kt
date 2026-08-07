@@ -308,6 +308,7 @@ fun AddExpenseScreen(
                                          val finalUrl = if (isCloudBackupEnabled) {
                                              val result = com.splitsmith.app.data.CloudinaryManager.uploadReceipt(context, uri, currentUserId, selectedCategory)
                                              result.getOrNull() ?: run {
+                                                 Toast.makeText(context, "Cloud upload failed; receipt saved locally.", Toast.LENGTH_SHORT).show()
                                                  val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, selectedCategory)
                                                  (localSavedUri ?: uri).toString()
                                              }

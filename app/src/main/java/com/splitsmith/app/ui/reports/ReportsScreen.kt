@@ -55,19 +55,19 @@ fun ReportsScreen(
 
     val groupsFlow = remember { FirebaseManager.observeGroups() }
     val groupsState = groupsFlow.collectAsState(initial = emptyList())
-    val groups = groupsState.value ?: emptyList()
+    val groups = groupsState.value
 
     val personalExpensesFlow = remember { FirebaseManager.observePersonalExpenses() }
     val personalExpensesState = personalExpensesFlow.collectAsState(initial = emptyList())
-    val personalExpenses = personalExpensesState.value ?: emptyList()
+    val personalExpenses = personalExpensesState.value
 
     val directSplitsFlow = remember { FirebaseManager.observeDirectSplits() }
     val directSplitsState = directSplitsFlow.collectAsState(initial = emptyList())
-    val directSplits = directSplitsState.value ?: emptyList()
+    val directSplits = directSplitsState.value
 
     val allGroupExpensesFlow = remember { FirebaseManager.observeAllUserGroupExpenses() }
     val allGroupExpensesState = allGroupExpensesFlow.collectAsState(initial = emptyList())
-    val allGroupExpenses = allGroupExpensesState.value ?: emptyList()
+    val allGroupExpenses = allGroupExpensesState.value
 
     // Filter states
     var selectedGroupId by remember { mutableStateOf(initialGroupId) }
@@ -293,8 +293,21 @@ fun ReportsScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = exportCSV) {
-                        Icon(Icons.Default.Download, contentDescription = "Export CSV", tint = inkPrimary)
+                    Surface(
+                        onClick = exportCSV,
+                        shape = RoundedCornerShape(d.radiusFull),
+                        color = colors.surfaceCard,
+                        border = BorderStroke(1.dp, borderWhisper),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = d.space8, vertical = d.space4),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = "Export CSV", tint = inkPrimary, modifier = Modifier.size(16.dp))
+                            Text("CSV", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = inkPrimary)
+                        }
                     }
                     IconButton(onClick = shareReport) {
                         Icon(Icons.Default.Share, contentDescription = "Share", tint = inkPrimary)
