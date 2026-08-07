@@ -37,6 +37,8 @@ import com.splitsmith.app.theme.LocalDimens
 import com.splitsmith.app.theme.LocalSplitColors
 import com.splitsmith.app.theme.OutfitFamily
 import com.splitsmith.app.ui.components.dotGridBackground
+import com.splitsmith.app.ui.components.UserAvatar
+import com.splitsmith.app.data.UserProfile
 import kotlinx.coroutines.launch
 
 private val memberColors = listOf(
@@ -72,6 +74,7 @@ fun AddExpenseScreen(
     var explicitlyEditedUids by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedMembers by remember { mutableStateOf<Set<String>>(emptySet()) }
     var userNamesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var memberProfilesMap by remember { mutableStateOf<Map<String, UserProfile>>(emptyMap()) }
     var selectedDateMillis by remember { mutableStateOf(System.currentTimeMillis()) }
 
     var showAdvancedSplitSheet by remember { mutableStateOf(false) }
@@ -89,11 +92,16 @@ fun AddExpenseScreen(
     LaunchedEffect(currentGroup) {
         val members = currentGroup?.members?.keys ?: return@LaunchedEffect
         val tempMap = mutableMapOf<String, String>()
+        val tempProfiles = mutableMapOf<String, UserProfile>()
         for (uid in members) {
             val profile = FirebaseManager.getUserProfile(uid)
-            if (profile != null) tempMap[uid] = profile.displayName
+            if (profile != null) {
+                tempMap[uid] = profile.displayName
+                tempProfiles[uid] = profile
+            }
         }
         userNamesMap = tempMap
+        memberProfilesMap = tempProfiles
         if (expenseId == null) {
             selectedMembers = members
             selectedPayerId = FirebaseManager.currentUserId ?: members.firstOrNull() ?: ""
@@ -652,14 +660,24 @@ fun AddExpenseScreen(
                                 color = if (isSelected) colors.inkPrimary else colors.canvasChalk,
                                 border = if (!isSelected) BorderStroke(1.dp, colors.borderWhisper) else null
                             ) {
-                                Text(
-                                    text = name,
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                    fontSize = d.textLabelMedium,
-                                    color = if (isSelected) colors.canvasChalk else colors.inkMuted,
-                                    modifier = Modifier.padding(horizontal = d.space16, vertical = d.space8)
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(start = d.space4, end = d.space16, top = d.space4, bottom = d.space4),
+                                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                                ) {
+                                    UserAvatar(
+                                        avatarUrl = memberProfilesMap[uid]?.avatarUrl ?: "",
+                                        displayName = name,
+                                        size = d.avatarXs
+                                    )
+                                    Text(
+                                        text = name,
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                        fontSize = d.textLabelMedium,
+                                        color = if (isSelected) colors.canvasChalk else colors.inkMuted
+                                    )
+                                }
                             }
                         }
                     }
@@ -687,14 +705,24 @@ fun AddExpenseScreen(
                                 color = if (isSelected) colors.inkPrimary else colors.canvasChalk,
                                 border = if (!isSelected) BorderStroke(1.dp, colors.borderWhisper) else null
                             ) {
-                                Text(
-                                    text = name,
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                    fontSize = d.textLabelMedium,
-                                    color = if (isSelected) colors.canvasChalk else colors.inkMuted,
-                                    modifier = Modifier.padding(horizontal = d.space16, vertical = d.space8)
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(start = d.space4, end = d.space16, top = d.space4, bottom = d.space4),
+                                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                                ) {
+                                    UserAvatar(
+                                        avatarUrl = memberProfilesMap[uid]?.avatarUrl ?: "",
+                                        displayName = name,
+                                        size = d.avatarXs
+                                    )
+                                    Text(
+                                        text = name,
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                        fontSize = d.textLabelMedium,
+                                        color = if (isSelected) colors.canvasChalk else colors.inkMuted
+                                    )
+                                }
                             }
                         }
                     }

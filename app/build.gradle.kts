@@ -1,9 +1,21 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
   alias(libs.plugins.google.services)
 }
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    val inputStream = localPropertiesFile.inputStream()
+    localProperties.load(inputStream)
+    inputStream.close()
+}
+val cloudinaryApiKey = localProperties.getProperty("CLOUDINARY_API_KEY") ?: ""
+val cloudinaryApiSecret = localProperties.getProperty("CLOUDINARY_API_SECRET") ?: ""
 
 android {
     namespace = "com.splitsmith.app"
@@ -14,6 +26,9 @@ android {
         targetSdk = 36
         versionCode = 42
         versionName = "0.3.7"
+
+        buildConfigField("String", "CLOUDINARY_API_KEY", "\"$cloudinaryApiKey\"")
+        buildConfigField("String", "CLOUDINARY_API_SECRET", "\"$cloudinaryApiSecret\"")
     }
 
     signingConfigs {

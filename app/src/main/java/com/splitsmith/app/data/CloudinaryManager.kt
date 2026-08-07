@@ -1,5 +1,6 @@
 package com.splitsmith.app.data
 
+import com.splitsmith.app.BuildConfig
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -184,6 +185,49 @@ object CloudinaryManager {
         } catch (e: Exception) {
             Log.e(TAG, "Error compressing image: ${e.message}", e)
             null
+        }
+    }
+
+    fun extractPublicId(url: String): String? {
+        val anchor = "/raw/upload/"
+        val index = url.indexOf(anchor)
+        if (index == -1) return null
+        val path = url.substring(index + anchor.length)
+        // Strip the version segment if it exists (e.g. "v1234567890/receipts/...")
+        val versionRegex = Regex("^v\\d+/")
+        return path.replaceFirst(versionRegex, "")
+    }
+
+    suspend fun deleteReceipt(secureUrl: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val apiKey = BuildConfig.CLOUDINARY_API_KEY
+        val apiSecret = BuildConfig.CLOUDINARY_API_SECRET
+        
+        if (apiKey.isBlank() || apiSecret.isBlank()) {
+            Log.w(TAG, "Cloudinary API key or secret is blank. Deletion skipped.")
+            return@withContext Result.failure(Exception("Cloudinary API Key or Secret is not configured."))
+        }
+        
+        val publicId = extractPublicId(secureUrl) ?: return@withContext Result.failure(Exception("Failed to extract public ID from URL: $secureUrl"))
+        
+        try {
+            val config = mapOf(
+                "cloud_name" to cloudName,
+                "api_key" to apiKey,
+                "api_secret" to apiSecret
+            )
+            val cloudinary = com.cloudinary.Cloudinary(config)
+            val result = cloudinary.uploader().destroy(publicId, mapOf("resource_type" to "raw", "invalidate" to true))
+            val resultStatus = result["result"] as? String
+            if (resultStatus == "ok" || resultStatus == "not_found") {
+                Log.d(TAG, "Successfully deleted or already deleted asset from Cloudinary: $publicId")
+                Result.success(Unit)
+            } else {
+                Log.e(TAG, "Cloudinary destroy returned status: $resultStatus for $publicId")
+                Result.failure(Exception("Cloudinary destroy failed: $resultStatus"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to delete Cloudinary asset: ${e.message}", e)
+            Result.failure(e)
         }
     }
 }

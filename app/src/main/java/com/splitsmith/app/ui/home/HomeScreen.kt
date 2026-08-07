@@ -987,13 +987,16 @@ fun HomeDashboardView(
         }
         val groupExps = groupExpensesState.value.map { ge ->
             val exp = ge.expense
+            val myShare = exp.splits[currentUserId] ?: 0.0
+            val isPayer = exp.paidBy == currentUserId
+            val netAmount = if (isPayer) (exp.amount - myShare) else myShare
             RecentActivityItem(
                 id = exp.id,
                 title = if (exp.description.isNotEmpty()) exp.description else exp.category,
-                subtitle = "${ge.groupName} • ${exp.category}",
-                amount = exp.amount,
+                subtitle = "${ge.groupName} • ${if (isPayer) "You lent" else "You owe"}",
+                amount = netAmount,
                 date = exp.date,
-                isPositive = exp.paidBy == currentUserId,
+                isPositive = isPayer,
                 isSettled = false,
                 rawSplit = null,
                 rawGroupExpense = ge
@@ -2861,7 +2864,7 @@ fun GroupExpenseDetailBottomSheet(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(if (isPayer) "You paid" else "Your share", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelMedium)
+                        Text(if (isPayer) "You lent" else "Your share", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textLabelMedium)
                         Text("₹${if (isPayer) exp.amount - myShare else myShare}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleMedium, color = if (isPayer) colors.inkPrimary else colors.alertRed)
                     }
 

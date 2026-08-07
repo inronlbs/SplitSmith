@@ -135,7 +135,7 @@ fun PersonalExpensesScreen(
             onConfirmDelete = { _ ->
                 coroutineScope.launch {
                     try {
-                        FirebaseManager.deletePersonalExpense(exp.id)
+                        FirebaseManager.deletePersonalExpense(exp.id, exp.receiptUrls)
                         Toast.makeText(context, "Expense deleted", Toast.LENGTH_SHORT).show()
                     } catch (e: Exception) {
                         Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -148,7 +148,7 @@ fun PersonalExpensesScreen(
 
     Scaffold(
         containerColor = colors.canvasChalk,
-        modifier = Modifier.dotGridBackground(colors.dotColor.copy(alpha = 0.4f)),
+        modifier = Modifier.dotGridBackground(colors.dotColor),
         contentWindowInsets = WindowInsets(0)
     ) { paddingValues ->
         Column(

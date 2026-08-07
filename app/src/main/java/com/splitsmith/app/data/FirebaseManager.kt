@@ -457,7 +457,16 @@ object FirebaseManager {
         return expenseRef.id
     }
 
-    suspend fun deleteExpense(groupId: String, expenseId: String) {
+    suspend fun deleteExpense(groupId: String, expenseId: String, receiptUrls: List<String> = emptyList()) {
+        receiptUrls.forEach { url ->
+            if (url.contains("cloudinary")) {
+                try {
+                    CloudinaryManager.deleteReceipt(url)
+                } catch (e: Exception) {
+                    android.util.Log.e("FirebaseManager", "Failed to delete Cloudinary receipt $url: ${e.message}")
+                }
+            }
+        }
         db.collection("groups").document(groupId).collection("expenses").document(expenseId).delete().await()
     }
 
@@ -584,8 +593,17 @@ object FirebaseManager {
         awaitClose { listener.remove() }
     }
 
-    suspend fun deletePersonalExpense(id: String) {
+    suspend fun deletePersonalExpense(id: String, receiptUrls: List<String> = emptyList()) {
         val uid = currentUserId ?: return
+        receiptUrls.forEach { url ->
+            if (url.contains("cloudinary")) {
+                try {
+                    CloudinaryManager.deleteReceipt(url)
+                } catch (e: Exception) {
+                    android.util.Log.e("FirebaseManager", "Failed to delete Cloudinary receipt $url: ${e.message}")
+                }
+            }
+        }
         db.collection("users").document(uid).collection("personal_expenses").document(id).delete().await()
     }
 
@@ -808,7 +826,16 @@ object FirebaseManager {
         db.collection("direct_splits").document(splitId).update("status", "PENDING").await()
     }
 
-    suspend fun deleteDirectSplit(splitId: String) {
+    suspend fun deleteDirectSplit(splitId: String, receiptUrls: List<String> = emptyList()) {
+        receiptUrls.forEach { url ->
+            if (url.contains("cloudinary")) {
+                try {
+                    CloudinaryManager.deleteReceipt(url)
+                } catch (e: Exception) {
+                    android.util.Log.e("FirebaseManager", "Failed to delete Cloudinary receipt $url: ${e.message}")
+                }
+            }
+        }
         db.collection("direct_splits").document(splitId).delete().await()
     }
 

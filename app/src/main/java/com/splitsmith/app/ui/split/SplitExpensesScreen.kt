@@ -54,6 +54,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import com.splitsmith.app.ui.components.UserAvatar
 import com.splitsmith.app.ui.components.dotGridBackground
+import com.splitsmith.app.util.UpiPaymentHelper
 import kotlinx.coroutines.launch
 
 private val groupColors = listOf(
@@ -229,7 +230,7 @@ fun SplitExpensesScreen(
 
     Scaffold(
         containerColor = colors.canvasChalk,
-        modifier = Modifier.dotGridBackground(colors.dotColor.copy(alpha = 0.4f)),
+        modifier = Modifier.dotGridBackground(colors.dotColor),
         contentWindowInsets = WindowInsets(0)
     ) { paddingValues ->
         Column(
@@ -741,7 +742,7 @@ fun DirectSplitDetailBottomSheet(
                                     showMenu = false
                                     coroutineScope.launch {
                                         try {
-                                            FirebaseManager.deleteDirectSplit(split.id)
+                                            FirebaseManager.deleteDirectSplit(split.id, split.receiptUrls)
                                             Toast.makeText(context, "Split deleted", Toast.LENGTH_SHORT).show()
                                             onDismiss()
                                         } catch (e: Exception) {
@@ -868,30 +869,20 @@ fun DirectSplitDetailBottomSheet(
                         if (peerUpi.isNotEmpty()) {
                             Button(
                                 onClick = {
-                                    val uri = Uri.parse("upi://pay").buildUpon()
-                                        .appendQueryParameter("pa", peerUpi)
-                                        .appendQueryParameter("pn", peerName)
-                                        .appendQueryParameter("am", split.myShare.toString())
-                                        .appendQueryParameter("cu", "INR")
-                                        .appendQueryParameter("tn", "Settling: ${split.description}")
-                                        .build()
-                                    val intent = Intent(Intent.ACTION_VIEW, uri)
-                                    try {
-                                        context.startActivity(intent)
-                                        coroutineScope.launch {
-                                            FirebaseManager.markDirectSplitPaid(split.id, "UPI")
-                                            Toast.makeText(context, "Marked as paid via UPI!", Toast.LENGTH_SHORT).show()
-                                            onDismiss()
+                                    UpiPaymentHelper.launchUpiPayment(
+                                        context = context,
+                                        receiverUpi = peerUpi,
+                                        receiverName = peerName,
+                                        amount = split.myShare,
+                                        note = "Settling: ${split.description}",
+                                        onPaymentInitiated = {
+                                            coroutineScope.launch {
+                                                FirebaseManager.markDirectSplitPaid(split.id, "UPI")
+                                                Toast.makeText(context, "Marked as paid via UPI!", Toast.LENGTH_SHORT).show()
+                                                onDismiss()
+                                            }
                                         }
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "No UPI app found. Copying UPI ID...", Toast.LENGTH_SHORT).show()
-                                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("UPI ID", peerUpi))
-                                        coroutineScope.launch {
-                                            FirebaseManager.markDirectSplitPaid(split.id, "UPI")
-                                            onDismiss()
-                                        }
-                                    }
+                                    )
                                 },
                                 modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
                                 shape = RoundedCornerShape(d.radiusMD),
@@ -1636,12 +1627,13 @@ fun PersonDetailBottomSheet(
                                 Button(
                                     onClick = {
                                         if (net < 0 && peerGroup.peerUpi.isNotEmpty()) {
-                                            val upiUri = Uri.parse("upi://pay?pa=${peerGroup.peerUpi}&pn=${Uri.encode(peerGroup.peerName)}&am=${"%.2f".format(-net)}&cu=INR")
-                                            try {
-                                                context.startActivity(Intent(Intent.ACTION_VIEW, upiUri))
-                                            } catch (e: Exception) {
-                                                Toast.makeText(context, "No UPI app found on device", Toast.LENGTH_SHORT).show()
-                                            }
+                                            UpiPaymentHelper.launchUpiPayment(
+                                                context = context,
+                                                receiverUpi = peerGroup.peerUpi,
+                                                receiverName = peerGroup.peerName,
+                                                amount = -net,
+                                                note = "SplitSmith Settlement"
+                                            )
                                         } else {
                                             coroutineScope.launch {
                                                 try {

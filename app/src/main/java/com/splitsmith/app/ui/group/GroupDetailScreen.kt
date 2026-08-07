@@ -32,6 +32,7 @@ import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import com.splitsmith.app.ui.components.UserAvatar
 import com.splitsmith.app.ui.components.GroupIconView
 import com.splitsmith.app.ui.components.dotGridBackground
+import com.splitsmith.app.util.UpiPaymentHelper
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -142,7 +143,7 @@ fun GroupDetailScreen(
             onConfirmDelete = { _ ->
                 coroutineScope.launch {
                     try {
-                        FirebaseManager.deleteExpense(groupId, exp.id)
+                        FirebaseManager.deleteExpense(groupId, exp.id, exp.getEffectiveReceiptUrls())
                         Toast.makeText(context, "Expense deleted", Toast.LENGTH_SHORT).show()
                     } catch (e: Exception) {
                         Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -173,7 +174,7 @@ fun GroupDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(canvasChalk)
-                .dotGridBackground(colors.dotColor.copy(alpha = 0.4f))
+                .dotGridBackground(colors.dotColor)
                 .padding(paddingValues)
                 .statusBarsPadding()
                 .padding(top = d.space24),
@@ -613,6 +614,7 @@ fun GroupDetailScreen(
                             debts = debts,
                             settlements = settlements,
                             userNames = userNamesMap,
+                            memberProfilesMap = memberProfilesMap,
                             groupId = groupId,
                             d = d,
                             inkPrimary = inkPrimary,
@@ -672,12 +674,17 @@ fun GroupDetailScreen(
                             coroutineScope.launch {
                                 try {
                                     val receiverUpi = FirebaseManager.getReceiverUpiId(debt.toUser)
-                                    val comment = Uri.encode("SplitSmith Settlement")
-                                    val upiUri = Uri.parse("upi://pay?pa=$receiverUpi&pn=$toName&am=${debt.amount}&cu=INR&tn=$comment")
-                                    val intent = Intent(Intent.ACTION_VIEW, upiUri)
-                                    context.startActivity(Intent.createChooser(intent, "Pay via UPI App"))
-                                    pendingConfirmUpiSettlement = debt
-                                    selectedDebtForSettlement = null
+                                    UpiPaymentHelper.launchUpiPayment(
+                                        context = context,
+                                        receiverUpi = receiverUpi,
+                                        receiverName = toName,
+                                        amount = debt.amount,
+                                        note = "SplitSmith Group Settlement",
+                                        onPaymentInitiated = {
+                                            pendingConfirmUpiSettlement = debt
+                                            selectedDebtForSettlement = null
+                                        }
+                                    )
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                                 }
@@ -838,6 +845,7 @@ private fun StyledBalancesTab(
     debts: List<Debt>,
     settlements: List<Settlement>,
     userNames: Map<String, String>,
+    memberProfilesMap: Map<String, UserProfile>,
     groupId: String,
     d: com.splitsmith.app.theme.Dimens,
     inkPrimary: Color,
@@ -873,6 +881,7 @@ private fun StyledBalancesTab(
                 }
                 items(pendingRequests) { req ->
                     val payerName = userNames[req.fromUser] ?: "Payer"
+                    val payerProfile = memberProfilesMap[req.fromUser]
                     Surface(
                         modifier = Modifier.fillMaxWidth().padding(bottom = d.space8),
                         shape = RoundedCornerShape(d.radiusLG),
@@ -883,9 +892,12 @@ private fun StyledBalancesTab(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
-                                Text("$payerName says they paid cash", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textBodyLarge, color = inkPrimary)
-                                Text("\u20b9${req.amount}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyMedium, color = inkMuted)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space12)) {
+                                UserAvatar(avatarUrl = payerProfile?.avatarUrl ?: "", displayName = payerName, size = d.avatarSm)
+                                Column {
+                                    Text("$payerName says they paid cash", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textBodyLarge, color = inkPrimary)
+                                    Text("\u20b9${req.amount}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyMedium, color = inkMuted)
+                                }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(d.space4)) {
                                 IconButton(onClick = {
@@ -929,16 +941,11 @@ private fun StyledBalancesTab(
                         modifier = Modifier.fillMaxWidth().heightIn(min = d.rowHeightLg).padding(vertical = d.space12),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            modifier = Modifier.size(d.avatarMd).clip(CircleShape).background(hueForMember(debt.fromUser)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                debtorName.firstOrNull()?.uppercase() ?: "?",
-                                fontFamily = OutfitFamily, fontWeight = FontWeight.Bold,
-                                fontSize = d.textBodyMedium, color = Color.White
-                            )
-                        }
+                        UserAvatar(
+                            avatarUrl = memberProfilesMap[debt.fromUser]?.avatarUrl ?: "",
+                            displayName = debtorName,
+                            size = d.avatarMd
+                        )
                         Spacer(modifier = Modifier.width(d.space12))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(debtorName, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
@@ -1300,18 +1307,22 @@ private fun StyledSettingsTab(
                     
                     pendingApplicants.forEach { applicantUid ->
                         val displayName = userNamesMap[applicantUid] ?: applicantUid.take(6).uppercase()
+                        val applicantProfile = memberProfilesMap[applicantUid]
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(
-                                text = displayName,
-                                fontFamily = OutfitFamily,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = d.textBodyLarge,
-                                color = colors.inkPrimary
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space12)) {
+                                UserAvatar(avatarUrl = applicantProfile?.avatarUrl ?: "", displayName = displayName, size = d.avatarSm)
+                                Text(
+                                    text = displayName,
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = d.textBodyLarge,
+                                    color = colors.inkPrimary
+                                )
+                            }
                             Row(horizontalArrangement = Arrangement.spacedBy(d.space8)) {
                                 TextButton(
                                     onClick = {

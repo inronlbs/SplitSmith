@@ -123,7 +123,7 @@ fun DirectSplitDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(colors.canvasChalk)
-                .dotGridBackground(colors.dotColor.copy(alpha = 0.4f))
+                .dotGridBackground(colors.dotColor)
                 .padding(paddingValues)
                 .statusBarsPadding()
                 .padding(top = d.space16)

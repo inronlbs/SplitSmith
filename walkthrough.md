@@ -1,3 +1,49 @@
+## [2026-08-07 15:42] Centralized UPI Payment Launcher & Clipboard Fallback
+
+### Key Technical Accomplishments
+1. **Created `UpiPaymentHelper.kt`**: Implemented `UpiPaymentHelper.launchUpiPayment` in `com.splitsmith.app.util`. It constructs `upi://pay` URIs safely, launches the system chooser, and catches `ActivityNotFoundException` (or missing app handlers) when no UPI app is installed on the phone/profile.
+2. **Clipboard Fallback & User Notification**: Automatically copies the receiver's UPI ID to the device Clipboard and displays a clear Toast notification (`"No UPI app found. UPI ID (xyz@upi) copied to clipboard!"`) when an app cannot be opened.
+3. **Refactored `GroupDetailScreen.kt`**: Replaced raw intent launcher with `UpiPaymentHelper.launchUpiPayment(...)` for group debt settlements, ensuring clipboard fallback and seamless pending settlement recording.
+4. **Refactored `SplitExpensesScreen.kt`**: Unified direct 1-on-1 split and bulk peer group settlements to use `UpiPaymentHelper`.
+5. **Empirical Verification**: Ran `./gradlew.bat compileDebugKotlin` with **BUILD SUCCESSFUL**.
+
+### Files Modified / Created
+- `[NEW]` [UpiPaymentHelper.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/util/UpiPaymentHelper.kt)
+- `[MODIFY]` [GroupDetailScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/group/GroupDetailScreen.kt)
+- `[MODIFY]` [SplitExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/split/SplitExpensesScreen.kt)
+
+---
+
+## [2026-08-07 13:52] Profile Flows Audit & Avatar Polish
+
+### Key Technical Accomplishments
+1. **Home Feed Amount Correction (`HomeScreen.kt`)**: Group expenses in the "Recent Activity" feed now display the user's personal financial impact (their share owed or amount lent) instead of the misleading full group total. Subtitles changed from generic category labels to contextual "You lent" / "You owe" descriptions.
+2. **Detail Sheet Label Fix (`HomeScreen.kt`)**: Corrected the `GroupExpenseDetailBottomSheet` label from "You paid" to "You lent" for expenses created by the current user, accurately reflecting the net amount lent to other group members.
+3. **Group Debts Avatar Upgrade (`GroupDetailScreen.kt`)**: Replaced the generic colored-circle letter placeholder in the "Who Owes What" debts list with `UserAvatar`, rendering each debtor's actual profile photo or superhero avatar.
+4. **Pending Cash Confirmations Avatar (`GroupDetailScreen.kt`)**: Added `UserAvatar` beside payer names in the pending cash settlement confirmation cards for visual recognition.
+5. **Join Request Avatar (`GroupDetailScreen.kt`)**: Added `UserAvatar` beside applicant names in the pending join request list within group settings.
+6. **Add Expense Selector Avatars (`AddExpenseScreen.kt`)**: Added `memberProfilesMap` state, populated alongside `userNamesMap`, and embedded `UserAvatar` (24dp) inside both the "PAID BY" and "SPLIT WITH" horizontal chip selectors for premium visual distinction.
+7. **Verification**: Successfully compiled debug build (`gradlew.bat compileDebugKotlin`) with **BUILD SUCCESSFUL**.
+
+### Files Modified
+- `HomeScreen.kt` — Feed amount mapping & detail sheet label
+- `GroupDetailScreen.kt` — `StyledBalancesTab` signature + debts/settlements/applicants avatar rendering
+- `AddExpenseScreen.kt` — Imports, `memberProfilesMap`, avatar chips in PAID BY / SPLIT WITH selectors
+
+---
+
+## [2026-08-07 12:48] Cloudinary Attachment Deletion & Background Dot Visibility Fix
+
+### Key Technical Accomplishments
+1. **BuildConfig Credential Injection**: Configured `app/build.gradle.kts` to load `CLOUDINARY_API_KEY` and `CLOUDINARY_API_SECRET` from `local.properties` and expose them via `BuildConfig`.
+2. **Cloudinary Destruction Integration (`CloudinaryManager.kt`)**: Added `extractPublicId` utility to parse public IDs from secure Cloudinary URLs and implemented `deleteReceipt` utilizing the Cloudinary SDK's `destroy` API (with `resource_type = "raw"` and `invalidate = true`).
+3. **Database Hook Integration (`FirebaseManager.kt`)**: Updated Firestore document deletion operations (`deleteExpense`, `deletePersonalExpense`, `deleteDirectSplit`) to accept a list of attachment URLs, detect any Cloudinary assets, and invoke the destruction method prior to document deletion.
+4. **UI Event Propagation**: Modified deletion dialog handlers across `GroupDetailScreen.kt`, `PersonalExpensesScreen.kt`, and `SplitExpensesScreen.kt` to forward all respective receipt attachment URLs to the FirebaseManager during deletion.
+5. **Background Dot Visibility Patch**: Restored dot grid background visibility across Group Detail, Personal Expenses, Direct Split Detail, and Split Expenses pages by removing the redundant 0.4x alpha multiplier (which rendered the subtle dots nearly invisible).
+6. **Verification**: Successfully compiled debug build (`gradlew.bat compileDebugKotlin`) with **BUILD SUCCESSFUL**.
+
+---
+
 ## [2026-08-02 22:57] Release v0.3.3.3: Cross-Device Drive Scope & Attachment Downloader Patch
 
 ### Key Technical Accomplishments
