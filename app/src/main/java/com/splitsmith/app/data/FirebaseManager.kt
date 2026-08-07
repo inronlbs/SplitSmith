@@ -303,6 +303,10 @@ object FirebaseManager {
         db.collection("groups").document(groupId).update("joinRequests.$applicantUid", com.google.firebase.firestore.FieldValue.delete()).await()
     }
 
+    suspend fun inviteUserToGroup(groupId: String, targetUserId: String) {
+        db.collection("groups").document(groupId).update("pendingMembers.$targetUserId", true).await()
+    }
+
     suspend fun addMemberToGroup(groupId: String, targetUserId: String) {
         db.collection("groups").document(groupId).update("members.$targetUserId", true).await()
     }
@@ -889,6 +893,26 @@ object FirebaseManager {
             }
         }
 
+        // 3. Fallback client-side scan across all users for maximum reliability
+        try {
+            val allUsers = db.collection("users").get().await()
+            val emailPrefix = lower.substringBefore("@")
+            for (d in allUsers.documents) {
+                val profile = d.toUserProfileWithUid()
+                if (profile != null && profile.email.isNotBlank()) {
+                    val userEmail = profile.email.trim().lowercase()
+                    val userPrefix = userEmail.substringBefore("@")
+                    if (userEmail == lower || userEmail == cleaned.lowercase() ||
+                        (emailPrefix.length >= 3 && userPrefix == emailPrefix)
+                    ) {
+                        return profile
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("FirebaseManager", "searchUserByEmail fallback scan failed: ${e.message}")
+        }
+
         return null
     }
 
@@ -1064,10 +1088,8 @@ object FirebaseManager {
             return matchedLocal
         }
 
-        // 2. Exact single-read indexed fallback for new connections (by email or shortCode)
-        if (trimmed.contains("@")) {
-            searchUserByEmail(trimmed)?.let { if (it.uid != currentUserId) return listOf(it) }
-        }
+        // 2. Fallback search by email or user code
+        searchUserByEmail(trimmed)?.let { if (it.uid != currentUserId) return listOf(it) }
         searchUserByCode(trimmed)?.let { if (it.uid != currentUserId) return listOf(it) }
 
         return emptyList()

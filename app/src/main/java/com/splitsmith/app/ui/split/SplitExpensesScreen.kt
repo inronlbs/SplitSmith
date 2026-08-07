@@ -3,6 +3,7 @@ package com.splitsmith.app.ui.split
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import com.splitsmith.app.util.formatCurrency
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -229,8 +230,10 @@ fun SplitExpensesScreen(
     }
 
     Scaffold(
-        containerColor = colors.canvasChalk,
-        modifier = Modifier.dotGridBackground(colors.dotColor),
+        containerColor = Color.Transparent,
+        modifier = Modifier
+            .background(colors.canvasChalk)
+            .dotGridBackground(colors.dotColor),
         contentWindowInsets = WindowInsets(0)
     ) { paddingValues ->
         Column(
@@ -294,7 +297,7 @@ fun SplitExpensesScreen(
                         color = colors.inkMuted
                     )
                     Text(
-                        text = "\u20b9${"%.0f".format(totalOwedToYou)}",
+                        text = "\u20b9${totalOwedToYou.formatCurrency()}",
                         fontFamily = JetBrainsMonoFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = d.textBodyLarge,
@@ -312,7 +315,7 @@ fun SplitExpensesScreen(
                         color = colors.inkMuted
                     )
                     Text(
-                        text = "\u20b9${"%.0f".format(totalYouOwe)}",
+                        text = "\u20b9${totalYouOwe.formatCurrency()}",
                         fontFamily = JetBrainsMonoFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = d.textBodyLarge,
@@ -1040,11 +1043,8 @@ fun CreateGroupBottomSheet(
                 coroutineScope.launch {
                     try {
                         val cleanCode = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(scannedCode)
-                        val resolved = if (cleanCode.contains("@")) {
-                            FirebaseManager.searchUserByEmail(cleanCode)
-                        } else {
-                            FirebaseManager.searchUserByCode(scannedCode)
-                        }
+                        val resolved = FirebaseManager.searchUserByCode(scannedCode)
+                            ?: FirebaseManager.searchUserByEmail(cleanCode)
                         if (resolved != null && resolved.uid.isNotEmpty()) {
                             FirebaseManager.addConnection(resolved.uid)
                             if (addedMembers.none { it.uid == resolved.uid }) {
@@ -1388,8 +1388,8 @@ fun IndividualPeerListItem(
 ) {
     val net = peerGroup.netBalance
     val balanceText = when {
-        net > 0 -> "Owes you \u20b9${"%.0f".format(net)}"
-        net < 0 -> "You owe \u20b9${"%.0f".format(-net)}"
+        net > 0 -> "Owes you \u20b9${net.formatCurrency()}"
+        net < 0 -> "You owe \u20b9${(-net).formatCurrency()}"
         else -> "Settled up"
     }
     val balanceColor = when {
@@ -1457,8 +1457,8 @@ fun PersonDetailBottomSheet(
 
     val net = peerGroup.netBalance
     val balanceText = when {
-        net > 0 -> "${peerGroup.peerName} owes you \u20b9${"%.0f".format(net)}"
-        net < 0 -> "You owe ${peerGroup.peerName} \u20b9${"%.0f".format(-net)}"
+        net > 0 -> "${peerGroup.peerName} owes you \u20b9${net.formatCurrency()}"
+        net < 0 -> "You owe ${peerGroup.peerName} \u20b9${(-net).formatCurrency()}"
         else -> "Settled up"
     }
     val balanceColor = when {

@@ -24,8 +24,8 @@ android {
         applicationId = "com.splitsmith.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 43
-        versionName = "0.3.8"
+        versionCode = 45
+        versionName = "0.3.8.2"
 
         buildConfigField("String", "CLOUDINARY_API_KEY", "\"$cloudinaryApiKey\"")
         buildConfigField("String", "CLOUDINARY_API_SECRET", "\"$cloudinaryApiSecret\"")
@@ -51,9 +51,7 @@ android {
         }
     }
 
-base {
-    archivesName.set("SplitSmith-v0.3.8")
-}
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

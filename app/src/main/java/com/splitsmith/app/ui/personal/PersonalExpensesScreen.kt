@@ -1,6 +1,7 @@
 package com.splitsmith.app.ui.personal
 
 import android.widget.Toast
+import com.splitsmith.app.util.formatCurrency
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -148,8 +149,10 @@ fun PersonalExpensesScreen(
     }
 
     Scaffold(
-        containerColor = colors.canvasChalk,
-        modifier = Modifier.dotGridBackground(colors.dotColor),
+        containerColor = Color.Transparent,
+        modifier = Modifier
+            .background(colors.canvasChalk)
+            .dotGridBackground(colors.dotColor),
         contentWindowInsets = WindowInsets(0)
     ) { paddingValues ->
         Column(
@@ -199,7 +202,7 @@ fun PersonalExpensesScreen(
                             Text("Current Expenses for the Month", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
                             val remaining = budgetLimit - monthlySpend
                             Text(
-                                text = if (remaining >= 0) "₹${"%.0f".format(remaining)} left" else "Overspent: ₹${"%.0f".format(-remaining)}",
+                                text = if (remaining >= 0) "₹${remaining.formatCurrency()} left" else "Overspent: ₹${(-remaining).formatCurrency()}",
                                 fontFamily = OutfitFamily,
                                 fontSize = d.textLabelSmall,
                                 fontWeight = if (remaining < 0) FontWeight.Bold else FontWeight.Normal,

@@ -46,17 +46,23 @@ object AttachmentDownloader {
             else -> null
         } ?: return@withContext null
 
+        val isPdfUrl = targetDownloadUrl.contains(".pdf", ignoreCase = true) || urlOrPath.contains(".pdf", ignoreCase = true)
+        val ext = if (isPdfUrl) ".pdf" else ".jpg"
         val cleanId = if (driveFileId.isNotBlank()) driveFileId else urlOrPath.hashCode().toString()
-        val cacheFile = File(context.cacheDir, "shared_receipt_$cleanId.jpg")
+        val cacheFile = File(context.cacheDir, "shared_receipt_$cleanId$ext")
+
+        fun isValidHeader(bytes: ByteArray): Boolean {
+            if (bytes.size < 4) return false
+            // Check PDF magic bytes (%PDF- / 0x25 0x50 0x44 0x46)
+            val isPdfHeader = bytes[0] == 0x25.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x44.toByte() && bytes[3] == 0x46.toByte()
+            // Check JPEG magic bytes (0xFF 0xD8 0xFF)
+            val isJpegHeader = bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()
+            return isPdfHeader || isJpegHeader
+        }
 
         if (cacheFile.exists() && cacheFile.length() > 0) {
-            // Validate cached file isn't corrupted (check JPEG magic bytes)
             val cachedBytes = cacheFile.readBytes()
-            if (cachedBytes.size >= 3 &&
-                cachedBytes[0] == 0xFF.toByte() &&
-                cachedBytes[1] == 0xD8.toByte() &&
-                cachedBytes[2] == 0xFF.toByte()
-            ) {
+            if (isValidHeader(cachedBytes)) {
                 return@withContext Uri.fromFile(cacheFile)
             } else {
                 android.util.Log.w("AttachmentDownloader", "Cached file is corrupted, deleting and re-fetching")
@@ -81,15 +87,10 @@ object AttachmentDownloader {
                     val downloadedBytes = connection.inputStream.use { it.readBytes() }
                     val decryptedBytes = com.splitsmith.app.data.CloudinaryManager.xorTransform(downloadedBytes, userId)
 
-                    // Verify decrypted output is a valid JPEG before caching
-                    if (decryptedBytes.size >= 3 &&
-                        decryptedBytes[0] == 0xFF.toByte() &&
-                        decryptedBytes[1] == 0xD8.toByte() &&
-                        decryptedBytes[2] == 0xFF.toByte()
-                    ) {
+                    if (isValidHeader(decryptedBytes)) {
                         FileOutputStream(cacheFile).use { it.write(decryptedBytes) }
                     } else {
-                        android.util.Log.e("AttachmentDownloader", "Decrypted data is not a valid JPEG — likely wrong decryption key (userId=$userId). Skipping cache.")
+                        android.util.Log.e("AttachmentDownloader", "Decrypted data is invalid (wrong key userId=$userId). Skipping cache.")
                         return@withContext null
                     }
                 } else {

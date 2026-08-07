@@ -142,11 +142,13 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             if (!code.isNullOrEmpty()) {
                 com.splitsmith.app.data.FirebaseManager.pendingGroupJoinCode = code
             }
+            intent.action = null
         } else if (intent.action == android.content.Intent.ACTION_SEND && intent.type?.startsWith("image/") == true) {
             val uri = intent.getParcelableExtra<android.net.Uri>(android.content.Intent.EXTRA_STREAM)
             if (uri != null) {
                 com.splitsmith.app.data.FirebaseManager.sharedImageUri = uri
             }
+            intent.action = null // Clear to prevent re-processing on activity recreate
         }
     }
 }

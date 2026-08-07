@@ -80,9 +80,23 @@ object CloudinaryManager {
         try {
             init(context)
             
-            // 1. Create a compressed temporary file to strip EXIF and minimize payload
-            val compressedFile = createCompressedTempFile(context, imageUri)
-                ?: return@withContext Result.failure(Exception("Failed to process image file"))
+            val isPdf = com.splitsmith.app.util.AttachmentCompressor.isPdfUri(context, imageUri)
+            val compressedFile: File = if (isPdf) {
+                // High-density 2048px / 85% JPEG compression for PDFs & digital invoices
+                com.splitsmith.app.util.AttachmentCompressor.compressPdf(context, imageUri, maxDimension = 2048, quality = 85)
+                    ?: run {
+                        // Fallback: copy raw PDF stream directly
+                        val tempPdf = File.createTempFile("raw_pdf_", ".pdf", context.cacheDir)
+                        context.contentResolver.openInputStream(imageUri)?.use { input ->
+                            FileOutputStream(tempPdf).use { output -> input.copyTo(output) }
+                        }
+                        if (tempPdf.exists() && tempPdf.length() > 0) tempPdf else null
+                    }
+                    ?: return@withContext Result.failure(Exception("Failed to process PDF file"))
+            } else {
+                createCompressedTempFile(context, imageUri)
+                    ?: return@withContext Result.failure(Exception("Failed to process image file"))
+            }
 
             // 2. XOR byte encryption to protect file privacy on Cloudinary
             val rawBytes = compressedFile.readBytes()
@@ -92,7 +106,8 @@ object CloudinaryManager {
             FileOutputStream(encFile).use { it.write(encBytes) }
 
             val cleanCategory = category.trim().lowercase().replace(Regex("[^a-z0-9]"), "").ifEmpty { "general" }
-            val securePublicId = "receipts/$userId/$cleanCategory/${UUID.randomUUID()}.enc"
+            val fileSuffix = if (isPdf) ".pdf.enc" else ".enc"
+            val securePublicId = "receipts/$userId/$cleanCategory/${UUID.randomUUID()}$fileSuffix"
 
             // 3. Execute upload via Cloudinary SDK
             suspendCancellableCoroutine { continuation ->

@@ -54,6 +54,9 @@ import com.splitsmith.app.theme.JetBrainsMonoFamily
 import com.splitsmith.app.theme.LocalDimens
 import com.splitsmith.app.theme.LocalSplitColors
 import com.splitsmith.app.theme.OutfitFamily
+import com.splitsmith.app.data.Settlement
+import com.splitsmith.app.data.UserProfile
+import com.splitsmith.app.util.formatCurrency
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -124,7 +127,7 @@ fun GroupDetailScreen(
         val membersList = currentGroup?.members?.keys?.toList() ?: emptyList()
         DebtSolver.calculateNetBalances(membersList, expenses, settlements)
     }
-    val debts = remember(netBalances) { DebtSolver.resolveDebts(netBalances) }
+    val debts = remember(expenses, settlements) { DebtSolver.calculatePeerDebts(expenses, settlements) }
 
     val colors = LocalSplitColors.current
     val canvasChalk   = colors.canvasChalk
@@ -409,8 +412,8 @@ fun GroupDetailScreen(
 
                 val myNetBalance = remember(netBalances) { netBalances[myUid] ?: 0.0 }
                 val netText = when {
-                    myNetBalance > 0.01  -> "You are owed \u20b9${"%.0f".format(myNetBalance)}"
-                    myNetBalance < -0.01 -> "You owe \u20b9${"%.0f".format(-myNetBalance)}"
+                    myNetBalance > 0.01  -> "You are owed \u20b9${myNetBalance.formatCurrency()}"
+                    myNetBalance < -0.01 -> "You owe \u20b9${(-myNetBalance).formatCurrency()}"
                     else                 -> "Settled up"
                 }
                 val netColor = when {
@@ -438,7 +441,7 @@ fun GroupDetailScreen(
                                 color = inkMuted
                             )
                             Text(
-                                text = "\u20b9${"%.0f".format(totalGroupSpend)}",
+                                text = "\u20b9${totalGroupSpend.formatCurrency()}",
                                 fontFamily = JetBrainsMonoFamily,
                                 fontSize = d.textLabelMedium,
                                 fontWeight = FontWeight.Bold,
@@ -469,7 +472,7 @@ fun GroupDetailScreen(
                             )
                             val remainingGroupBudget = groupBudgetLimit - totalGroupSpend
                             Text(
-                                text = if (remainingGroupBudget >= 0) "₹${"%.0f".format(remainingGroupBudget)} left" else "Overspent: ₹${"%.0f".format(-remainingGroupBudget)}",
+                                text = if (remainingGroupBudget >= 0) "₹${remainingGroupBudget.formatCurrency()} left" else "Overspent: ₹${(-remainingGroupBudget).formatCurrency()}",
                                 fontFamily = JetBrainsMonoFamily,
                                 fontSize = d.textLabelSmall,
                                 fontWeight = if (remainingGroupBudget < 0) FontWeight.Bold else FontWeight.Normal,
@@ -1133,7 +1136,7 @@ private fun StyledSettingsTab(
     }
 
     val qrBitmap = remember(group.id) {
-        generateQRCodeBitmap(group.id, 512)
+        generateQRCodeBitmap("splitsmith://join?code=${group.id}", 512)
     }
 
     if (showLeaveConfirm) {
@@ -1426,7 +1429,7 @@ private fun StyledSettingsTab(
                 "EVENT" -> "Event / Trip"
                 else -> "Monthly"
             }
-            val valueText = if (isBudgetSet) "₹${"%.0f".format(currentBudget.limit)} ($typeDisplay)" else "Not set"
+            val valueText = if (isBudgetSet) "₹${currentBudget.limit.formatCurrency()} ($typeDisplay)" else "Not set"
 
             Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
                 Text(
@@ -2101,14 +2104,11 @@ private fun StyledSettingsTab(
                         isAdding = true
                         coroutineScope.launch {
                             try {
-                                val resolved = if (memberInput.contains("@")) {
-                                    FirebaseManager.searchUserByEmail(memberInput.trim())
-                                } else {
-                                    FirebaseManager.searchUserByCode(memberInput.trim())
-                                }
+                                val resolved = FirebaseManager.searchUserByEmail(memberInput.trim())
+                                    ?: FirebaseManager.searchUserByCode(memberInput.trim())
                                 if (resolved != null) {
-                                    FirebaseManager.addMemberToGroup(group.id, resolved.uid)
-                                    Toast.makeText(context, "Added ${resolved.displayName} to group!", Toast.LENGTH_SHORT).show()
+                                    FirebaseManager.inviteUserToGroup(group.id, resolved.uid)
+                                    Toast.makeText(context, "Invitation sent to ${resolved.displayName}!", Toast.LENGTH_SHORT).show()
                                     memberInput = ""
                                 } else {
                                     Toast.makeText(context, "User not found", Toast.LENGTH_SHORT).show()
@@ -2141,7 +2141,7 @@ private fun StyledSettingsTab(
                     val currentUserId = FirebaseManager.currentUserId ?: ""
                     val myNet = netBalancesMap[currentUserId] ?: 0.0
                     if (kotlin.math.abs(myNet) > 0.01) {
-                        val netStr = if (myNet > 0) "you are owed \u20b9${"%.0f".format(myNet)}" else "you owe \u20b9${"%.0f".format(-myNet)}"
+                        val netStr = if (myNet > 0) "you are owed \u20b9${myNet.formatCurrency()}" else "you owe \u20b9${(-myNet).formatCurrency()}"
                         Toast.makeText(context, "Cannot leave group while $netStr. Please settle up first!", Toast.LENGTH_LONG).show()
                     } else {
                         showLeaveConfirm = true
@@ -2370,7 +2370,7 @@ fun GroupExpenseDetailBottomSheet(
                                     amount = myShare,
                                     method = "DIRECT"
                                 )
-                                Toast.makeText(context, "Recorded settlement of \u20b9${"%.0f".format(myShare)} for your share!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Recorded settlement of \u20b9${myShare.formatCurrency()} for your share!", Toast.LENGTH_SHORT).show()
                                 onDismiss()
                             } catch (e: Exception) {
                                 Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -2381,7 +2381,7 @@ fun GroupExpenseDetailBottomSheet(
                     shape = RoundedCornerShape(d.radiusMD),
                     colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
                 ) {
-                    Text("Settle My Share (\u20b9${"%.0f".format(myShare)})", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold)
+                    Text("Settle My Share (\u20b9${myShare.formatCurrency()})", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold)
                 }
             }
         }

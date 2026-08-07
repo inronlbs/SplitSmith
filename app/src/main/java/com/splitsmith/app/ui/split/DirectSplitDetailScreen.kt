@@ -35,6 +35,7 @@ import com.splitsmith.app.theme.LocalSplitColors
 import com.splitsmith.app.theme.OutfitFamily
 import com.splitsmith.app.ui.components.UserAvatar
 import com.splitsmith.app.ui.components.dotGridBackground
+import com.splitsmith.app.util.formatCurrency
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -176,7 +177,7 @@ fun DirectSplitDetailScreen(
                                 onClick = {
                                     showOverflowMenu = false
                                     if (Math.abs(peerGroup.netBalance) > 0.01) {
-                                        val netStr = if (peerGroup.netBalance > 0) "$peerName owes you \u20b9${"%.0f".format(peerGroup.netBalance)}" else "You owe $peerName \u20b9${"%.0f".format(-peerGroup.netBalance)}"
+                                        val netStr = if (peerGroup.netBalance > 0) "$peerName owes you \u20b9${peerGroup.netBalance.formatCurrency()}" else "You owe $peerName \u20b9${(-peerGroup.netBalance).formatCurrency()}"
                                         Toast.makeText(context, "Cannot disconnect while $netStr. Settle up first!", Toast.LENGTH_LONG).show()
                                     } else {
                                         showDisconnectDialog = true
@@ -208,8 +209,8 @@ fun DirectSplitDetailScreen(
             // ── Net Position Banner ───────────────────────
             val net = peerGroup.netBalance
             val netText = when {
-                net > 0.01  -> "Owes you \u20b9${"%.0f".format(net)}"
-                net < -0.01 -> "You owe \u20b9${"%.0f".format(-net)}"
+                net > 0.01  -> "Owes you \u20b9${net.formatCurrency()}"
+                net < -0.01 -> "You owe \u20b9${(-net).formatCurrency()}"
                 else        -> "Settled up"
             }
             val netColor = when {
@@ -333,7 +334,7 @@ fun DirectSplitDetailScreen(
                                             ) {
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Text(split.description.ifEmpty { "1-on-1 Split" }, fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colors.inkPrimary)
-                                                    Text("Share: \u20b9${"%.0f".format(split.myShare)}", fontFamily = JetBrainsMonoFamily, fontSize = 12.sp, color = colors.inkMuted)
+                                                    Text("Share: \u20b9${split.myShare.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontSize = 12.sp, color = colors.inkMuted)
                                                 }
                                                 OutlinedButton(
                                                     onClick = {

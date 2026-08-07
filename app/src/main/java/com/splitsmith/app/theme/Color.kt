@@ -29,7 +29,7 @@ val LightSplitColors = SplitColors(
     inkMuted = Color(0xFF6A6A66),
     borderWhisper = Color(0xFFE5E5E2),
     surfaceCard = Color(0xFFFFFFFF),
-    dotColor = Color(0xFFCFCFCC),  // slightly darker than border for visible dots
+    dotColor = Color(0xFF94A3B8),  // slate-400 for crisp dot visibility
     positiveGreen = Color(0xFF16A34A),
     alertRed = Color(0xFFDC2626)
 )
@@ -40,7 +40,7 @@ val DarkSplitColors = SplitColors(
     inkMuted = Color(0xFF9E9E96),
     borderWhisper = Color(0xFF2C2C2E),
     surfaceCard = Color(0xFF1C1C1E),
-    dotColor = Color(0xFF3D3D5C),  // indigo-tinted so dots show on dark bg
+    dotColor = Color(0xFF475569),  // slate-600 so dots show on dark bg
     positiveGreen = Color(0xFF4ADE80),
     alertRed = Color(0xFFF87171)
 )

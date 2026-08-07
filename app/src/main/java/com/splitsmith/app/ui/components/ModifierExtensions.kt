@@ -15,16 +15,18 @@ fun Modifier.dotGridBackground(
     spacing: Float = 48f,
     radius: Float = 1.5f
 ): Modifier = this.drawBehind {
-    val maxFadeHeight = size.height * 0.75f
-    if (maxFadeHeight <= 0) return@drawBehind
-
     var x = 24f
     while (x < size.width) {
         var y = 24f
-        while (y < maxFadeHeight) {
-            val progress = (y / maxFadeHeight).coerceIn(0f, 1f)
-            val alphaFactor = (1f - progress) * 0.65f
-            val finalAlpha = dotColor.alpha * alphaFactor
+        while (y < size.height) {
+            // Very subtle fade near the absolute bottom, but mostly constant
+            val progress = (y / size.height).coerceIn(0f, 1f)
+            val alphaFactor = if (progress > 0.85f) {
+                1f - ((progress - 0.85f) / 0.15f)
+            } else {
+                1f
+            }
+            val finalAlpha = dotColor.alpha * alphaFactor * 0.45f
 
             drawCircle(
                 color = dotColor.copy(alpha = finalAlpha),

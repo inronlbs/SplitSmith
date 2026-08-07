@@ -147,16 +147,35 @@ fun QuickSplitScreen(
         coroutineScope.launch {
             isLoading = true
             try {
-                val cleanCode = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(payload)
-                val resolvedUser = FirebaseManager.searchUserByCode(payload)
-                    ?: (if (cleanCode.contains("@")) FirebaseManager.searchUserByEmail(cleanCode) else null)
+                val parsed = com.splitsmith.app.util.QrPayloadParser.parse(payload)
+                when (parsed) {
+                    is com.splitsmith.app.util.ParsedQrPayload.GroupQr -> {
+                        val group = FirebaseManager.getGroupOnce(parsed.groupId)
+                        if (group != null) {
+                            val uid = FirebaseManager.currentUserId
+                            if (group.members[uid] == true) {
+                                Toast.makeText(context, "Already a member of ${group.name}!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                FirebaseManager.requestToJoinGroup(parsed.groupId)
+                                Toast.makeText(context, "Join request sent to admin for ${group.name}!", Toast.LENGTH_LONG).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "Group not found or expired", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    else -> {
+                        val cleanCode = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(payload)
+                        val resolvedUser = FirebaseManager.searchUserByCode(payload)
+                            ?: FirebaseManager.searchUserByEmail(cleanCode)
 
-                if (resolvedUser != null && resolvedUser.uid.isNotEmpty()) {
-                    FirebaseManager.addConnection(resolvedUser.uid)
-                    targetUser = resolvedUser
-                    Toast.makeText(context, "Connected with ${resolvedUser.displayName}!", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "User not found or invalid QR code", Toast.LENGTH_LONG).show()
+                        if (resolvedUser != null && resolvedUser.uid.isNotEmpty()) {
+                            FirebaseManager.addConnection(resolvedUser.uid)
+                            targetUser = resolvedUser
+                            Toast.makeText(context, "Connected with ${resolvedUser.displayName}!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "User or group not found for this QR code", Toast.LENGTH_LONG).show()
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Toast.makeText(context, "Error reading QR. Please try again.", Toast.LENGTH_SHORT).show()
@@ -220,8 +239,10 @@ fun QuickSplitScreen(
     }
 
     Scaffold(
-        containerColor = canvasChalk,
-        modifier = Modifier.dotGridBackground(colors.dotColor),
+        containerColor = Color.Transparent,
+        modifier = Modifier
+            .background(canvasChalk)
+            .dotGridBackground(colors.dotColor),
         topBar = {
             TopAppBar(
                 title = { Text("Quick Split", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleLarge) },

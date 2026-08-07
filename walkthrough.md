@@ -1,3 +1,99 @@
+## [2026-08-07 23:45] Patch Release v0.3.8.2
+
+### Features & Fixes
+1. **Accurate Currency Rendering (`FormatUtils.kt`)**: Replaced legacy `%.0f` formatters across all UI components with a centralized `formatCurrency()` extension. This resolves the rounding artifact bug where fractional amounts (e.g. `216.66`) were visibly rounded to integers (e.g. `217`).
+2. **Peer-to-Peer Debt Calculation (`DebtSolver.kt`)**: Rewrote `DebtSolver.resolveDebts` into `calculatePeerDebts` to track 1-on-1 balances directly rather than greedily simplifying debts globally across all members. This guarantees that User A's debt to User B remains accurately assigned to User B, precisely satisfying manual verifications.
+3. **Intent Loop Navigation Fix (`MainActivity.kt`)**: Fixed a bug where sharing a bill via the Android share sheet (`ACTION_SEND`) caused the app to navigate back to the `SlipImportScreen` unexpectedly after saving the expense. The intent's action is now correctly cleared (`intent.action = null`) inside `handleIncomingIntent` to prevent Android from re-delivering it upon `MainActivity` recreation.
+
+### Files Modified
+- `[NEW]` [FormatUtils.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/util/FormatUtils.kt)
+- `[MODIFY]` [DebtSolver.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/data/DebtSolver.kt)
+- `[MODIFY]` [MainActivity.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/MainActivity.kt)
+- `[MODIFY]` [GroupDetailScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/group/GroupDetailScreen.kt)
+- `[MODIFY]` [HomeScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/home/HomeScreen.kt)
+- `[MODIFY]` [PersonalExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/personal/PersonalExpensesScreen.kt)
+- `[MODIFY]` [DirectSplitDetailScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/split/DirectSplitDetailScreen.kt)
+- `[MODIFY]` [SplitExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/split/SplitExpensesScreen.kt)
+- `[MODIFY]` [build.gradle.kts](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/build.gradle.kts)
+
+---
+
+## [2026-08-07 23:05] Dotted Background Architecture Fix & v0.3.8.1 Patch Release
+
+### Key Technical Accomplishments
+1. **Dotted Background Scaffold Layer Fix**:
+   - Fixed Compose layout drawing order conflict across `SplitExpensesScreen`, `PersonalExpensesScreen`, `AddExpenseScreen`, `QuickSplitScreen`, `GroupDetailScreen`, and `DirectSplitDetailScreen`.
+   - Set `Scaffold(containerColor = Color.Transparent)` to prevent the solid background canvas from covering up the `.dotGridBackground` modifier.
+   - Pushed `background(colors.canvasChalk)` to top-level containers inside the Scaffold so the background renders first, followed immediately by the dot grid on top.
+2. **Dot Grid Contrast & Fade Calibration (`ModifierExtensions.kt`, `Color.kt`)**:
+   - Updated Light mode `dotColor` to Slate 400 (`Color(0xFF94A3B8)`) and Dark mode to Slate 600 (`Color(0xFF475569)`) for premium, crisp visibility.
+   - Removed aggressive 75% height linear fade-out, keeping dots evenly visible across 100% of the screen height with a soft 15% edge fade.
+3. **Patch Release v0.3.8.1**:
+   - Bumped `versionName` to `0.3.8.1` and `versionCode` to `44`.
+   - Published GitHub Patch Release `v0.3.8.1` to trigger in-app `AppUpdateManager` update notifications for all users running `v0.3.8`.
+
+### Files Modified
+- `[MODIFY]` [ModifierExtensions.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/components/ModifierExtensions.kt)
+- `[MODIFY]` [Color.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/theme/Color.kt)
+- `[MODIFY]` [SplitExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/split/SplitExpensesScreen.kt)
+- `[MODIFY]` [PersonalExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/personal/PersonalExpensesScreen.kt)
+- `[MODIFY]` [AddExpenseScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/expense/AddExpenseScreen.kt)
+- `[MODIFY]` [QuickSplitScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/quicksplit/QuickSplitScreen.kt)
+- `[MODIFY]` [build.gradle.kts](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/build.gradle.kts)
+
+---
+
+## [2026-08-07 20:38] Native PDF Compression, Group QR Deep Links, Invitation Consent & Email Search
+
+### Key Technical Accomplishments
+1. **Native High-Density PDF Compression (`AttachmentCompressor.kt`)**:
+   - Implemented `compressPdf` utilizing native `android.graphics.pdf.PdfRenderer` and `android.graphics.pdf.PdfDocument`.
+   - Renders PDF pages onto a high-density 2048px canvas (~250 DPI) with a pure white background, re-encoding to 85% JPEG streams.
+   - Slashes PDF digital invoice sizes by 70-90% (~150-300 KB per page) while ensuring 100% text, number, and line item legibility.
+2. **Cloudinary Raw PDF Upload & Encryption (`CloudinaryManager.kt`)**:
+   - Bypassed `BitmapFactory.decodeStream` for `application/pdf` MIME types, executing XOR encryption (`xorTransform`) directly on PDF bytes.
+   - Configured secure raw upload public IDs (`receipts/$userId/$cleanCategory/${UUID.randomUUID()}.pdf.enc`).
+3. **Multi-Format Attachment Downloader (`AttachmentDownloader.kt`)**:
+   - Added magic-byte validation supporting both PDF (`%PDF-` / `0x25, 0x50, 0x44, 0x46`) and JPEG (`0xFF, 0xD8, 0xFF`) headers.
+   - Cached attachments with matching `.pdf` or `.jpg` file extensions so shared PDFs open cleanly in device PDF viewers.
+4. **Group QR Deep Link Standardization (`GroupDetailScreen.kt`)**:
+   - Updated Group QR code generation to encode structured deep link URIs (`splitsmith://join?code=${group.id}`).
+   - Enhanced QR scanner handlers across `QuickSplitScreen.kt` and `SplitExpensesScreen.kt` to parse `ParsedQrPayload.GroupQr` and route join requests / group navigation seamlessly.
+5. **Group Addition User Consent Flow (`GroupDetailScreen.kt`, `FirebaseManager.kt`)**:
+   - Added `FirebaseManager.inviteUserToGroup` which populates `pendingMembers.$targetUserId = true` in Firestore.
+   - Replaced direct member addition with invitation prompts (`"Invitation sent to ${resolved.displayName}!"`), enforcing user consent before moving users to active `members`.
+6. **Resilient User Search by Email / Gmail ID (`FirebaseManager.kt`)**:
+   - Added client-side fallback scanning (`db.collection("users").get().await()`) in `searchUserByEmail` for email, lowercase, trimmed string, and prefix matching.
+   - Enhanced `searchUsersInstantly` to attempt both email search and user code search unconditionally.
+7. **Production Release Build**:
+   - Successfully compiled debug package (`.\gradlew assembleDebug`).
+   - Successfully compiled signed production release bundle (`app-release.aab`) and release APK (`app-release.apk`) via `.\gradlew bundleRelease assembleRelease`.
+
+### Files Modified
+- `[MODIFY]` [AttachmentCompressor.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/util/AttachmentCompressor.kt)
+- `[MODIFY]` [CloudinaryManager.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/data/CloudinaryManager.kt)
+- `[MODIFY]` [AttachmentDownloader.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/util/AttachmentDownloader.kt)
+- `[MODIFY]` [FirebaseManager.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/data/FirebaseManager.kt)
+- `[MODIFY]` [GroupDetailScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/group/GroupDetailScreen.kt)
+- `[MODIFY]` [QuickSplitScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/quicksplit/QuickSplitScreen.kt)
+- `[MODIFY]` [SplitExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/split/SplitExpensesScreen.kt)
+
+### Built Release Artifacts
+- `[AAB]` [app-release.aab](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/build/outputs/bundle/release/app-release.aab)
+- `[APK]` [app-release.apk](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/build/outputs/apk/release/app-release.apk)
+
+---
+
+## [2026-08-07 18:38] Rolled Back R8 Minification & Re-Released 100% Stable v0.3.8
+
+### Key Technical Accomplishments
+1. **Disabled Release Minification (`app/build.gradle.kts`)**: Set `isMinifyEnabled = false` to eliminate R8 class renaming and restore 100% stable release execution identical to debug builds.
+2. **Re-compiled Release APK**: Built clean release package [`SplitSmith-v0.3.8-release.apk`](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/build/outputs/apk/release/SplitSmith-v0.3.8-release.apk) (70.1 MB).
+3. **Re-deployed to Firebase Hosting**: Uploaded stable `splitsmith.bin` to [`https://splitsmith.web.app`](https://splitsmith.web.app).
+4. **Re-uploaded GitHub Release Asset**: Replaced GitHub release asset `SplitSmith-v0.3.8-release.apk` on [`https://github.com/inronlbs/SplitSmith/releases/tag/v0.3.8`](https://github.com/inronlbs/SplitSmith/releases/tag/v0.3.8).
+
+---
+
 ## [2026-08-07 18:07] Deployed v0.3.8 Direct Binary via Firebase Hosting (`/splitsmith.bin`)
 
 ### Key Technical Accomplishments

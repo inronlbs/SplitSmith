@@ -1,7 +1,9 @@
 package com.splitsmith.app.ui.home
 
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import com.splitsmith.app.util.formatCurrency
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -1213,8 +1215,8 @@ fun HomeDashboardView(
                             letterSpacing = 1.5.sp
                         )
                         Text(
-                            text = if (totalDirectOwed >= 0) "₹${"%.0f".format(totalDirectOwed)}"
-                                   else "-₹${"%.0f".format(-totalDirectOwed)}",
+                            text = if (totalDirectOwed >= 0) "₹${totalDirectOwed.formatCurrency()}"
+                                   else "-₹${(-totalDirectOwed).formatCurrency()}",
                             fontFamily = JetBrainsMonoFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = 28.sp,
@@ -1270,7 +1272,7 @@ fun HomeDashboardView(
                         )
                         val remainingBudget = budgetLimit - totalPersonalSpent
                         Text(
-                            text = if (remainingBudget >= 0) "₹${"%.0f".format(remainingBudget)} left" else "Overspent: ₹${"%.0f".format(-remainingBudget)}",
+                            text = if (remainingBudget >= 0) "₹${remainingBudget.formatCurrency()} left" else "Overspent: ₹${(-remainingBudget).formatCurrency()}",
                             fontFamily = OutfitFamily,
                             fontSize = 11.sp,
                             fontWeight = if (remainingBudget < 0) FontWeight.Bold else FontWeight.Normal,

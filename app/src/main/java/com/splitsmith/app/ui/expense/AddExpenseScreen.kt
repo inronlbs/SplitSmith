@@ -229,9 +229,11 @@ fun AddExpenseScreen(
     }
 
     Scaffold(
-        containerColor = colors.canvasChalk,
+        containerColor = Color.Transparent,
+        modifier = Modifier
+            .background(colors.canvasChalk)
+            .dotGridBackground(colors.dotColor),
         contentWindowInsets = WindowInsets(0), // Clean status bar and bottom padding
-        modifier = Modifier.dotGridBackground(colors.dotColor),
         bottomBar = {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
