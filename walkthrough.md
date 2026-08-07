@@ -308,3 +308,9 @@
    - Upgraded "Scan QR" button with `Icons.Default.QrCodeScanner` icon and "Show QR" button with `Icons.Default.QrCode` icon.
 6. **Split Expenses Attachment Badges**:
    - Rendered `Icons.Default.AttachFile` attachment badge icon & count `(1)` on `DirectSplitListItem` rows in `SplitExpensesScreen` and `PersonDetailBottomSheet`.
+
+## [2026-08-08 00.39] v0.3.8.3 Release
+- Implemented 'Show full ledger' toggle in GroupDetailScreen.
+- Personal debts are shown by default to reduce cognitive overload.
+- Changed 'Simplify debts' button to 'Show full ledger'.
+- Fallback message when group has debts but user is fully settled.

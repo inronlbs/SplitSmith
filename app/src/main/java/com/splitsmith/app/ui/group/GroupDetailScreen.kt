@@ -862,6 +862,12 @@ private fun StyledBalancesTab(
     val currentUserId = FirebaseManager.currentUserId
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    var showFullLedger by remember { mutableStateOf(false) }
+
+    val displayDebts = remember(debts, showFullLedger, currentUserId) {
+        if (showFullLedger) debts else debts.filter { it.fromUser == currentUserId || it.toUser == currentUserId }
+    }
+
     val pendingRequests = remember(settlements) {
         settlements.filter { it.status == "PENDING" && it.toUser == currentUserId }
     }
@@ -928,14 +934,14 @@ private fun StyledBalancesTab(
                 Spacer(modifier = Modifier.height(d.space8))
             }
 
-            if (debts.isEmpty()) {
+            if (displayDebts.isEmpty()) {
                 item {
                     Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
-                        Text("All settled up!", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = inkMuted)
+                        Text(if (debts.isEmpty()) "All settled up!" else "You are all settled up!", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = inkMuted)
                     }
                 }
             } else {
-                items(debts) { debt ->
+                items(displayDebts) { debt ->
                     val debtorName = userNames[debt.fromUser] ?: "Debtor"
                     val creditorName = userNames[debt.toUser] ?: "Creditor"
                     val isPayer = debt.fromUser == currentUserId
@@ -1075,11 +1081,11 @@ private fun StyledBalancesTab(
             ) {
                 Button(
                     onClick = {
-                        val myDebt = debts.find { it.fromUser == currentUserId } ?: debts.firstOrNull()
+                        val myDebt = debts.find { it.fromUser == currentUserId }
                         if (myDebt != null) {
                             onSettleClick(myDebt)
                         } else {
-                            Toast.makeText(context, "No outstanding debts to settle!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "You have no outstanding debts to settle!", Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
@@ -1089,11 +1095,9 @@ private fun StyledBalancesTab(
                     Text("Settle Up", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge, color = colors.canvasChalk)
                 }
                 TextButton(
-                    onClick = {
-                        Toast.makeText(context, "Debts are automatically simplified using graph optimization.", Toast.LENGTH_LONG).show()
-                    }
+                    onClick = { showFullLedger = !showFullLedger }
                 ) {
-                    Text("Simplify Debts", fontFamily = OutfitFamily, fontSize = d.textLabelLarge, color = accentIndigo)
+                    Text(if (showFullLedger) "Hide full ledger" else "Show full ledger", fontFamily = OutfitFamily, fontSize = d.textLabelLarge, color = accentIndigo)
                 }
             }
         }
