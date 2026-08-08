@@ -97,6 +97,9 @@ fun MainNavigation() {
                     onNavigateToAddExpense = { gid, eid ->
                         backStack.add(AddExpense(gid, eid))
                     },
+                    onNavigateToQuickSplit = {
+                        backStack.add(QuickSplit)
+                    },
                     onNavigateToReports = { gId ->
                         backStack.add(ReportsScreenKey(initialGroupId = gId))
                     }

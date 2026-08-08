@@ -76,11 +76,13 @@ fun GroupDetailScreen(
     groupId: String,
     onBack: () -> Unit,
     onNavigateToAddExpense: (groupId: String, expenseId: String?) -> Unit,
+    onNavigateToQuickSplit: (() -> Unit)? = null,
     onNavigateToReports: ((String) -> Unit)? = null
 ) {
     val d = LocalDimens.current
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     var selectedDebtForSettlement by remember { mutableStateOf<Debt?>(null) }
+    var selectedMemberForModal by remember { mutableStateOf<UserProfile?>(null) }
     var userNamesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var memberProfilesMap by remember { mutableStateOf<Map<String, UserProfile>>(emptyMap()) }
     var showSettingsSheet by remember { mutableStateOf(false) }
@@ -429,11 +431,20 @@ fun GroupDetailScreen(
                     items(approvedMemberUids) { uid ->
                         val profile = memberProfilesMap[uid]
                         val displayName = userNamesMap[uid] ?: "User"
-                        UserAvatar(
-                            avatarUrl = profile?.avatarUrl ?: "",
-                            displayName = displayName,
-                            size = d.avatarMd
-                        )
+                        Surface(
+                            onClick = {
+                                val resolved = profile?.copy(displayName = displayName) ?: UserProfile(uid = uid, displayName = displayName)
+                                selectedMemberForModal = resolved
+                            },
+                            shape = CircleShape,
+                            color = Color.Transparent
+                        ) {
+                            UserAvatar(
+                                avatarUrl = profile?.avatarUrl ?: "",
+                                displayName = displayName,
+                                size = d.avatarMd
+                            )
+                        }
                     }
                 }
 
@@ -683,6 +694,10 @@ fun GroupDetailScreen(
                     onNavigateToReports = { gId ->
                         showSettingsSheet = false
                         onNavigateToReports?.invoke(gId)
+                    },
+                    onSelectMember = { profile ->
+                        showSettingsSheet = false
+                        selectedMemberForModal = profile
                     }
                 )
             }
@@ -890,6 +905,146 @@ fun GroupDetailScreen(
                     }
                 }
             )
+        }
+    }
+
+    if (selectedMemberForModal != null) {
+        val member = selectedMemberForModal!!
+        val isCurrent = member.uid == currentUserId
+        val connectionsState = FirebaseManager.observeConnections().collectAsState(initial = emptyList())
+        val isConnected = connectionsState.value.any { it.uid == member.uid }
+        val memberNetBalance = netBalances[member.uid] ?: 0.0
+
+        ModalBottomSheet(
+            onDismissRequest = { selectedMemberForModal = null },
+            containerColor = colors.surfaceCard,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = colors.borderWhisper) }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = d.space24, vertical = d.space16),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(d.space16)
+            ) {
+                UserAvatar(
+                    avatarUrl = member.avatarUrl,
+                    displayName = member.displayName,
+                    size = 64.dp,
+                    uid = member.uid
+                )
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = if (isCurrent) "${member.displayName} (You)" else member.displayName,
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = d.textTitleLarge,
+                        color = colors.inkPrimary
+                    )
+                    if (member.email.isNotBlank()) {
+                        Text(text = member.email, fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkMuted)
+                    }
+                    if (member.shortCode.isNotBlank()) {
+                        Text(text = "Code: ${member.shortCode}", fontFamily = JetBrainsMonoFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
+                    }
+                }
+
+                val balanceText = when {
+                    memberNetBalance > 0.01  -> "Owed \u20b9${memberNetBalance.formatCurrency()} in group"
+                    memberNetBalance < -0.01 -> "Owes \u20b9${(-memberNetBalance).formatCurrency()} in group"
+                    else                     -> "Settled up in group"
+                }
+                Surface(
+                    shape = RoundedCornerShape(d.radiusFull),
+                    color = colors.canvasChalk,
+                    border = BorderStroke(1.dp, colors.borderWhisper)
+                ) {
+                    Text(
+                        text = balanceText,
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = d.textLabelMedium,
+                        color = colors.inkPrimary,
+                        modifier = Modifier.padding(horizontal = d.space16, vertical = d.space8)
+                    )
+                }
+
+                if (!isCurrent) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(d.space8)
+                    ) {
+                        // Split Action
+                        Button(
+                            onClick = {
+                                FirebaseManager.pendingQuickSplitUser = member
+                                selectedMemberForModal = null
+                                onNavigateToQuickSplit?.invoke()
+                            },
+                            modifier = Modifier.weight(1f).height(d.buttonHeight),
+                            shape = RoundedCornerShape(d.radiusMD),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
+                        ) {
+                            Text("Split", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelLarge)
+                        }
+
+                        // Settle Action
+                        OutlinedButton(
+                            onClick = {
+                                val myUid = currentUserId ?: ""
+                                val myNet = netBalances[myUid] ?: 0.0
+                                if (myNet < -0.01 && memberNetBalance > 0.01) {
+                                    val settleAmt = Math.min(-myNet, memberNetBalance)
+                                    selectedDebtForSettlement = Debt(fromUser = myUid, toUser = member.uid, amount = settleAmt)
+                                } else if (myNet > 0.01 && memberNetBalance < -0.01) {
+                                    val settleAmt = Math.min(myNet, -memberNetBalance)
+                                    selectedDebtForSettlement = Debt(fromUser = member.uid, toUser = myUid, amount = settleAmt)
+                                } else {
+                                    Toast.makeText(context, "No outstanding balance to settle with ${member.displayName}", Toast.LENGTH_SHORT).show()
+                                }
+                                selectedMemberForModal = null
+                            },
+                            modifier = Modifier.weight(1f).height(d.buttonHeight),
+                            shape = RoundedCornerShape(d.radiusMD),
+                            border = BorderStroke(1.dp, colors.borderWhisper)
+                        ) {
+                            Text("Settle", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelLarge, color = colors.inkPrimary)
+                        }
+
+                        // Connect Action
+                        OutlinedButton(
+                            onClick = {
+                                if (!isConnected) {
+                                    coroutineScope.launch {
+                                        try {
+                                            FirebaseManager.addConnection(member.uid)
+                                            Toast.makeText(context, "Connected with ${member.displayName}!", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f).height(d.buttonHeight),
+                            shape = RoundedCornerShape(d.radiusMD),
+                            border = BorderStroke(1.dp, if (isConnected) colors.borderWhisper else colors.inkPrimary)
+                        ) {
+                            Text(
+                                text = if (isConnected) "Connected" else "Connect",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = d.textLabelLarge,
+                                color = if (isConnected) colors.inkMuted else colors.inkPrimary
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1352,7 +1507,8 @@ private fun StyledSettingsTab(
     userNamesMap: Map<String, String>,
     memberProfilesMap: Map<String, UserProfile>,
     onBack: () -> Unit,
-    onNavigateToReports: ((String) -> Unit)? = null
+    onNavigateToReports: ((String) -> Unit)? = null,
+    onSelectMember: ((UserProfile) -> Unit)? = null
 ) {
     val d = LocalDimens.current
     val colors = LocalSplitColors.current
@@ -2227,7 +2383,12 @@ private fun StyledSettingsTab(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = d.rowHeightSm),
+                    .heightIn(min = d.rowHeightSm)
+                    .clickable {
+                        val profile = memberProfilesMap[uid]
+                        val resolved = profile?.copy(displayName = memberName) ?: UserProfile(uid = uid, displayName = memberName)
+                        onSelectMember?.invoke(resolved)
+                    },
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val profile = memberProfilesMap[uid]
