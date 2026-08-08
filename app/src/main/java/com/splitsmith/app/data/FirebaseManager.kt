@@ -526,20 +526,40 @@ object FirebaseManager {
     }
 
     // SETTLEMENT ACTIONS
-    suspend fun addSettlement(groupId: String, toUser: String, amount: Double, method: String, upiRef: String = "") {
-        val uid = currentUserId ?: return
+    suspend fun addSettlement(
+        groupId: String,
+        toUser: String,
+        amount: Double,
+        method: String,
+        upiRef: String = "",
+        receiptUrl: String = "",
+        receiptUrls: List<String> = emptyList()
+    ): String {
+        val uid = currentUserId ?: return ""
         val settlementRef = db.collection("groups").document(groupId).collection("settlements").document()
+        val finalUrls = if (receiptUrls.isNotEmpty()) receiptUrls else if (receiptUrl.isNotBlank()) listOf(receiptUrl) else emptyList()
         val settlement = Settlement(
             id = settlementRef.id,
             fromUser = uid,
             toUser = toUser,
             amount = amount,
             method = method,
-            status = if (method == "UPI") "CONFIRMED" else "PENDING",
+            status = "PENDING",
             upiRef = upiRef,
-            timestamp = System.currentTimeMillis()
+            timestamp = System.currentTimeMillis(),
+            receiptUrl = finalUrls.firstOrNull() ?: "",
+            receiptUrls = finalUrls
         )
         settlementRef.set(settlement).await()
+        return settlementRef.id
+    }
+
+    suspend fun attachSettlementReceipt(groupId: String, settlementId: String, receiptUrl: String) {
+        db.collection("groups").document(groupId).collection("settlements").document(settlementId)
+            .update(mapOf(
+                "receiptUrl" to receiptUrl,
+                "receiptUrls" to listOf(receiptUrl)
+            )).await()
     }
 
     suspend fun approveSettlement(groupId: String, settlementId: String) {

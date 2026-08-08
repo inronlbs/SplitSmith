@@ -24,8 +24,8 @@ android {
         applicationId = "com.splitsmith.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 48
-        versionName = "0.3.8.5"
+        versionCode = 49
+        versionName = "0.3.8.6"
 
         buildConfigField("String", "CLOUDINARY_API_KEY", "\"$cloudinaryApiKey\"")
         buildConfigField("String", "CLOUDINARY_API_SECRET", "\"$cloudinaryApiSecret\"")

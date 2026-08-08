@@ -87,8 +87,41 @@ fun GroupDetailScreen(
     var expenseToDelete by remember { mutableStateOf<Expense?>(null) }
     var pendingConfirmUpiSettlement by remember { mutableStateOf<Debt?>(null) }
 
+    var selectedSettlementProofUri by remember { mutableStateOf<Uri?>(null) }
+    var isUploadingSettlementProof by remember { mutableStateOf(false) }
+    var selectedReceiptUrlForPreview by remember { mutableStateOf<String?>(null) }
+    var targetPendingSettlementForProof by remember { mutableStateOf<Settlement?>(null) }
+
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    val settlementProofPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        selectedSettlementProofUri = uri
+    }
+
+    val pendingProofPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        val s = targetPendingSettlementForProof
+        if (uri != null && s != null) {
+            coroutineScope.launch {
+                try {
+                    isUploadingSettlementProof = true
+                    val uploadResult = CloudinaryManager.uploadReceipt(context, uri, FirebaseManager.currentUserId ?: "user", "settlements")
+                    val uploadedUrl = uploadResult.getOrThrow()
+                    FirebaseManager.attachSettlementReceipt(groupId, s.id, uploadedUrl)
+                    Toast.makeText(context, "Payment proof attached!", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Error uploading proof: ${e.message}", Toast.LENGTH_LONG).show()
+                } finally {
+                    isUploadingSettlementProof = false
+                    targetPendingSettlementForProof = null
+                }
+            }
+        }
+    }
 
     val groupFlow = remember(groupId) { FirebaseManager.observeGroup(groupId) }
     val expensesFlow = remember(groupId) { FirebaseManager.observeExpenses(groupId) }
@@ -661,7 +694,10 @@ fun GroupDetailScreen(
             val fromName = userNamesMap[debt.fromUser] ?: "User"
             val toName   = userNamesMap[debt.toUser]   ?: "User"
 
-            ModalBottomSheet(onDismissRequest = { selectedDebtForSettlement = null }) {
+            ModalBottomSheet(onDismissRequest = {
+                selectedDebtForSettlement = null
+                selectedSettlementProofUri = null
+            }) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -670,7 +706,48 @@ fun GroupDetailScreen(
                     verticalArrangement = Arrangement.spacedBy(d.space16)
                 ) {
                     Text("Settle Balance", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.inkPrimary)
-                    Text("$fromName owes $toName \u20b9${debt.amount}", fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = colors.inkMuted)
+                    Text("$fromName owes $toName \u20b9${debt.amount.formatCurrency()}", fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = colors.inkMuted)
+
+                    // Optional Payment Proof Attachment Card
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(d.radiusMD))
+                            .background(colors.borderWhisper.copy(alpha = 0.2f))
+                            .padding(d.space12)
+                    ) {
+                        Text("Payment Proof / Receipt (Optional)", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelMedium, color = colors.inkPrimary)
+                        Spacer(modifier = Modifier.height(d.space8))
+                        if (selectedSettlementProofUri != null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space8)) {
+                                    Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = colors.inkPrimary, modifier = Modifier.size(20.dp))
+                                    Text("Screenshot Selected", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkPrimary)
+                                }
+                                IconButton(onClick = { selectedSettlementProofUri = null }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Remove", tint = colors.alertRed)
+                                }
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = {
+                                    settlementProofPicker.launch(
+                                        androidx.activity.result.PickVisualMediaRequest(
+                                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                        )
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(d.radiusMD)
+                            ) {
+                                Text("📷 Attach Payment Proof / Screenshot", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkPrimary)
+                            }
+                        }
+                    }
 
                     Button(
                         onClick = {
@@ -696,24 +773,40 @@ fun GroupDetailScreen(
                         modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
                         shape = RoundedCornerShape(d.radiusMD),
                         colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
-                    ) { Text("Pay via UPI", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge) }
+                    ) { Text("Pay via UPI App", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge) }
 
                     OutlinedButton(
                         onClick = {
                             coroutineScope.launch {
                                 try {
-                                    FirebaseManager.addSettlement(groupId, debt.toUser, debt.amount, "CASH")
-                                    Toast.makeText(context, "Cash request sent.", Toast.LENGTH_LONG).show()
-                                    selectedDebtForSettlement = null
+                                    isUploadingSettlementProof = true
+                                    var proofUrl = ""
+                                    selectedSettlementProofUri?.let { uri ->
+                                        val uploadRes = CloudinaryManager.uploadReceipt(context, uri, currentUserId ?: "user", "settlements")
+                                        proofUrl = uploadRes.getOrDefault("")
+                                    }
+                                    FirebaseManager.addSettlement(groupId, debt.toUser, debt.amount, "CASH", receiptUrl = proofUrl)
+                                    Toast.makeText(context, "Cash settlement request sent. Awaiting creditor confirmation.", Toast.LENGTH_LONG).show()
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                } finally {
+                                    isUploadingSettlementProof = false
+                                    selectedSettlementProofUri = null
+                                    selectedDebtForSettlement = null
                                 }
                             }
                         },
                         modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
                         shape = RoundedCornerShape(d.radiusMD),
+                        enabled = !isUploadingSettlementProof,
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.inkPrimary)
-                    ) { Text("Mark Paid in Cash", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge) }
+                    ) {
+                        if (isUploadingSettlementProof) {
+                            CircularProgressIndicator(color = colors.inkPrimary, modifier = Modifier.size(20.dp))
+                        } else {
+                            Text("Mark Paid in Cash", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
+                        }
+                    }
                 }
             }
         }
@@ -722,34 +815,78 @@ fun GroupDetailScreen(
             val debt = pendingConfirmUpiSettlement!!
             val toName = userNamesMap[debt.toUser] ?: "User"
             AlertDialog(
-                onDismissRequest = { pendingConfirmUpiSettlement = null },
+                onDismissRequest = {
+                    pendingConfirmUpiSettlement = null
+                    selectedSettlementProofUri = null
+                },
                 containerColor = colors.surfaceCard,
                 title = { Text("Confirm UPI Payment", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.inkPrimary) },
                 text = {
-                    Text("Did your payment of \u20b9${debt.amount} to $toName complete successfully in your UPI app?", fontFamily = OutfitFamily, color = colors.inkMuted)
+                    Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                        Text("Did your payment of \u20b9${debt.amount.formatCurrency()} to $toName complete successfully in your UPI app?", fontFamily = OutfitFamily, color = colors.inkMuted)
+
+                        if (selectedSettlementProofUri != null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = d.space4),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("✓ Proof attached", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelMedium, color = colors.inkPrimary)
+                                TextButton(onClick = { selectedSettlementProofUri = null }) {
+                                    Text("Remove", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.alertRed)
+                                }
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = {
+                                    settlementProofPicker.launch(
+                                        androidx.activity.result.PickVisualMediaRequest(
+                                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                        )
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(top = d.space4),
+                                shape = RoundedCornerShape(d.radiusMD)
+                            ) {
+                                Text("📷 Attach GPay / PhonePe Screenshot", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkPrimary)
+                            }
+                        }
+                    }
                 },
                 confirmButton = {
                     Button(
                         onClick = {
                             coroutineScope.launch {
                                 try {
-                                    FirebaseManager.addSettlement(groupId, debt.toUser, debt.amount, "UPI", "UPI_REF_AUTO")
-                                    Toast.makeText(context, "Settlement recorded!", Toast.LENGTH_SHORT).show()
+                                    isUploadingSettlementProof = true
+                                    var proofUrl = ""
+                                    selectedSettlementProofUri?.let { uri ->
+                                        val uploadRes = CloudinaryManager.uploadReceipt(context, uri, currentUserId ?: "user", "settlements")
+                                        proofUrl = uploadRes.getOrDefault("")
+                                    }
+                                    FirebaseManager.addSettlement(groupId, debt.toUser, debt.amount, "UPI", "UPI_REF_AUTO", receiptUrl = proofUrl)
+                                    Toast.makeText(context, "UPI payment recorded. Pending creditor confirmation.", Toast.LENGTH_SHORT).show()
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                                 } finally {
+                                    isUploadingSettlementProof = false
+                                    selectedSettlementProofUri = null
                                     pendingConfirmUpiSettlement = null
                                 }
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk),
+                        enabled = !isUploadingSettlementProof
                     ) {
-                        Text("Yes, Payment Complete", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold)
+                        Text(if (isUploadingSettlementProof) "Saving..." else "Yes, Submit Request", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold)
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { pendingConfirmUpiSettlement = null }) {
-                        Text("No / Cancelled", fontFamily = OutfitFamily, color = colors.inkMuted)
+                    TextButton(onClick = {
+                        pendingConfirmUpiSettlement = null
+                        selectedSettlementProofUri = null
+                    }) {
+                        Text("Cancel", fontFamily = OutfitFamily, color = colors.inkMuted)
                     }
                 }
             )
@@ -863,13 +1000,35 @@ private fun StyledBalancesTab(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     var showFullLedger by remember { mutableStateOf(false) }
+    var selectedReceiptUrlForPreview by remember { mutableStateOf<String?>(null) }
+    var targetPendingSettlementForProof by remember { mutableStateOf<Settlement?>(null) }
+
+    val pendingProofPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        val s = targetPendingSettlementForProof
+        if (uri != null && s != null) {
+            coroutineScope.launch {
+                try {
+                    val uploadResult = CloudinaryManager.uploadReceipt(context, uri, currentUserId ?: "user", "settlements")
+                    val uploadedUrl = uploadResult.getOrThrow()
+                    FirebaseManager.attachSettlementReceipt(groupId, s.id, uploadedUrl)
+                    Toast.makeText(context, "Payment proof attached!", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Error uploading proof: ${e.message}", Toast.LENGTH_LONG).show()
+                } finally {
+                    targetPendingSettlementForProof = null
+                }
+            }
+        }
+    }
 
     val displayDebts = remember(debts, showFullLedger, currentUserId) {
         if (showFullLedger) debts else debts.filter { it.fromUser == currentUserId || it.toUser == currentUserId }
     }
 
-    val pendingRequests = remember(settlements) {
-        settlements.filter { it.status == "PENDING" && it.toUser == currentUserId }
+    val pendingRequests = remember(settlements, currentUserId) {
+        settlements.filter { it.status == "PENDING" && (it.toUser == currentUserId || it.fromUser == currentUserId) }
     }
     val confirmedSettlements = remember(settlements) {
         settlements.filter { it.status == "CONFIRMED" }
@@ -884,45 +1043,105 @@ private fun StyledBalancesTab(
             // Pending confirmations
             if (pendingRequests.isNotEmpty()) {
                 item {
-                    Text("Pending Cash Confirmations", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold,
+                    Text("Pending Confirmations", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold,
                         fontSize = d.textLabelLarge, color = inkPrimary)
                     Spacer(modifier = Modifier.height(d.space8))
                 }
                 items(pendingRequests) { req ->
-                    val payerName = userNames[req.fromUser] ?: "Payer"
-                    val payerProfile = memberProfilesMap[req.fromUser]
+                    val isCreditor = req.toUser == currentUserId
+                    val otherUid = if (isCreditor) req.fromUser else req.toUser
+                    val otherName = userNames[otherUid] ?: "Member"
+                    val otherProfile = memberProfilesMap[otherUid]
+                    val methodLabel = if (req.method == "UPI") "UPI" else if (req.method == "DIRECT") "Direct" else "Cash"
+                    val subtitleText = if (isCreditor) {
+                        "$otherName says they paid via $methodLabel"
+                    } else {
+                        "You requested settlement ($methodLabel). Waiting for $otherName to confirm."
+                    }
+                    val effectiveProof = req.receiptUrl.ifBlank { req.receiptUrls.firstOrNull() ?: "" }
+
                     Surface(
                         modifier = Modifier.fillMaxWidth().padding(bottom = d.space8),
                         shape = RoundedCornerShape(d.radiusLG),
                         color = borderWhisper.copy(alpha = 0.3f)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(d.space16),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space12)) {
-                                UserAvatar(avatarUrl = payerProfile?.avatarUrl ?: "", displayName = payerName, size = d.avatarSm)
-                                Column {
-                                    Text("$payerName says they paid cash", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textBodyLarge, color = inkPrimary)
-                                    Text("\u20b9${req.amount}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyMedium, color = inkMuted)
+                        Column(modifier = Modifier.fillMaxWidth().padding(d.space16)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space12)) {
+                                    UserAvatar(avatarUrl = otherProfile?.avatarUrl ?: "", displayName = otherName, size = d.avatarSm)
+                                    Column {
+                                        Text(subtitleText, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textBodyLarge, color = inkPrimary)
+                                        Text("\u20b9${req.amount.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyMedium, color = inkMuted)
+                                    }
+                                }
+
+                                if (isCreditor) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(d.space4)) {
+                                        IconButton(onClick = {
+                                            coroutineScope.launch {
+                                                try {
+                                                    FirebaseManager.approveSettlement(groupId, req.id)
+                                                    Toast.makeText(context, "Confirmed!", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) { Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show() }
+                                            }
+                                        }) { Icon(Icons.Default.Check, contentDescription = "Approve", tint = inkPrimary) }
+                                        IconButton(onClick = {
+                                            coroutineScope.launch {
+                                                try {
+                                                    FirebaseManager.declineSettlement(groupId, req.id)
+                                                    Toast.makeText(context, "Declined", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) { Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show() }
+                                            }
+                                        }) { Icon(Icons.Default.Clear, contentDescription = "Decline", tint = alertRed) }
+                                    }
+                                } else {
+                                    IconButton(onClick = {
+                                        coroutineScope.launch {
+                                            try {
+                                                FirebaseManager.declineSettlement(groupId, req.id)
+                                                Toast.makeText(context, "Request cancelled", Toast.LENGTH_SHORT).show()
+                                            } catch (e: Exception) { Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show() }
+                                        }
+                                    }) { Icon(Icons.Default.Clear, contentDescription = "Cancel Request", tint = inkMuted) }
                                 }
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(d.space4)) {
-                                IconButton(onClick = {
-                                    coroutineScope.launch {
-                                        try { FirebaseManager.approveSettlement(groupId, req.id)
-                                            Toast.makeText(context, "Confirmed!", Toast.LENGTH_SHORT).show()
-                                        } catch (e: Exception) { Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show() }
+
+                            if (effectiveProof.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(d.space8))
+                                Surface(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(d.radiusMD))
+                                        .clickable { selectedReceiptUrlForPreview = effectiveProof },
+                                    color = inkPrimary.copy(alpha = 0.08f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = d.space12, vertical = d.space8),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(d.space8)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = inkPrimary, modifier = Modifier.size(16.dp))
+                                        Text("🧾 Attached Payment Proof (Tap to view)", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelSmall, color = inkPrimary)
                                     }
-                                }) { Icon(Icons.Default.Check, contentDescription = "Approve", tint = inkPrimary) }
-                                IconButton(onClick = {
-                                    coroutineScope.launch {
-                                        try { FirebaseManager.declineSettlement(groupId, req.id)
-                                            Toast.makeText(context, "Declined", Toast.LENGTH_SHORT).show()
-                                        } catch (e: Exception) { Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show() }
-                                    }
-                                }) { Icon(Icons.Default.Clear, contentDescription = "Decline", tint = alertRed) }
+                                }
+                            } else if (!isCreditor) {
+                                Spacer(modifier = Modifier.height(d.space8))
+                                TextButton(
+                                    onClick = {
+                                        targetPendingSettlementForProof = req
+                                        pendingProofPicker.launch(
+                                            androidx.activity.result.PickVisualMediaRequest(
+                                                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                            )
+                                        )
+                                    },
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text("📷 Attach Payment Proof", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelSmall, color = inkPrimary)
+                                }
                             }
                         }
                     }
@@ -1029,36 +1248,36 @@ private fun StyledBalancesTab(
                                 fontFamily = OutfitFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = d.textTitleMedium,
-                                color = inkMuted
+                                color = colors.inkPrimary
                             )
-                            Text(
-                                "Via ${settlement.method} · Settled",
-                                fontFamily = OutfitFamily,
-                                fontSize = d.textLabelMedium,
-                                color = inkMuted
-                            )
+                            val methodText = if (settlement.method == "UPI") "Paid via UPI" else "Paid in cash"
+                            val proofUrl = settlement.receiptUrl.ifBlank { settlement.receiptUrls.firstOrNull() ?: "" }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = methodText,
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textLabelMedium,
+                                    color = inkMuted
+                                )
+                                if (proofUrl.isNotBlank()) {
+                                    Text(
+                                        text = "· 🧾 Proof",
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = d.textLabelMedium,
+                                        color = colors.inkPrimary,
+                                        modifier = Modifier.clickable { selectedReceiptUrlForPreview = proofUrl }
+                                    )
+                                }
+                            }
                         }
                         Text(
-                            text = "₹${settlement.amount}",
+                            text = "\u20b9${settlement.amount.formatCurrency()}",
                             fontFamily = JetBrainsMonoFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = d.textMonoLarge,
                             color = inkMuted
                         )
-                        Spacer(modifier = Modifier.width(d.space8))
-                        Surface(
-                            shape = RoundedCornerShape(d.radiusFull),
-                            color = colors.surfaceCard,
-                            border = BorderStroke(1.dp, borderWhisper)
-                        ) {
-                            Text(
-                                "Settled",
-                                fontFamily = OutfitFamily,
-                                fontSize = d.textLabelSmall,
-                                color = inkMuted,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
                     }
                     HorizontalDivider(color = borderWhisper)
                 }
@@ -1100,6 +1319,28 @@ private fun StyledBalancesTab(
                     Text(if (showFullLedger) "Hide full ledger" else "Show full ledger", fontFamily = OutfitFamily, fontSize = d.textLabelLarge, color = accentIndigo)
                 }
             }
+        }
+        
+        if (selectedReceiptUrlForPreview != null) {
+            AlertDialog(
+                onDismissRequest = { selectedReceiptUrlForPreview = null },
+                containerColor = colors.surfaceCard,
+                title = { Text("Payment Proof / Receipt", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.inkPrimary) },
+                text = {
+                    Box(modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp), contentAlignment = Alignment.Center) {
+                        coil.compose.AsyncImage(
+                            model = selectedReceiptUrlForPreview,
+                            contentDescription = "Payment Receipt Proof",
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(d.radiusMD))
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { selectedReceiptUrlForPreview = null }) {
+                        Text("Close", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.inkPrimary)
+                    }
+                }
+            )
         }
     }
 }

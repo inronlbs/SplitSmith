@@ -86,8 +86,11 @@ data class Settlement(
     val method: String = "CASH", // UPI or CASH
     val status: String = "PENDING", // PENDING or CONFIRMED
     val upiRef: String = "",
-    val timestamp: Long = 0
+    val timestamp: Long = 0,
+    val receiptUrl: String = "",
+    val receiptUrls: List<String> = emptyList()
 )
+
 
 @Keep
 @Serializable
