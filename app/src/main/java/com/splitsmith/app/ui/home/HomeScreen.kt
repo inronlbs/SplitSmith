@@ -2545,8 +2545,25 @@ fun JoinGroupDialog(
         contract = com.journeyapps.barcodescanner.ScanContract(),
         onResult = { result ->
             if (result.contents != null) {
-                groupIdInput = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(result.contents)
-                Toast.makeText(context, "Scanned Group ID!", Toast.LENGTH_SHORT).show()
+                val parsed = com.splitsmith.app.util.QrPayloadParser.parse(result.contents)
+                when (parsed) {
+                    is com.splitsmith.app.util.ParsedQrPayload.UserQr -> {
+                        coroutineScope.launch {
+                            val user = FirebaseManager.searchUserByCode(result.contents)
+                            if (user != null) {
+                                try { FirebaseManager.addConnection(user.uid) } catch (e: Exception) { }
+                                Toast.makeText(context, "Connected with ${user.getResolvedName()}!", Toast.LENGTH_SHORT).show()
+                                onDismiss()
+                            } else {
+                                Toast.makeText(context, "User code: ${parsed.userCode}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    else -> {
+                        groupIdInput = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(result.contents)
+                        Toast.makeText(context, "Scanned Group Code!", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
     )

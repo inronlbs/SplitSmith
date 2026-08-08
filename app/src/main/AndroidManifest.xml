@@ -31,6 +31,12 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="splitsmith" android:host="join" />
             </intent-filter>
+            <intent-filter android:label="Connect SplitSmith Friend">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="splitsmith" android:host="user" />
+            </intent-filter>
             <intent-filter android:autoVerify="true" android:label="Join SplitSmith Group Link">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

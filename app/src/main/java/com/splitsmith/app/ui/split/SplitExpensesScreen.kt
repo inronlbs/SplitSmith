@@ -123,7 +123,7 @@ fun SplitExpensesScreen(
         for (uid in uids) {
             val cached = FirebaseManager.getCachedUserProfile(uid)
             if (cached != null) {
-                names[uid] = cached.displayName
+                names[uid] = cached.getResolvedName()
                 upis[uid] = cached.upiId
                 avs[uid] = cached.avatarUrl
             }
@@ -132,10 +132,10 @@ fun SplitExpensesScreen(
 
         // 2. Concurrently fetch missing profiles over network
         for (uid in uids) {
-            if (!names.containsKey(uid) || names[uid].isNullOrEmpty()) {
+            if (!names.containsKey(uid) || names[uid].isNullOrEmpty() || names[uid] == "Unknown" || names[uid] == "Friend") {
                 val p = FirebaseManager.getUserProfile(uid)
                 if (p != null) {
-                    contactNames = contactNames + (uid to p.displayName)
+                    contactNames = contactNames + (uid to p.getResolvedName())
                     contactUpis = contactUpis + (uid to p.upiId)
                     contactAvatars = contactAvatars + (uid to p.avatarUrl)
                 }
@@ -149,12 +149,15 @@ fun SplitExpensesScreen(
     
     val individualPeers = remember(directSplits, contactNames, contactAvatars, contactUpis, currentUserId, searchQuery) {
         val grouped = directSplits.groupBy { split ->
-            if (split.paidBy == currentUserId) split.withUser else split.paidBy
+            val rawPeer = if (split.paidBy == currentUserId) split.withUser else split.paidBy
+            val cached = FirebaseManager.getCachedUserProfile(rawPeer)
+            cached?.uid?.ifEmpty { rawPeer } ?: rawPeer
         }
         grouped.map { (peerUid, splitsList) ->
-            val name = contactNames[peerUid] ?: "Unknown"
-            val avatar = contactAvatars[peerUid] ?: ""
-            val upi = contactUpis[peerUid] ?: ""
+            val resolvedProfile = FirebaseManager.getCachedUserProfile(peerUid)
+            val name = contactNames[peerUid] ?: resolvedProfile?.getResolvedName("Friend") ?: "Friend"
+            val avatar = contactAvatars[peerUid] ?: resolvedProfile?.avatarUrl ?: ""
+            val upi = contactUpis[peerUid] ?: resolvedProfile?.upiId ?: ""
 
             var net = 0.0
             splitsList.forEach { s ->
@@ -579,7 +582,8 @@ fun DirectSplitListItem(
             modifier = Modifier.fillMaxWidth().padding(vertical = d.space12),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            UserAvatar(avatarUrl = peerAvatar, displayName = peerName, size = d.avatarMd)
+            val peerUid = if (split.paidBy == currentUserId) split.withUser else split.paidBy
+            UserAvatar(avatarUrl = peerAvatar, displayName = peerName, size = d.avatarMd, uid = peerUid)
             Spacer(modifier = Modifier.width(d.space12))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -616,7 +620,7 @@ fun DirectSplitListItem(
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "\u20b9${split.myShare}",
+                    text = "\u20b9${split.myShare.formatCurrency()}",
                     fontFamily = JetBrainsMonoFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = d.textMonoLarge,
@@ -677,6 +681,26 @@ fun DirectSplitDetailBottomSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var showMenu by remember { mutableStateOf(false) }
+    var isUploadingProof by remember { mutableStateOf(false) }
+    var showCreditorConfirmModal by remember { mutableStateOf(false) }
+
+    val proofPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            isUploadingProof = true
+            coroutineScope.launch {
+                try {
+                    FirebaseManager.uploadAndAttachDirectSplitReceipt(context, split.id, uri)
+                    Toast.makeText(context, "Payment proof attached (WebP)!", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Failed to upload proof: ${e.message}", Toast.LENGTH_LONG).show()
+                } finally {
+                    isUploadingProof = false
+                }
+            }
+        }
+    }
 
     val paidByMe = split.paidBy == currentUserId
     val isSettled = split.status == "SETTLED"
@@ -775,7 +799,7 @@ fun DirectSplitDetailBottomSheet(
                 )
                 Spacer(modifier = Modifier.height(d.space4))
                 Text(
-                    text = "\u20b9${split.myShare}",
+                    text = "\u20b9${split.myShare.formatCurrency()}",
                     fontFamily = JetBrainsMonoFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = 36.sp,
@@ -783,7 +807,7 @@ fun DirectSplitDetailBottomSheet(
                 )
                 Spacer(modifier = Modifier.height(d.space4))
                 Text(
-                    text = "Total Bill: \u20b9${split.amount}",
+                    text = "Total Bill: \u20b9${split.amount.formatCurrency()}",
                     fontFamily = OutfitFamily,
                     fontSize = d.textLabelMedium,
                     color = colors.inkMuted
@@ -969,31 +993,125 @@ fun DirectSplitDetailBottomSheet(
                     }
                 }
 
-                // Payer waiting for receiver approval
+                // Payer waiting for receiver approval (Debtor)
                 !paidByMe && isWaitingApproval -> {
-                    Text(
-                        text = "You marked this as paid (${split.method}). Waiting for $peerName to confirm.",
-                        fontFamily = OutfitFamily,
-                        fontSize = d.textBodyMedium,
-                        color = colors.inkMuted,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = d.space12)
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(d.space12)) {
+                        Text(
+                            text = "You marked this as paid (${split.method}). Waiting for $peerName to confirm.",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textBodyMedium,
+                            color = colors.inkMuted,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Button(
+                            onClick = {
+                                proofPickerLauncher.launch(
+                                    androidx.activity.result.PickVisualMediaRequest(
+                                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                    )
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                            shape = RoundedCornerShape(d.radiusMD),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk),
+                            enabled = !isUploadingProof
+                        ) {
+                            if (isUploadingProof) {
+                                CircularProgressIndicator(color = colors.canvasChalk, modifier = Modifier.size(20.dp))
+                            } else {
+                                Text("📷 Upload Payment Proof (WebP)", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    try {
+                                        FirebaseManager.cancelDirectSplitPaymentRequest(split.id)
+                                        Toast.makeText(context, "Payment request cancelled", Toast.LENGTH_SHORT).show()
+                                        onDismiss()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                            shape = RoundedCornerShape(d.radiusMD),
+                            border = BorderStroke(1.dp, colors.borderWhisper)
+                        ) {
+                            Text("Cancel Payment Request", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge, color = colors.alertRed)
+                        }
+                    }
                 }
 
-                // Creditor waiting for debtor to pay
+                // Creditor waiting for debtor to pay (Creditor can tap Mark Received)
                 paidByMe && !isSettled -> {
-                    Text(
-                        text = "Waiting for $peerName to pay their share.",
-                        fontFamily = OutfitFamily,
-                        fontSize = d.textBodyMedium,
-                        color = colors.inkMuted,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = d.space12)
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(d.space12)) {
+                        Text(
+                            text = "Waiting for $peerName to pay their share.",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textBodyMedium,
+                            color = colors.inkMuted,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Button(
+                            onClick = { showCreditorConfirmModal = true },
+                            modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                            shape = RoundedCornerShape(d.radiusMD),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
+                        ) {
+                            Text("Mark Received ✓", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
+                        }
+                    }
                 }
             }
         }
+    }
+
+    if (showCreditorConfirmModal) {
+        AlertDialog(
+            onDismissRequest = { showCreditorConfirmModal = false },
+            containerColor = colors.surfaceCard,
+            shape = RoundedCornerShape(d.radiusLG),
+            title = { Text("Confirm Cash/Offline Receipt", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.inkPrimary) },
+            text = {
+                Text(
+                    "Did $peerName pay you \u20b9${split.myShare.formatCurrency()} in cash or outside SplitSmith for '${split.description.ifEmpty { "1-on-1 Split" }}'?",
+                    fontFamily = OutfitFamily,
+                    fontSize = d.textBodyMedium,
+                    color = colors.inkMuted
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            try {
+                                FirebaseManager.settleDirectSplit(split.id)
+                                Toast.makeText(context, "Settlement confirmed!", Toast.LENGTH_SHORT).show()
+                                showCreditorConfirmModal = false
+                                onDismiss()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk),
+                    shape = RoundedCornerShape(d.radiusSM)
+                ) {
+                    Text("Confirm Received ✓", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreditorConfirmModal = false }) {
+                    Text("Cancel", fontFamily = OutfitFamily, color = colors.inkMuted)
+                }
+            }
+        )
     }
 }
 

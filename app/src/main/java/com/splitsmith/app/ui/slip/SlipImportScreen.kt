@@ -263,6 +263,64 @@ fun SlipImportScreen(
                         android.util.Log.e("SlipImport", "Embedded QR scan failed: ${e.message}")
                     }
 
+                    if (qrPayload.isNotEmpty()) {
+                        val parsedQr = com.splitsmith.app.util.QrPayloadParser.parse(qrPayload)
+                        when (parsedQr) {
+                            is com.splitsmith.app.util.ParsedQrPayload.UserQr -> {
+                                val targetUid = parsedQr.uid
+                                val resolvedUser = FirebaseManager.searchUserByCode(qrPayload)
+                                    ?: (if (targetUid.isNotEmpty()) FirebaseManager.getUserProfile(targetUid) else null)
+
+                                withContext(Dispatchers.Main) {
+                                    if (resolvedUser != null) {
+                                        coroutineScope.launch {
+                                            try {
+                                                FirebaseManager.addConnection(resolvedUser.uid)
+                                                Toast.makeText(context, "Connected with ${resolvedUser.getResolvedName()}!", Toast.LENGTH_SHORT).show()
+                                            } catch (e: Exception) { }
+                                            onNavigateToQuickSplit()
+                                        }
+                                    } else {
+                                        Toast.makeText(context, "User code: ${parsedQr.userCode}", Toast.LENGTH_SHORT).show()
+                                        onNavigateToQuickSplit()
+                                    }
+                                }
+                                isLoading = false
+                                return@withContext
+                            }
+                            is com.splitsmith.app.util.ParsedQrPayload.GroupQr -> {
+                                val cleanGroupId = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(parsedQr.groupId)
+                                withContext(Dispatchers.Main) {
+                                    coroutineScope.launch {
+                                        try {
+                                            val group = FirebaseManager.getGroupOnce(cleanGroupId)
+                                            if (group != null) {
+                                                val uid = FirebaseManager.currentUserId
+                                                if (group.members[uid] == true) {
+                                                    Toast.makeText(context, "Already in ${group.name}!", Toast.LENGTH_SHORT).show()
+                                                    onNavigateToAddExpense(group.id, null)
+                                                } else {
+                                                    FirebaseManager.requestToJoinGroup(group.id)
+                                                    Toast.makeText(context, "Join request sent to admin for ${group.name}!", Toast.LENGTH_LONG).show()
+                                                    onBack()
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "Group not found for this QR code", Toast.LENGTH_SHORT).show()
+                                                onBack()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            onBack()
+                                        }
+                                    }
+                                }
+                                isLoading = false
+                                return@withContext
+                            }
+                            else -> { }
+                        }
+                    }
+
                     var amountParsed = ""
                     var receiverParsed = ""
                     var txnIdParsed = ""

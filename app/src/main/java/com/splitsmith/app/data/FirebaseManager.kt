@@ -18,6 +18,7 @@ object FirebaseManager {
 
     private val auth: FirebaseAuth get() = FirebaseAuth.getInstance()
     private val db: FirebaseFirestore get() = FirebaseFirestore.getInstance()
+    private val storage: com.google.firebase.storage.FirebaseStorage get() = com.google.firebase.storage.FirebaseStorage.getInstance()
 
     // Delegate transient properties to PendingExpenseHolder
     var pendingGroupJoinCode: String?
@@ -93,21 +94,30 @@ object FirebaseManager {
         val result = auth.signInWithCredential(credential).await()
         val user = result.user ?: throw RuntimeException("Google sign in failed")
         
-        // Initialize user document if not exists with resilient fallback & account linking
+        val googleDisplayName = user.displayName?.trim() ?: ""
+        val googleEmail = (user.email ?: "").trim().lowercase()
+        val resolvedName = googleDisplayName.ifEmpty { googleEmail.substringBefore("@").ifEmpty { "SplitSmith User" } }
+        val photoUrl = user.photoUrl?.toString() ?: ""
+        val generatedCode = user.uid.take(6).uppercase()
+
+        // Initialize or self-heal user document with Google credentials
         try {
             val userDoc = db.collection("users").document(user.uid).get().await()
             if (!userDoc.exists()) {
-                val userEmail = user.email?.trim()?.lowercase()
-                val emailQuery = if (!userEmail.isNullOrEmpty()) {
-                    try { db.collection("users").whereEqualTo("email", userEmail).get().await() } catch (e: Exception) { null }
+                val emailQuery = if (googleEmail.isNotEmpty()) {
+                    try { db.collection("users").whereEqualTo("email", googleEmail).get().await() } catch (e: Exception) { null }
                 } else null
 
                 if (emailQuery != null && !emailQuery.isEmpty) {
                     val oldDoc = emailQuery.documents.first()
                     val oldUid = oldDoc.id
                     val oldData = oldDoc.data ?: emptyMap()
-                    val photoUrl = user.photoUrl?.toString() ?: ""
-                    val updatedProfile = oldData + mapOf("uid" to user.uid) + (if (photoUrl.isNotEmpty()) mapOf("avatarUrl" to photoUrl) else emptyMap())
+                    val updatedProfile = oldData + mapOf(
+                        "uid" to user.uid,
+                        "displayName" to (oldDoc.getString("displayName")?.ifEmpty { null } ?: resolvedName),
+                        "avatarUrl" to (oldDoc.getString("avatarUrl")?.ifEmpty { null } ?: photoUrl),
+                        "shortCode" to (oldDoc.getString("shortCode")?.ifEmpty { null } ?: generatedCode)
+                    )
                     db.collection("users").document(user.uid).set(updatedProfile, com.google.firebase.firestore.SetOptions.merge()).await()
                     
                     // Link group memberships to new UID
@@ -120,29 +130,35 @@ object FirebaseManager {
                 } else {
                     val profile = UserProfile(
                         uid = user.uid,
-                        displayName = user.displayName ?: "SplitSmith User",
-                        email = (user.email ?: "").trim().lowercase(),
-                        avatarUrl = user.photoUrl?.toString() ?: "",
-                        shortCode = user.uid.take(6).uppercase()
+                        displayName = resolvedName,
+                        email = googleEmail,
+                        avatarUrl = photoUrl,
+                        shortCode = generatedCode
                     )
                     db.collection("users").document(user.uid).set(profile, com.google.firebase.firestore.SetOptions.merge()).await()
                 }
             } else {
-                val photoUrl = user.photoUrl?.toString() ?: ""
-                if (photoUrl.isNotEmpty()) {
-                    val existingAvatar = userDoc.getString("avatarUrl") ?: ""
-                    if (existingAvatar.isEmpty()) {
-                        db.collection("users").document(user.uid).set(mapOf("avatarUrl" to photoUrl), com.google.firebase.firestore.SetOptions.merge())
-                    }
+                // Self-heal existing profiles missing name, avatar, or shortCode
+                val existingName = userDoc.getString("displayName")?.trim() ?: ""
+                val existingAvatar = userDoc.getString("avatarUrl")?.trim() ?: ""
+                val existingCode = userDoc.getString("shortCode")?.trim() ?: ""
+
+                val updates = mutableMapOf<String, Any>("uid" to user.uid)
+                if (existingName.isEmpty()) updates["displayName"] = resolvedName
+                if (existingAvatar.isEmpty() && photoUrl.isNotEmpty()) updates["avatarUrl"] = photoUrl
+                if (existingCode.isEmpty()) updates["shortCode"] = generatedCode
+
+                if (updates.isNotEmpty()) {
+                    db.collection("users").document(user.uid).set(updates, com.google.firebase.firestore.SetOptions.merge()).await()
                 }
             }
         } catch (e: Exception) {
             val profile = UserProfile(
                 uid = user.uid,
-                displayName = user.displayName ?: "SplitSmith User",
-                email = (user.email ?: "").trim().lowercase(),
-                avatarUrl = user.photoUrl?.toString() ?: "",
-                shortCode = user.uid.take(6).uppercase()
+                displayName = resolvedName,
+                email = googleEmail,
+                avatarUrl = photoUrl,
+                shortCode = generatedCode
             )
             db.collection("users").document(user.uid).set(profile, com.google.firebase.firestore.SetOptions.merge()).await()
         }
@@ -227,13 +243,20 @@ object FirebaseManager {
     }
 
     suspend fun getUserProfile(uid: String): UserProfile? {
-        if (profileCache.containsKey(uid)) return profileCache[uid]
+        if (uid.isBlank()) return null
+        if (profileCache.containsKey(uid)) {
+            val cached = profileCache[uid]
+            if (cached != null && cached.displayName.isNotBlank()) return cached
+        }
         return try {
-            val profile = db.collection("users").document(uid).get().await().toObject(UserProfile::class.java)
-            if (profile != null) {
-                profileCache[uid] = profile
-            }
-            profile
+            val snapshot = db.collection("users").document(uid).get().await()
+            if (snapshot.exists()) {
+                val profile = snapshot.toUserProfileWithUid()
+                if (profile != null) {
+                    profileCache[uid] = profile
+                }
+                profile
+            } else null
         } catch (e: Exception) {
             null
         }
@@ -842,6 +865,56 @@ object FirebaseManager {
         db.collection("direct_splits").document(splitId).update("status", "PENDING").await()
     }
 
+    suspend fun cancelDirectSplitPaymentRequest(splitId: String) {
+        db.collection("direct_splits").document(splitId).update("status", "PENDING").await()
+    }
+
+    suspend fun uploadAndAttachDirectSplitReceipt(context: android.content.Context, splitId: String, imageUri: android.net.Uri): String {
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val inputStream = context.contentResolver.openInputStream(imageUri) ?: throw RuntimeException("Cannot open image stream")
+            val rawBitmap = android.graphics.BitmapFactory.decodeStream(inputStream) ?: throw RuntimeException("Failed to decode bitmap")
+            
+            val finalBitmap = try {
+                val exifStream = context.contentResolver.openInputStream(imageUri)
+                val exif = exifStream?.use { androidx.exifinterface.media.ExifInterface(it) }
+                val orientation = exif?.getAttributeInt(
+                    androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
+                ) ?: androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
+                val matrix = android.graphics.Matrix()
+                when (orientation) {
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                }
+                if (!matrix.isIdentity) {
+                    android.graphics.Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
+                } else rawBitmap
+            } catch (e: Exception) {
+                rawBitmap
+            }
+
+            val baos = java.io.ByteArrayOutputStream()
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                finalBitmap.compress(android.graphics.Bitmap.CompressFormat.WEBP_LOSSY, 85, baos)
+            } else {
+                @Suppress("DEPRECATION")
+                finalBitmap.compress(android.graphics.Bitmap.CompressFormat.WEBP, 85, baos)
+            }
+            val webpBytes = baos.toByteArray()
+
+            val storageRef = storage.reference.child("receipts/$splitId/${System.currentTimeMillis()}_proof.webp")
+            storageRef.putBytes(webpBytes).await()
+            val downloadUrl = storageRef.downloadUrl.await().toString()
+
+            db.collection("direct_splits").document(splitId).update(
+                mapOf("receiptUrls" to listOf(downloadUrl))
+            ).await()
+
+            downloadUrl
+        }
+    }
+
     suspend fun deleteDirectSplit(splitId: String, receiptUrls: List<String> = emptyList()) {
         receiptUrls.forEach { url ->
             if (url.contains("cloudinary")) {
@@ -859,8 +932,10 @@ object FirebaseManager {
     private fun com.google.firebase.firestore.DocumentSnapshot.toUserProfileWithUid(): UserProfile? {
         val profile = toObject(UserProfile::class.java) ?: return null
         val effectiveUid = profile.uid.ifEmpty { id }
+        val effectiveEmail = profile.email.trim()
+        val effectiveName = profile.displayName.trim().ifEmpty { effectiveEmail.substringBefore("@").ifEmpty { "Friend" } }
         val effectiveShortCode = profile.shortCode.ifEmpty { effectiveUid.take(6).uppercase() }
-        return profile.copy(uid = effectiveUid, shortCode = effectiveShortCode)
+        return profile.copy(uid = effectiveUid, displayName = effectiveName, email = effectiveEmail, shortCode = effectiveShortCode)
     }
 
     suspend fun searchUserByEmail(email: String): UserProfile? {
@@ -929,9 +1004,10 @@ object FirebaseManager {
         }
 
         val trimmed = targetCode.trim().uppercase()
+        val rawCode = targetCode.trim()
         if (trimmed.isEmpty() && targetUid.isEmpty()) return null
 
-        // 0. If direct UID was extracted from QR payload, check UID document first
+        // 0. Direct UID document check from QR payload
         if (targetUid.isNotEmpty() && com.splitsmith.app.util.QrPayloadParser.isValidFirestoreDocId(targetUid)) {
             try {
                 val doc = db.collection("users").document(targetUid).get().await()
@@ -944,18 +1020,15 @@ object FirebaseManager {
             }
         }
 
-        // 1. Try exact UID match (only if path is valid)
-        val rawCode = targetCode.trim()
-        if (com.splitsmith.app.util.QrPayloadParser.isValidFirestoreDocId(rawCode)) {
+        // 1. Exact or lowercase UID document check
+        if (rawCode.isNotEmpty() && com.splitsmith.app.util.QrPayloadParser.isValidFirestoreDocId(rawCode)) {
             try {
                 val doc = db.collection("users").document(rawCode).get().await()
                 if (doc.exists()) {
                     val profile = doc.toUserProfileWithUid()
                     if (profile != null) return profile
                 }
-            } catch (e: Exception) {
-                android.util.Log.w("FirebaseManager", "Exact UID search failed: ${e.message}")
-            }
+            } catch (e: Exception) { }
 
             try {
                 val docLower = db.collection("users").document(rawCode.lowercase()).get().await()
@@ -963,12 +1036,10 @@ object FirebaseManager {
                     val profile = docLower.toUserProfileWithUid()
                     if (profile != null) return profile
                 }
-            } catch (e: Exception) {
-                android.util.Log.w("FirebaseManager", "Lowercase UID search failed: ${e.message}")
-            }
+            } catch (e: Exception) { }
         }
 
-        // 2. Query by shortCode field
+        // 2. Query by shortCode field (both uppercase and lowercase)
         if (trimmed.isNotEmpty()) {
             try {
                 val queryByShort = db.collection("users")
@@ -976,15 +1047,25 @@ object FirebaseManager {
                     .limit(1)
                     .get().await()
                 val foundByShort = queryByShort.documents.firstOrNull()?.toUserProfileWithUid()
-                if (foundByShort != null) {
-                    return foundByShort
-                }
-            } catch (e: Exception) {
-                android.util.Log.w("FirebaseManager", "Query by shortCode failed: ${e.message}")
-            }
+                if (foundByShort != null) return foundByShort
+            } catch (e: Exception) { }
+
+            try {
+                val queryByLowerShort = db.collection("users")
+                    .whereEqualTo("shortCode", trimmed.lowercase())
+                    .limit(1)
+                    .get().await()
+                val foundByLowerShort = queryByLowerShort.documents.firstOrNull()?.toUserProfileWithUid()
+                if (foundByLowerShort != null) return foundByLowerShort
+            } catch (e: Exception) { }
         }
 
-        // 3. Fallback client-side scan for maximum reliability across existing databases
+        // 3. Fallback email lookup if input contains @ or matches email format
+        if (rawCode.contains("@")) {
+            searchUserByEmail(rawCode)?.let { return it }
+        }
+
+        // 4. Resilient client-side scan across existing user documents
         if (trimmed.isNotEmpty()) {
             try {
                 val allUsers = db.collection("users").get().await()
@@ -995,8 +1076,10 @@ object FirebaseManager {
                         val uidMatches = profile.uid.equals(trimmed, ignoreCase = true) ||
                                          profile.uid.take(6).equals(trimmed, ignoreCase = true) ||
                                          docId.equals(trimmed, ignoreCase = true) ||
-                                         docId.take(6).equals(trimmed, ignoreCase = true)
-                        val codeMatches = profile.shortCode.equals(trimmed, ignoreCase = true)
+                                         docId.take(6).equals(trimmed, ignoreCase = true) ||
+                                         (targetUid.isNotEmpty() && (profile.uid.equals(targetUid, ignoreCase = true) || docId.equals(targetUid, ignoreCase = true)))
+                        val codeMatches = profile.shortCode.equals(trimmed, ignoreCase = true) ||
+                                         profile.email.substringBefore("@").equals(trimmed, ignoreCase = true)
 
                         if (uidMatches || codeMatches) {
                             return profile
@@ -1004,7 +1087,7 @@ object FirebaseManager {
                     }
                 }
             } catch (e: Exception) {
-                android.util.Log.w("FirebaseManager", "Fallback user search failed: ${e.message}")
+                android.util.Log.w("FirebaseManager", "Fallback user scan failed: ${e.message}")
             }
         }
         return null

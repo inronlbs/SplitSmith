@@ -15,7 +15,20 @@ data class UserProfile(
     val shortCode: String = "",
     val budget: BudgetConfig = BudgetConfig(limit = 15000.0, type = "MONTHLY", threshold = 80),
     val cloudBackupReceipts: Boolean = true
-)
+) {
+    fun getResolvedName(fallback: String = "Friend"): String {
+        val trimmedName = displayName.trim()
+        if (trimmedName.isNotEmpty()) return trimmedName
+        val emailPrefix = email.trim().substringBefore("@")
+        if (emailPrefix.isNotEmpty()) return emailPrefix
+        if (shortCode.isNotBlank()) return "User $shortCode"
+        return fallback
+    }
+}
+
+fun UserProfile?.getResolvedName(fallback: String = "Friend"): String {
+    return this?.getResolvedName(fallback) ?: fallback
+}
 
 @Keep
 @Serializable

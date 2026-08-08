@@ -169,9 +169,9 @@ fun QuickSplitScreen(
                             ?: FirebaseManager.searchUserByEmail(cleanCode)
 
                         if (resolvedUser != null && resolvedUser.uid.isNotEmpty()) {
-                            FirebaseManager.addConnection(resolvedUser.uid)
+                            try { FirebaseManager.addConnection(resolvedUser.uid) } catch (e: Exception) { }
                             targetUser = resolvedUser
-                            Toast.makeText(context, "Connected with ${resolvedUser.displayName}!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Connected with ${resolvedUser.getResolvedName()}!", Toast.LENGTH_SHORT).show()
                         } else {
                             Toast.makeText(context, "User or group not found for this QR code", Toast.LENGTH_LONG).show()
                         }
@@ -662,13 +662,14 @@ fun QuickSplitScreen(
                 ) {
                     Button(
                         onClick = {
+                            if (isLoading) return@Button
                             if (amountVal <= 0 || description.trim().isEmpty()) {
                                 Toast.makeText(context, "Please enter valid amount and description", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
+                            isLoading = true
                             val calculatedOwed = Math.abs(p2pOwedShare)
                             val finalPaidBy = if (paidByMe) FirebaseManager.currentUserId ?: "" else user.uid
-                            isLoading = true
                             coroutineScope.launch {
                                 try {
                                     val finalUploadedUrls = mutableListOf<String>()

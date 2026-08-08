@@ -60,6 +60,7 @@ fun DirectSplitDetailScreen(
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showDisconnectDialog by remember { mutableStateOf(false) }
     var selectedSplitForDetail by remember { mutableStateOf<DirectSplit?>(null) }
+    var splitToConfirmSettlement by remember { mutableStateOf<DirectSplit?>(null) }
 
     LaunchedEffect(peerUid) {
         val fetched = FirebaseManager.getUserProfile(peerUid)
@@ -79,7 +80,7 @@ fun DirectSplitDetailScreen(
         }.sortedByDescending { it.date }
     }
 
-    val peerName = peerProfile?.displayName?.ifEmpty { peerProfile?.email?.substringBefore("@") } ?: "Friend"
+    val peerName = peerProfile.getResolvedName("Friend")
     val peerAvatar = peerProfile?.avatarUrl ?: ""
     val peerUpi = peerProfile?.upiId ?: ""
 
@@ -142,7 +143,7 @@ fun DirectSplitDetailScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = colors.inkPrimary)
                     }
                     Spacer(modifier = Modifier.width(d.space8))
-                    UserAvatar(avatarUrl = peerAvatar, displayName = peerName, size = d.avatarMd)
+                    UserAvatar(avatarUrl = peerAvatar, displayName = peerName, size = d.avatarMd, uid = peerUid)
                     Spacer(modifier = Modifier.width(d.space12))
                     Column {
                         Text(
@@ -336,34 +337,43 @@ fun DirectSplitDetailScreen(
                                                     Text(split.description.ifEmpty { "1-on-1 Split" }, fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colors.inkPrimary)
                                                     Text("Share: \u20b9${split.myShare.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontSize = 12.sp, color = colors.inkMuted)
                                                 }
+                                                val isCreditor = split.paidBy == currentUserId
+                                                val btnLabel = when {
+                                                    split.status == "WAITING_APPROVAL" -> "Review"
+                                                    isCreditor -> "Mark Received"
+                                                    else -> "Pay / Settle"
+                                                }
                                                 OutlinedButton(
                                                     onClick = {
-                                                        val iOwe = split.paidBy != currentUserId
-                                                        if (iOwe && peerUpi.isNotEmpty()) {
-                                                            com.splitsmith.app.util.UpiPaymentHelper.launchUpiPayment(
-                                                                context = context,
-                                                                receiverUpi = peerUpi,
-                                                                receiverName = peerName,
-                                                                amount = split.myShare,
-                                                                note = split.description.ifEmpty { "1-on-1 Settlement" },
-                                                                onPaymentInitiated = {
-                                                                    coroutineScope.launch {
-                                                                        try {
-                                                                            FirebaseManager.settleDirectSplit(split.id)
-                                                                            Toast.makeText(context, "Settlement logged!", Toast.LENGTH_SHORT).show()
-                                                                        } catch (e: Exception) {
-                                                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                        if (split.status == "WAITING_APPROVAL") {
+                                                            selectedSplitForDetail = split
+                                                        } else if (isCreditor) {
+                                                            splitToConfirmSettlement = split
+                                                        } else {
+                                                            if (peerUpi.isNotEmpty()) {
+                                                                com.splitsmith.app.util.UpiPaymentHelper.launchUpiPayment(
+                                                                    context = context,
+                                                                    receiverUpi = peerUpi,
+                                                                    receiverName = peerName,
+                                                                    amount = split.myShare,
+                                                                    note = split.description.ifEmpty { "1-on-1 Settlement" },
+                                                                    onPaymentInitiated = {
+                                                                        coroutineScope.launch {
+                                                                            try {
+                                                                                FirebaseManager.markDirectSplitPaid(split.id, "UPI")
+                                                                                Toast.makeText(context, "Marked paid via UPI. Awaiting confirmation.", Toast.LENGTH_SHORT).show()
+                                                                                selectedSplitForDetail = split
+                                                                            } catch (e: Exception) { }
                                                                         }
                                                                     }
-                                                                }
-                                                            )
-                                                        } else {
-                                                            coroutineScope.launch {
-                                                                try {
-                                                                    FirebaseManager.settleDirectSplit(split.id)
-                                                                    Toast.makeText(context, "Settled!", Toast.LENGTH_SHORT).show()
-                                                                } catch (e: Exception) {
-                                                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                                )
+                                                            } else {
+                                                                coroutineScope.launch {
+                                                                    try {
+                                                                        FirebaseManager.markDirectSplitPaid(split.id, "CASH")
+                                                                        Toast.makeText(context, "Marked paid in Cash. Awaiting confirmation.", Toast.LENGTH_SHORT).show()
+                                                                        selectedSplitForDetail = split
+                                                                    } catch (e: Exception) { }
                                                                 }
                                                             }
                                                         }
@@ -371,7 +381,7 @@ fun DirectSplitDetailScreen(
                                                     shape = RoundedCornerShape(d.radiusFull),
                                                     modifier = Modifier.height(32.dp)
                                                 ) {
-                                                    Text("Settle", fontFamily = OutfitFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    Text(btnLabel, fontFamily = OutfitFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                                 }
                                             }
                                         }
@@ -412,6 +422,49 @@ fun DirectSplitDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDisconnectDialog = false }) {
+                    Text("Cancel", fontFamily = OutfitFamily, color = colors.inkMuted)
+                }
+            }
+        )
+    }
+
+    if (splitToConfirmSettlement != null) {
+        val split = splitToConfirmSettlement!!
+        AlertDialog(
+            onDismissRequest = { splitToConfirmSettlement = null },
+            containerColor = colors.surfaceCard,
+            shape = RoundedCornerShape(d.radiusLG),
+            title = { Text("Confirm Cash/Offline Receipt", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.inkPrimary) },
+            text = {
+                Text(
+                    "Did $peerName pay you \u20b9${split.myShare.formatCurrency()} in cash or outside SplitSmith for '${split.description.ifEmpty { "1-on-1 Split" }}'?",
+                    fontFamily = OutfitFamily,
+                    fontSize = d.textBodyMedium,
+                    color = colors.inkMuted
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            try {
+                                FirebaseManager.settleDirectSplit(split.id)
+                                Toast.makeText(context, "Settlement confirmed!", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            } finally {
+                                splitToConfirmSettlement = null
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk),
+                    shape = RoundedCornerShape(d.radiusSM)
+                ) {
+                    Text("Confirm Received ✓", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { splitToConfirmSettlement = null }) {
                     Text("Cancel", fontFamily = OutfitFamily, color = colors.inkMuted)
                 }
             }

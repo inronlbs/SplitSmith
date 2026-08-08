@@ -33,27 +33,8 @@ import com.google.android.gms.common.api.ApiException
 import com.splitsmith.app.data.FirebaseManager
 import com.splitsmith.app.theme.LocalDimens
 import com.splitsmith.app.theme.OutfitFamily
+import com.splitsmith.app.ui.components.dotGridBackground
 import kotlinx.coroutines.launch
-
-// Custom extension modifier to draw the premium dot grid pattern
-fun Modifier.dotGridBackground(dotColor: Color): Modifier = this.drawBehind {
-    val dotRadius = 1.dp.toPx()
-    val spacing = 20.dp.toPx()
-    
-    var x = spacing / 2
-    while (x < size.width) {
-        var y = spacing / 2
-        while (y < size.height) {
-            drawCircle(
-                color = dotColor,
-                radius = dotRadius,
-                center = Offset(x, y)
-            )
-            y += spacing
-        }
-        x += spacing
-    }
-}
 
 @Composable
 fun AuthScreen(

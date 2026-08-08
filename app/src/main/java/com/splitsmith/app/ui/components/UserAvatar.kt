@@ -25,7 +25,8 @@ fun UserAvatar(
     avatarUrl: String,
     displayName: String,
     size: Dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    uid: String = ""
 ) {
     Box(
         modifier = modifier
@@ -58,7 +59,7 @@ fun UserAvatar(
                     contentScale = ContentScale.Crop
                 )
             } else {
-                FallbackDefaultAvatar(displayName)
+                FallbackDefaultAvatar(displayName = displayName, uid = uid)
             }
         } else if (avatarUrl.startsWith("avatar_")) {
             val idx = avatarUrl.removePrefix("avatar_").toIntOrNull() ?: 1
@@ -79,14 +80,15 @@ fun UserAvatar(
                 contentScale = ContentScale.Crop
             )
         } else {
-            FallbackDefaultAvatar(displayName)
+            FallbackDefaultAvatar(displayName = displayName, uid = uid)
         }
     }
 }
 
 @Composable
-private fun FallbackDefaultAvatar(displayName: String) {
-    val avatarIdx = Math.abs(displayName.hashCode()) % 8 + 1
+private fun FallbackDefaultAvatar(displayName: String, uid: String) {
+    val seed = uid.ifEmpty { displayName.trim() }
+    val avatarIdx = Math.abs(seed.hashCode()) % 8 + 1
     val resId = when (avatarIdx) {
         1 -> R.drawable.avatar_1
         2 -> R.drawable.avatar_2

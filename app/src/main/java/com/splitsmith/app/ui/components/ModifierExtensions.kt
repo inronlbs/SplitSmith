@@ -7,32 +7,32 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
 /**
- * Draws a high-end, subtle dot grid background pattern,
- * fading out linearly down over 75% of the screen height.
+ * Draws a high-end, minimal micro-dot grid background pattern,
+ * restricted strictly to the top 28% header area and fading out smoothly to 0 opacity.
  */
 fun Modifier.dotGridBackground(
     dotColor: Color,
-    spacing: Float = 48f,
-    radius: Float = 1.5f
+    spacing: Float = 56f,
+    radius: Float = 1.25f,
+    maxFadeHeightFraction: Float = 0.28f
 ): Modifier = this.drawBehind {
-    var x = 24f
+    val maxDotY = size.height * maxFadeHeightFraction
+    var x = 28f
     while (x < size.width) {
-        var y = 24f
-        while (y < size.height) {
-            // Very subtle fade near the absolute bottom, but mostly constant
-            val progress = (y / size.height).coerceIn(0f, 1f)
-            val alphaFactor = if (progress > 0.85f) {
-                1f - ((progress - 0.85f) / 0.15f)
-            } else {
-                1f
-            }
-            val finalAlpha = dotColor.alpha * alphaFactor * 0.45f
+        var y = 28f
+        while (y < maxDotY) {
+            val progress = (y / maxDotY).coerceIn(0f, 1f)
+            // Quadratic ease-out fade from 1.0 at top down to 0.0 at maxDotY
+            val alphaFactor = (1f - progress) * (1f - progress)
+            val finalAlpha = dotColor.alpha * alphaFactor * 0.35f
 
-            drawCircle(
-                color = dotColor.copy(alpha = finalAlpha),
-                radius = radius,
-                center = Offset(x, y)
-            )
+            if (finalAlpha > 0.01f) {
+                drawCircle(
+                    color = dotColor.copy(alpha = finalAlpha),
+                    radius = radius,
+                    center = Offset(x, y)
+                )
+            }
             y += spacing
         }
         x += spacing
