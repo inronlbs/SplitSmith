@@ -354,9 +354,9 @@ fun QuickSplitScreen(
                                 }
                             }
 
-                            // Remote Database Search Trigger (If email or code typed)
+                            // Remote Database Search Trigger (Only when no local contact matches)
                             val trimmedQuery = searchQuery.trim()
-                            if (trimmedQuery.isNotEmpty() && (trimmedQuery.contains("@") || trimmedQuery.length == 6)) {
+                            if (trimmedQuery.length >= 2 && filteredLocalContacts.isEmpty()) {
                                 Surface(
                                     onClick = {
                                         coroutineScope.launch {
@@ -364,7 +364,7 @@ fun QuickSplitScreen(
                                             val resolved = if (trimmedQuery.contains("@")) {
                                                 FirebaseManager.searchUserByEmail(trimmedQuery)
                                             } else {
-                                                FirebaseManager.searchUserByCode(trimmedQuery)
+                                                FirebaseManager.searchUserByCode(trimmedQuery) ?: FirebaseManager.searchUserByEmail(trimmedQuery)
                                             }
                                             isLoading = false
                                             if (resolved != null) {
@@ -385,7 +385,7 @@ fun QuickSplitScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Text(
-                                            text = "Search database for '$trimmedQuery'",
+                                            text = "Search SplitSmith for '$trimmedQuery'",
                                             fontFamily = OutfitFamily,
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = d.textBodyMedium,
@@ -663,13 +663,26 @@ fun QuickSplitScreen(
                     Button(
                         onClick = {
                             if (isLoading) return@Button
+                            val currentUid = FirebaseManager.currentUserId ?: ""
+                            if (user.uid.isBlank() || user.uid.lowercase() == "friend" || user.uid.lowercase() == "user") {
+                                Toast.makeText(context, "Invalid participant selected. Please select a valid user.", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            if (user.uid == currentUid) {
+                                Toast.makeText(context, "You cannot split an expense with yourself. Please select a friend.", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
                             if (amountVal <= 0 || description.trim().isEmpty()) {
                                 Toast.makeText(context, "Please enter valid amount and description", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
-                            isLoading = true
                             val calculatedOwed = Math.abs(p2pOwedShare)
-                            val finalPaidBy = if (paidByMe) FirebaseManager.currentUserId ?: "" else user.uid
+                            if (calculatedOwed <= 0.0) {
+                                Toast.makeText(context, "This split creates zero shared debt. For personal expenses, please use the Personal tab.", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            isLoading = true
+                            val finalPaidBy = if (paidByMe) currentUid else user.uid
                             coroutineScope.launch {
                                 try {
                                     val finalUploadedUrls = mutableListOf<String>()
@@ -703,6 +716,16 @@ fun QuickSplitScreen(
                                         date = selectedDateMillis,
                                         receiptUrls = finalUploadedUrls
                                     )
+
+                                    // Step 3: Clean up converted personal expense if applicable
+                                    val pendingPersonalId = FirebaseManager.pendingConvertedPersonalExpenseId
+                                    if (!pendingPersonalId.isNullOrBlank()) {
+                                        try {
+                                            FirebaseManager.deletePersonalExpense(pendingPersonalId)
+                                        } catch (e: Exception) { }
+                                        FirebaseManager.pendingConvertedPersonalExpenseId = null
+                                    }
+
                                     Toast.makeText(context, "Quick Split saved!", Toast.LENGTH_SHORT).show()
                                     onBack()
                                 } catch (e: Exception) {

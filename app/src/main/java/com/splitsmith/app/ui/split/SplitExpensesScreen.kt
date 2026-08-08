@@ -73,6 +73,8 @@ data class IndividualPeerGroup(
     val splits: List<DirectSplit>
 )
 
+private var savedSplitSegment = 0 // 0 = GROUPS, 1 = PEOPLE
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SplitExpensesScreen(
@@ -87,7 +89,7 @@ fun SplitExpensesScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var searchQuery by remember { mutableStateOf("") }
-    var selectedSegment by remember { mutableIntStateOf(0) } // 0 = GROUPS, 1 = PEOPLE
+    var selectedSegment by remember { mutableIntStateOf(savedSplitSegment) } // 0 = GROUPS, 1 = PEOPLE
     var showCreateGroup by remember { mutableStateOf(false) }
     var fabExpanded by remember { mutableStateOf(false) }
     var selectedSplitForDetail by remember { mutableStateOf<DirectSplit?>(null) }
@@ -335,7 +337,10 @@ fun SplitExpensesScreen(
                 listOf("Groups (${filteredGroups.size})", "People (${individualPeers.size})").forEachIndexed { index, label ->
                     val isSelected = selectedSegment == index
                     Surface(
-                        onClick = { selectedSegment = index },
+                        onClick = {
+                            selectedSegment = index
+                            savedSplitSegment = index
+                        },
                         shape = RoundedCornerShape(d.radiusFull),
                         color = if (isSelected) colors.inkPrimary else colors.surfaceCard,
                         border = BorderStroke(1.dp, if (isSelected) colors.inkPrimary else colors.borderWhisper),
@@ -411,7 +416,11 @@ fun SplitExpensesScreen(
                                     peerGroup = peerGroup,
                                     colors = colors,
                                     d = d,
-                                    onClick = { onNavigateToDirectSplit(peerGroup.peerUid) }
+                                    onClick = {
+                                        savedSplitSegment = 1
+                                        selectedSegment = 1
+                                        onNavigateToDirectSplit(peerGroup.peerUid)
+                                    }
                                 )
                             }
                         } else {
@@ -692,7 +701,7 @@ fun DirectSplitDetailBottomSheet(
             coroutineScope.launch {
                 try {
                     FirebaseManager.uploadAndAttachDirectSplitReceipt(context, split.id, uri)
-                    Toast.makeText(context, "Payment proof attached (WebP)!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Payment proof attached!", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
                     Toast.makeText(context, "Failed to upload proof: ${e.message}", Toast.LENGTH_LONG).show()
                 } finally {
@@ -1021,7 +1030,7 @@ fun DirectSplitDetailBottomSheet(
                             if (isUploadingProof) {
                                 CircularProgressIndicator(color = colors.canvasChalk, modifier = Modifier.size(20.dp))
                             } else {
-                                Text("📷 Upload Payment Proof (WebP)", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
+                                Text("Attach Payment Proof", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
                             }
                         }
 

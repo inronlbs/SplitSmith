@@ -110,6 +110,7 @@ fun DirectSplitDetailScreen(
                 FloatingActionButton(
                     onClick = {
                         val profile = peerProfile ?: UserProfile(uid = peerUid, displayName = peerName, avatarUrl = peerAvatar, upiId = peerUpi)
+                        FirebaseManager.pendingQuickSplitUser = profile
                         onNavigateToQuickSplit(profile)
                     },
                     containerColor = colors.inkPrimary,

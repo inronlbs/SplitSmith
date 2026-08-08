@@ -16,7 +16,9 @@ object PendingExpenseHolder {
     var pendingExpenseCategory: String? = null
     var pendingExpenseDate: Long? = null
     var pendingExpenseAttachmentUri: Uri? = null
+    var pendingExpenseReceiptUrls: List<String>? = null
     var pendingQuickSplitUser: UserProfile? = null
+    var pendingConvertedPersonalExpenseId: String? = null
 
     fun clearAll() {
         pendingGroupJoinCode = null
@@ -26,6 +28,8 @@ object PendingExpenseHolder {
         pendingExpenseCategory = null
         pendingExpenseDate = null
         pendingExpenseAttachmentUri = null
+        pendingExpenseReceiptUrls = null
         pendingQuickSplitUser = null
+        pendingConvertedPersonalExpenseId = null
     }
 }

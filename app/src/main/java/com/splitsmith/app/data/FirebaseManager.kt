@@ -45,6 +45,12 @@ object FirebaseManager {
     var pendingQuickSplitUser: UserProfile?
         get() = PendingExpenseHolder.pendingQuickSplitUser
         set(value) { PendingExpenseHolder.pendingQuickSplitUser = value }
+    var pendingExpenseReceiptUrls: List<String>?
+        get() = PendingExpenseHolder.pendingExpenseReceiptUrls
+        set(value) { PendingExpenseHolder.pendingExpenseReceiptUrls = value }
+    var pendingConvertedPersonalExpenseId: String?
+        get() = PendingExpenseHolder.pendingConvertedPersonalExpenseId
+        set(value) { PendingExpenseHolder.pendingConvertedPersonalExpenseId = value }
 
     val currentUserId: String? get() = auth.currentUser?.uid
     val currentUserPhotoUrl: String? get() = auth.currentUser?.photoUrl?.toString()
@@ -476,7 +482,14 @@ object FirebaseManager {
         receiptUrls: List<String> = emptyList(),
         date: Long = System.currentTimeMillis()
     ): String {
-        val uid = currentUserId ?: return ""
+        val uid = currentUserId ?: throw IllegalArgumentException("User not authenticated")
+        if (groupId.isBlank()) throw IllegalArgumentException("Invalid group ID")
+        if (paidBy.isBlank() || paidBy.lowercase() == "friend" || paidBy.lowercase() == "user") {
+            throw IllegalArgumentException("Cannot save group expense without a valid payer user ID")
+        }
+        if (splits.isEmpty() || splits.keys.any { it.isBlank() || it.lowercase() == "friend" || it.lowercase() == "user" }) {
+            throw IllegalArgumentException("Cannot save group expense with invalid participant user IDs")
+        }
         val expenseRef = db.collection("groups").document(groupId).collection("expenses").document()
         val finalUrls = if (receiptUrls.isNotEmpty()) receiptUrls else if (receiptUrl.isNotBlank()) listOf(receiptUrl) else emptyList()
         val expense = Expense(
@@ -535,7 +548,11 @@ object FirebaseManager {
         receiptUrl: String = "",
         receiptUrls: List<String> = emptyList()
     ): String {
-        val uid = currentUserId ?: return ""
+        val uid = currentUserId ?: throw IllegalArgumentException("User not authenticated")
+        if (groupId.isBlank()) throw IllegalArgumentException("Invalid group ID")
+        if (toUser.isBlank() || toUser.lowercase() == "friend" || toUser.lowercase() == "user") {
+            throw IllegalArgumentException("Cannot save settlement without a valid receiver user ID")
+        }
         val settlementRef = db.collection("groups").document(groupId).collection("settlements").document()
         val finalUrls = if (receiptUrls.isNotEmpty()) receiptUrls else if (receiptUrl.isNotBlank()) listOf(receiptUrl) else emptyList()
         val settlement = Settlement(
@@ -792,14 +809,21 @@ object FirebaseManager {
         date: Long = System.currentTimeMillis(),
         receiptUrls: List<String> = emptyList()
     ): String {
-        val uid = currentUserId ?: return ""
+        val uid = currentUserId ?: throw IllegalArgumentException("User not authenticated")
+        if (withUserId.isBlank() || withUserId.lowercase() == "friend" || withUserId.lowercase() == "user") {
+            throw IllegalArgumentException("Cannot save split without a valid participant user ID")
+        }
+        if (paidBy.isBlank() || paidBy.lowercase() == "friend" || paidBy.lowercase() == "user") {
+            throw IllegalArgumentException("Cannot save split without a valid payer user ID")
+        }
+        val actualWithUser = if (paidBy == withUserId) uid else withUserId
         val splitRef = db.collection("direct_splits").document()
         val split = DirectSplit(
             id = splitRef.id,
             description = description,
             amount = amount,
             paidBy = paidBy,
-            withUser = withUserId,
+            withUser = actualWithUser,
             myShare = myShare,
             category = category,
             status = "PENDING",
@@ -890,49 +914,15 @@ object FirebaseManager {
     }
 
     suspend fun uploadAndAttachDirectSplitReceipt(context: android.content.Context, splitId: String, imageUri: android.net.Uri): String {
-        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val inputStream = context.contentResolver.openInputStream(imageUri) ?: throw RuntimeException("Cannot open image stream")
-            val rawBitmap = android.graphics.BitmapFactory.decodeStream(inputStream) ?: throw RuntimeException("Failed to decode bitmap")
-            
-            val finalBitmap = try {
-                val exifStream = context.contentResolver.openInputStream(imageUri)
-                val exif = exifStream?.use { androidx.exifinterface.media.ExifInterface(it) }
-                val orientation = exif?.getAttributeInt(
-                    androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
-                    androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
-                ) ?: androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
-                val matrix = android.graphics.Matrix()
-                when (orientation) {
-                    androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-                    androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-                    androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
-                }
-                if (!matrix.isIdentity) {
-                    android.graphics.Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
-                } else rawBitmap
-            } catch (e: Exception) {
-                rawBitmap
-            }
+        val uid = currentUserId ?: "user"
+        val uploadResult = CloudinaryManager.uploadReceipt(context, imageUri, uid, "direct_splits")
+        val downloadUrl = uploadResult.getOrThrow()
 
-            val baos = java.io.ByteArrayOutputStream()
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                finalBitmap.compress(android.graphics.Bitmap.CompressFormat.WEBP_LOSSY, 85, baos)
-            } else {
-                @Suppress("DEPRECATION")
-                finalBitmap.compress(android.graphics.Bitmap.CompressFormat.WEBP, 85, baos)
-            }
-            val webpBytes = baos.toByteArray()
+        db.collection("direct_splits").document(splitId).update(
+            mapOf("receiptUrls" to listOf(downloadUrl))
+        ).await()
 
-            val storageRef = storage.reference.child("receipts/$splitId/${System.currentTimeMillis()}_proof.webp")
-            storageRef.putBytes(webpBytes).await()
-            val downloadUrl = storageRef.downloadUrl.await().toString()
-
-            db.collection("direct_splits").document(splitId).update(
-                mapOf("receiptUrls" to listOf(downloadUrl))
-            ).await()
-
-            downloadUrl
-        }
+        return downloadUrl
     }
 
     suspend fun deleteDirectSplit(splitId: String, receiptUrls: List<String> = emptyList()) {
@@ -950,12 +940,29 @@ object FirebaseManager {
 
     // SEARCH USERS
     private fun com.google.firebase.firestore.DocumentSnapshot.toUserProfileWithUid(): UserProfile? {
-        val profile = toObject(UserProfile::class.java) ?: return null
-        val effectiveUid = profile.uid.ifEmpty { id }
-        val effectiveEmail = profile.email.trim()
-        val effectiveName = profile.displayName.trim().ifEmpty { effectiveEmail.substringBefore("@").ifEmpty { "Friend" } }
-        val effectiveShortCode = profile.shortCode.ifEmpty { effectiveUid.take(6).uppercase() }
-        return profile.copy(uid = effectiveUid, displayName = effectiveName, email = effectiveEmail, shortCode = effectiveShortCode)
+        val profile = try { toObject(UserProfile::class.java) } catch (e: Exception) { null }
+        if (profile != null) {
+            val effectiveUid = profile.uid.ifEmpty { id }
+            val effectiveEmail = profile.email.trim()
+            val effectiveName = profile.displayName.trim().ifEmpty { effectiveEmail.substringBefore("@").ifEmpty { "Friend" } }
+            val effectiveShortCode = profile.shortCode.ifEmpty { effectiveUid.take(6).uppercase() }
+            return profile.copy(uid = effectiveUid, displayName = effectiveName, email = effectiveEmail, shortCode = effectiveShortCode)
+        }
+        val dataMap = data ?: return null
+        val uid = (dataMap["uid"] as? String)?.ifEmpty { id } ?: id
+        val email = (dataMap["email"] as? String)?.trim() ?: ""
+        val displayName = (dataMap["displayName"] as? String)?.trim() ?: ""
+        val avatarUrl = (dataMap["avatarUrl"] as? String) ?: ""
+        val upiId = (dataMap["upiId"] as? String) ?: ""
+        val shortCode = (dataMap["shortCode"] as? String)?.ifEmpty { uid.take(6).uppercase() } ?: uid.take(6).uppercase()
+        return UserProfile(
+            uid = uid,
+            displayName = displayName.ifEmpty { email.substringBefore("@").ifEmpty { "Friend" } },
+            email = email,
+            avatarUrl = avatarUrl,
+            upiId = upiId,
+            shortCode = shortCode
+        )
     }
 
     suspend fun searchUserByEmail(email: String): UserProfile? {
@@ -1182,18 +1189,17 @@ object FirebaseManager {
         // 1. First search within saved connections & recent contacts (0 unindexed DB scans)
         val connections = getRecentDirectContacts()
         val matchedLocal = connections.filter {
-            (it.displayName.contains(trimmed, ignoreCase = true) ||
-             it.email.contains(trimmed, ignoreCase = true) ||
-             it.shortCode.contains(trimmed, ignoreCase = true)) &&
-            it.uid != currentUserId
+            it.displayName.contains(trimmed, ignoreCase = true) ||
+            it.email.contains(trimmed, ignoreCase = true) ||
+            it.shortCode.contains(trimmed, ignoreCase = true)
         }
         if (matchedLocal.isNotEmpty()) {
             return matchedLocal
         }
 
         // 2. Fallback search by email or user code
-        searchUserByEmail(trimmed)?.let { if (it.uid != currentUserId) return listOf(it) }
-        searchUserByCode(trimmed)?.let { if (it.uid != currentUserId) return listOf(it) }
+        searchUserByEmail(trimmed)?.let { return listOf(it) }
+        searchUserByCode(trimmed)?.let { return listOf(it) }
 
         return emptyList()
     }

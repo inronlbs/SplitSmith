@@ -716,7 +716,7 @@ fun GroupDetailScreen(
                             .background(colors.borderWhisper.copy(alpha = 0.2f))
                             .padding(d.space12)
                     ) {
-                        Text("Payment Proof / Receipt (Optional)", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelMedium, color = colors.inkPrimary)
+                        Text("Payment Proof (Optional)", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelMedium, color = colors.inkPrimary)
                         Spacer(modifier = Modifier.height(d.space8))
                         if (selectedSettlementProofUri != null) {
                             Row(
@@ -744,7 +744,7 @@ fun GroupDetailScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(d.radiusMD)
                             ) {
-                                Text("📷 Attach Payment Proof / Screenshot", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkPrimary)
+                                Text("Attach Payment Proof", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkPrimary)
                             }
                         }
                     }
@@ -1124,7 +1124,7 @@ private fun StyledBalancesTab(
                                         horizontalArrangement = Arrangement.spacedBy(d.space8)
                                     ) {
                                         Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = inkPrimary, modifier = Modifier.size(16.dp))
-                                        Text("🧾 Attached Payment Proof (Tap to view)", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelSmall, color = inkPrimary)
+                                        Text("Attached Proof (Tap to view)", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelSmall, color = inkPrimary)
                                     }
                                 }
                             } else if (!isCreditor) {
@@ -1261,7 +1261,7 @@ private fun StyledBalancesTab(
                                 )
                                 if (proofUrl.isNotBlank()) {
                                     Text(
-                                        text = "· 🧾 Proof",
+                                        text = "· Proof Attached",
                                         fontFamily = OutfitFamily,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = d.textLabelMedium,

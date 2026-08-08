@@ -144,6 +144,7 @@ fun MainNavigation() {
                     peerUid = key.peerUid,
                     onBack = { backStack.removeLastOrNull() },
                     onNavigateToQuickSplit = { profile ->
+                        com.splitsmith.app.data.FirebaseManager.pendingQuickSplitUser = profile
                         backStack.add(QuickSplit)
                     }
                 )

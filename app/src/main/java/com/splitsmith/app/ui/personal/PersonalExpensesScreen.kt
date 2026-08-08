@@ -812,6 +812,8 @@ fun PersonalExpensesScreen(
                                         FirebaseManager.pendingExpenseDesc = exp.description
                                         FirebaseManager.pendingExpenseCategory = exp.category
                                         FirebaseManager.pendingExpenseDate = exp.date
+                                        FirebaseManager.pendingConvertedPersonalExpenseId = exp.id
+                                        FirebaseManager.pendingExpenseReceiptUrls = exp.receiptUrls
                                         onNavigateToQuickSplit()
                                     },
                                     leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = colors.inkPrimary) }
