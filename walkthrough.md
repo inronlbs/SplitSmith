@@ -369,5 +369,21 @@
   * [SplitSmith-v0.3.9.2-release.aab](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/SplitSmith-v0.3.9.2-release.aab)
 * **Firebase Hosting CDN URL**: [https://splitsmith.web.app](https://splitsmith.web.app) (Serving updated `splitsmith.bin`)
 
+---
+
+## [2026-08-12 22:42] User Search & Scan-to-Connect Core Diagnostics & Fixes
+
+### Key Technical Accomplishments
+1. **Firestore Rules Update (`firestore.rules`)**:
+   * Allowed authenticated users to write connection records under another user's connections subcollection, provided the document ID (`connectionId`) matches their own authenticated UID (`request.auth.uid == connectionId`). This fixes the mutual connection write failure in `addConnection()`.
+2. **Scanner Self-Healing (`HomeScreen.kt`)**:
+   * Refactored QR scanner callback to attempt to resolve scanned values globally as user profiles first (supporting raw codes, emails, and full URIs). Only falls back to group join codes if user resolution fails.
+3. **Connections Database Merging (`FirebaseManager.kt`)**:
+   * Added `getConnectedUserProfiles()` helper function to query and resolve connection profiles from subcollections.
+   * Merged connections and direct contacts in `searchUsersInstantly()` to guarantee scanned friends display in local search queries instantly.
+4. **Always-On Remote Search Trigger (`QuickSplitScreen.kt`)**:
+   * Removed the blocker where local friend matches hid the global search card, allowing users to query SplitSmith globally anytime their query is >= 2 characters.
+
+
 
 

@@ -354,9 +354,9 @@ fun QuickSplitScreen(
                                 }
                             }
 
-                            // Remote Database Search Trigger (Only when no local contact matches)
+                            // Remote Database Search Trigger (Always visible when query length >= 2)
                             val trimmedQuery = searchQuery.trim()
-                            if (trimmedQuery.length >= 2 && filteredLocalContacts.isEmpty()) {
+                            if (trimmedQuery.length >= 2) {
                                 Surface(
                                     onClick = {
                                         coroutineScope.launch {

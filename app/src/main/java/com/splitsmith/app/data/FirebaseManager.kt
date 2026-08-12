@@ -1197,26 +1197,40 @@ object FirebaseManager {
         awaitClose { listener.remove() }
     }
 
+    suspend fun getConnectedUserProfiles(): List<UserProfile> {
+        val uid = currentUserId ?: return emptyList()
+        return try {
+            val snapshot = db.collection("users").document(uid).collection("connections").get().await()
+            val connUids = snapshot.documents.map { it.id }
+            val list = mutableListOf<UserProfile>()
+            for (cId in connUids) {
+                getUserProfile(cId)?.let { list.add(it) }
+            }
+            list
+        } catch (e: Exception) {
+            android.util.Log.w("FirebaseManager", "getConnectedUserProfiles failed: ${e.message}")
+            emptyList()
+        }
+    }
+
     suspend fun searchUsersInstantly(query: String): List<UserProfile> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return emptyList()
 
         // 1. First search within saved connections & recent contacts (0 unindexed DB scans)
-        val connections = getRecentDirectContacts()
-        val matchedLocal = connections.filter {
+        val localContacts = (getConnectedUserProfiles() + getRecentDirectContacts()).distinctBy { it.uid }
+        val matchedLocal = localContacts.filter {
             it.displayName.contains(trimmed, ignoreCase = true) ||
             it.email.contains(trimmed, ignoreCase = true) ||
             it.shortCode.contains(trimmed, ignoreCase = true)
         }
-        if (matchedLocal.isNotEmpty()) {
-            return matchedLocal
-        }
 
-        // 2. Fallback search by email or user code
-        searchUserByEmail(trimmed)?.let { return listOf(it) }
-        searchUserByCode(trimmed)?.let { return listOf(it) }
+        // 2. Fallback search by email or user code globally
+        val globalMatches = mutableListOf<UserProfile>()
+        searchUserByEmail(trimmed)?.let { globalMatches.add(it) }
+        searchUserByCode(trimmed)?.let { globalMatches.add(it) }
 
-        return emptyList()
+        return (matchedLocal + globalMatches).distinctBy { it.uid }.filter { it.uid != currentUserId }
     }
 
 

@@ -2545,23 +2545,32 @@ fun JoinGroupDialog(
         contract = com.journeyapps.barcodescanner.ScanContract(),
         onResult = { result ->
             if (result.contents != null) {
-                val parsed = com.splitsmith.app.util.QrPayloadParser.parse(result.contents)
-                when (parsed) {
-                    is com.splitsmith.app.util.ParsedQrPayload.UserQr -> {
-                        coroutineScope.launch {
-                            val user = FirebaseManager.searchUserByCode(result.contents)
-                            if (user != null) {
-                                try { FirebaseManager.addConnection(user.uid) } catch (e: Exception) { }
-                                Toast.makeText(context, "Connected with ${user.getResolvedName()}!", Toast.LENGTH_SHORT).show()
-                                onDismiss()
-                            } else {
-                                Toast.makeText(context, "User code: ${parsed.userCode}", Toast.LENGTH_SHORT).show()
+                val contents = result.contents
+                val parsed = com.splitsmith.app.util.QrPayloadParser.parse(contents)
+                coroutineScope.launch {
+                    isLoading = true
+                    // First try to resolve it as a user code/QR globally
+                    val user = FirebaseManager.searchUserByCode(contents)
+                        ?: if (contents.contains("@")) FirebaseManager.searchUserByEmail(contents) else null
+                    isLoading = false
+                    
+                    if (user != null) {
+                        try { FirebaseManager.addConnection(user.uid) } catch (e: Exception) { }
+                        Toast.makeText(context, "Connected with ${user.getResolvedName()}!", Toast.LENGTH_SHORT).show()
+                        onDismiss()
+                    } else {
+                        // If not a user, treat as group code
+                        when (parsed) {
+                            is com.splitsmith.app.util.ParsedQrPayload.GroupQr -> {
+                                groupIdInput = parsed.groupId
+                                Toast.makeText(context, "Scanned Group Code!", Toast.LENGTH_SHORT).show()
+                            }
+                            else -> {
+                                val cleanGroupId = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(contents)
+                                groupIdInput = cleanGroupId
+                                Toast.makeText(context, "Scanned Group Code!", Toast.LENGTH_SHORT).show()
                             }
                         }
-                    }
-                    else -> {
-                        groupIdInput = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(result.contents)
-                        Toast.makeText(context, "Scanned Group Code!", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
