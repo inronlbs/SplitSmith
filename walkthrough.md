@@ -342,9 +342,9 @@
 
 ---
 
-## [2026-08-12 19:00] Settlements Layout, Sheets & Editing Enhancements
+## [2026-08-12 19:05] Release v0.3.9.2 Published
 
-### Key Accomplishments
+### Key Technical Accomplishments
 1. **Interactive Settlements Bottom Sheet (`SettlementDetailBottomSheet`)**:
    * Removed separate "Pending Confirmations" list from the top of the tab.
    * Merged pending and confirmed settlements into a single chronological timeline under `"SETTLED TRANSACTIONS"`.
@@ -361,5 +361,13 @@
    * Replaced the camera emoji (`📷`) on line 869 with the standard `Icons.Default.CameraAlt` vector icon.
 5. **Orphan Storage Protection**:
    * Updated the confirmation upload dialog to delete the old proof file from Cloudinary before uploading the cropped edited proof, preventing orphan file leaks.
+
+### Deployed Artifacts & Links
+* **GitHub Release**: [v0.3.9.2 Patch Release](https://github.com/inronlbs/SplitSmith/releases/tag/v0.3.9.2)
+* **Production Binaries**:
+  * [SplitSmith-v0.3.9.2-release.apk](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/SplitSmith-v0.3.9.2-release.apk)
+  * [SplitSmith-v0.3.9.2-release.aab](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/SplitSmith-v0.3.9.2-release.aab)
+* **Firebase Hosting CDN URL**: [https://splitsmith.web.app](https://splitsmith.web.app) (Serving updated `splitsmith.bin`)
+
 
 
