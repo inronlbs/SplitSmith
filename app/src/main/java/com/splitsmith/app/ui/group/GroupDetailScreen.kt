@@ -56,6 +56,9 @@ import com.splitsmith.app.theme.LocalSplitColors
 import com.splitsmith.app.theme.OutfitFamily
 import com.splitsmith.app.data.Settlement
 import com.splitsmith.app.data.UserProfile
+import com.splitsmith.app.ui.components.AttachmentImageViewerDialog
+import androidx.compose.material.icons.filled.CameraAlt
+import com.splitsmith.app.util.AttachmentDownloader
 import com.splitsmith.app.util.formatCurrency
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -1158,24 +1161,38 @@ private fun StyledBalancesTab(
     var selectedReceiptUrlForPreview by remember { mutableStateOf<String?>(null) }
     var targetPendingSettlementForProof by remember { mutableStateOf<Settlement?>(null) }
 
+    var pendingProofUriToConfirm by remember { mutableStateOf<Uri?>(null) }
+    var pendingProofRequestForConfirm by remember { mutableStateOf<Settlement?>(null) }
+
+    var resolvedReceiptUri by remember { mutableStateOf<Uri?>(null) }
+    var isDownloadingPreview by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedReceiptUrlForPreview) {
+        val url = selectedReceiptUrlForPreview
+        if (url != null) {
+            isDownloadingPreview = true
+            try {
+                val resolvedUri = AttachmentDownloader.getOrFetchAttachment(context, url)
+                resolvedReceiptUri = resolvedUri
+            } catch (e: Exception) {
+                resolvedReceiptUri = null
+            } finally {
+                isDownloadingPreview = false
+            }
+        } else {
+            resolvedReceiptUri = null
+        }
+    }
+
     val pendingProofPicker = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         val s = targetPendingSettlementForProof
         if (uri != null && s != null) {
-            coroutineScope.launch {
-                try {
-                    val uploadResult = CloudinaryManager.uploadReceipt(context, uri, currentUserId ?: "user", "settlements")
-                    val uploadedUrl = uploadResult.getOrThrow()
-                    FirebaseManager.attachSettlementReceipt(groupId, s.id, uploadedUrl)
-                    Toast.makeText(context, "Payment proof attached!", Toast.LENGTH_SHORT).show()
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Error uploading proof: ${e.message}", Toast.LENGTH_LONG).show()
-                } finally {
-                    targetPendingSettlementForProof = null
-                }
-            }
+            pendingProofUriToConfirm = uri
+            pendingProofRequestForConfirm = s
         }
+        targetPendingSettlementForProof = null
     }
 
     val displayDebts = remember(debts, showFullLedger, currentUserId) {
@@ -1267,24 +1284,60 @@ private fun StyledBalancesTab(
 
                             if (effectiveProof.isNotBlank()) {
                                 Spacer(modifier = Modifier.height(d.space8))
-                                Surface(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(d.radiusMD))
-                                        .clickable { selectedReceiptUrlForPreview = effectiveProof },
-                                    color = inkPrimary.copy(alpha = 0.08f)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(d.space8)
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = d.space12, vertical = d.space8),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(d.space8)
+                                    Surface(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(d.radiusMD))
+                                            .clickable { selectedReceiptUrlForPreview = effectiveProof },
+                                        color = inkPrimary.copy(alpha = 0.08f)
                                     ) {
-                                        Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = inkPrimary, modifier = Modifier.size(16.dp))
-                                        Text("Attached Proof (Tap to view)", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelSmall, color = inkPrimary)
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = d.space12, vertical = d.space8),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(d.space8)
+                                        ) {
+                                            Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = inkPrimary, modifier = Modifier.size(16.dp))
+                                            Text("Attached Proof (Tap to view)", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelSmall, color = inkPrimary)
+                                        }
+                                    }
+                                    if (!isCreditor) {
+                                        var isDeletingProof by remember { mutableStateOf(false) }
+                                        IconButton(
+                                            onClick = {
+                                                isDeletingProof = true
+                                                coroutineScope.launch {
+                                                    try {
+                                                        FirebaseManager.removeSettlementReceipt(groupId, req.id, effectiveProof)
+                                                        Toast.makeText(context, "Payment proof removed!", Toast.LENGTH_SHORT).show()
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(context, "Failed to remove proof: ${e.message}", Toast.LENGTH_LONG).show()
+                                                    } finally {
+                                                        isDeletingProof = false
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier.size(32.dp),
+                                            enabled = !isDeletingProof
+                                        ) {
+                                            if (isDeletingProof) {
+                                                CircularProgressIndicator(color = alertRed, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                            } else {
+                                                Icon(
+                                                    imageVector = Icons.Default.Clear,
+                                                    contentDescription = "Remove Proof",
+                                                    tint = alertRed,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             } else if (!isCreditor) {
                                 Spacer(modifier = Modifier.height(d.space8))
-                                TextButton(
+                                OutlinedButton(
                                     onClick = {
                                         targetPendingSettlementForProof = req
                                         pendingProofPicker.launch(
@@ -1293,9 +1346,23 @@ private fun StyledBalancesTab(
                                             )
                                         )
                                     },
-                                    contentPadding = PaddingValues(0.dp)
+                                    shape = RoundedCornerShape(d.radiusSM),
+                                    border = BorderStroke(1.dp, borderWhisper),
+                                    contentPadding = PaddingValues(horizontal = d.space12, vertical = d.space4),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = inkPrimary)
                                 ) {
-                                    Text("📷 Attach Payment Proof", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelSmall, color = inkPrimary)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CameraAlt,
+                                            contentDescription = "Camera",
+                                            modifier = Modifier.size(14.dp),
+                                            tint = inkPrimary
+                                        )
+                                        Text("Attach Payment Proof", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelSmall)
+                                    }
                                 }
                             }
                         }
@@ -1344,17 +1411,18 @@ private fun StyledBalancesTab(
                         )
                         if (isPayer) {
                             Spacer(modifier = Modifier.width(d.space8))
+                            val isPending = pendingRequests.any { it.fromUser == debt.fromUser && it.toUser == debt.toUser }
                             Surface(
-                                onClick = { onSettleClick(debt) },
+                                onClick = { if (!isPending) onSettleClick(debt) },
                                 shape = RoundedCornerShape(d.radiusFull),
-                                color = accentIndigo,
+                                color = if (isPending) colors.borderWhisper else accentIndigo,
                                 modifier = Modifier.height(32.dp)
                             ) {
                                 Text(
-                                    "Settle",
+                                    text = if (isPending) "Pending" else "Settle",
                                     fontFamily = OutfitFamily,
                                     fontSize = d.textLabelSmall,
-                                    color = colors.canvasChalk,
+                                    color = if (isPending) inkMuted else colors.canvasChalk,
                                     modifier = Modifier.padding(horizontal = d.space12, vertical = d.space4)
                                 )
                             }
@@ -1476,23 +1544,107 @@ private fun StyledBalancesTab(
             }
         }
         
-        if (selectedReceiptUrlForPreview != null) {
+        if (selectedReceiptUrlForPreview != null && !isDownloadingPreview && resolvedReceiptUri != null) {
+            AttachmentImageViewerDialog(
+                imageUri = resolvedReceiptUri,
+                imageUrl = null,
+                fileName = "Payment Proof",
+                isEditable = false,
+                onDismiss = { selectedReceiptUrlForPreview = null }
+            )
+        }
+
+        if (isDownloadingPreview) {
+            androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = colors.surfaceCard
+                ) {
+                    Row(
+                        modifier = Modifier.padding(24.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = colors.inkPrimary)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text("Fetching shared receipt...", fontFamily = OutfitFamily, color = colors.inkPrimary, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+
+        var isUploadingSettlementProof by remember { mutableStateOf(false) }
+
+        if (pendingProofUriToConfirm != null && pendingProofRequestForConfirm != null) {
+            val uri = pendingProofUriToConfirm!!
+            val req = pendingProofRequestForConfirm!!
             AlertDialog(
-                onDismissRequest = { selectedReceiptUrlForPreview = null },
+                onDismissRequest = {
+                    pendingProofUriToConfirm = null
+                    pendingProofRequestForConfirm = null
+                },
                 containerColor = colors.surfaceCard,
-                title = { Text("Payment Proof / Receipt", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.inkPrimary) },
+                shape = RoundedCornerShape(d.radiusLG),
+                title = { Text("Confirm Upload", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.inkPrimary) },
                 text = {
-                    Box(modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp), contentAlignment = Alignment.Center) {
-                        coil.compose.AsyncImage(
-                            model = selectedReceiptUrlForPreview,
-                            contentDescription = "Payment Receipt Proof",
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(d.radiusMD))
-                        )
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(d.space12),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("Preview the receipt / proof before uploading:", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkMuted)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(240.dp)
+                                .clip(RoundedCornerShape(d.radiusMD))
+                                .background(colors.borderWhisper.copy(alpha = 0.3f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            coil.compose.AsyncImage(
+                                model = uri,
+                                contentDescription = "Selected Proof Preview",
+                                modifier = Modifier.fillMaxSize().padding(d.space8)
+                            )
+                        }
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { selectedReceiptUrlForPreview = null }) {
-                        Text("Close", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.inkPrimary)
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                try {
+                                    isUploadingSettlementProof = true
+                                    val uploadResult = CloudinaryManager.uploadReceipt(context, uri, currentUserId ?: "user", "settlements")
+                                    val uploadedUrl = uploadResult.getOrThrow()
+                                    FirebaseManager.attachSettlementReceipt(groupId, req.id, uploadedUrl)
+                                    Toast.makeText(context, "Payment proof uploaded successfully!", Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Error uploading proof: ${e.message}", Toast.LENGTH_LONG).show()
+                                } finally {
+                                    isUploadingSettlementProof = false
+                                    pendingProofUriToConfirm = null
+                                    pendingProofRequestForConfirm = null
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk),
+                        enabled = !isUploadingSettlementProof
+                    ) {
+                        if (isUploadingSettlementProof) {
+                            CircularProgressIndicator(color = colors.canvasChalk, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Text("Upload", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            pendingProofUriToConfirm = null
+                            pendingProofRequestForConfirm = null
+                        },
+                        enabled = !isUploadingSettlementProof
+                    ) {
+                        Text("Cancel", fontFamily = OutfitFamily, color = colors.inkMuted)
                     }
                 }
             )

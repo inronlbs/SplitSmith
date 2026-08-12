@@ -163,212 +163,229 @@ fun AttachmentChipsView(
 
     // Full-screen Zoomable & Draggable Image Viewer Modal
     if (previewImageUrl != null || previewImageUri != null) {
-        Dialog(
-            onDismissRequest = {
+        AttachmentImageViewerDialog(
+            imageUri = previewImageUri,
+            imageUrl = previewImageUrl,
+            fileName = previewFileName,
+            index = previewIndex,
+            isEditable = isEditable,
+            onEditAttachment = { idx ->
                 previewImageUrl = null
                 previewImageUri = null
                 previewIndex = -1
+                onEditAttachment?.invoke(idx)
             },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            var scale by remember { mutableFloatStateOf(1f) }
-            var offsetX by remember { mutableFloatStateOf(0f) }
-            var offsetY by remember { mutableFloatStateOf(0f) }
-
-            val rawModel: Any? = previewImageUri ?: previewImageUrl?.ifBlank { null }
-            val isDriveUrl = previewImageUrl?.contains("drive.google.com") == true || previewImageUrl?.contains("google.com") == true
-
-            // Check if model points to a non-existent local file from another device
-            val isLocalFileMissing = remember(rawModel) {
-                if (rawModel is Uri && rawModel.scheme == "file" && rawModel.path != null) {
-                    !java.io.File(rawModel.path!!).exists()
-                } else if (rawModel is String && (rawModel.startsWith("file://") || rawModel.startsWith("/data/"))) {
-                    val cleanPath = rawModel.removePrefix("file://")
-                    !java.io.File(cleanPath).exists()
-                } else {
-                    false
-                }
+            onDismiss = {
+                previewImageUrl = null
+                previewImageUri = null
+                previewIndex = -1
             }
+        )
+    }
+}
 
-            val imageModel = if (isLocalFileMissing) null else rawModel
+@Composable
+fun AttachmentImageViewerDialog(
+    imageUri: Uri? = null,
+    imageUrl: String? = null,
+    fileName: String = "Attachment",
+    index: Int = 0,
+    isEditable: Boolean = false,
+    onEditAttachment: ((Int) -> Unit)? = null,
+    onDismiss: () -> Unit
+) {
+    val colors = LocalSplitColors.current
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        var scale by remember { mutableFloatStateOf(1f) }
+        var offsetX by remember { mutableFloatStateOf(0f) }
+        var offsetY by remember { mutableFloatStateOf(0f) }
 
+        val rawModel: Any? = imageUri ?: imageUrl?.ifBlank { null }
+
+        // Check if model points to a non-existent local file from another device
+        val isLocalFileMissing = remember(rawModel) {
+            if (rawModel is Uri && rawModel.scheme == "file" && rawModel.path != null) {
+                !java.io.File(rawModel.path!!).exists()
+            } else if (rawModel is String && (rawModel.startsWith("file://") || rawModel.startsWith("/data/"))) {
+                val cleanPath = rawModel.removePrefix("file://")
+                !java.io.File(cleanPath).exists()
+            } else {
+                false
+            }
+        }
+
+        val imageModel = if (isLocalFileMissing) null else rawModel
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.93f))
+        ) {
+            // Image content with pinch-to-zoom & pan
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.93f))
-            ) {
-                // Image content with pinch-to-zoom & pan
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(Unit) {
-                            detectTransformGestures { _, pan, zoom, _ ->
-                                val newScale = scale * zoom
-                                scale = if (newScale < 1f) 1f else if (newScale > 5f) 5f else newScale
-                                if (scale > 1f) {
-                                    offsetX += pan.x
-                                    offsetY += pan.y
-                                } else {
-                                    offsetX = 0f
-                                    offsetY = 0f
-                                }
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val newScale = scale * zoom
+                            scale = if (newScale < 1f) 1f else if (newScale > 5f) 5f else newScale
+                            if (scale > 1f) {
+                                offsetX += pan.x
+                                offsetY += pan.y
+                            } else {
+                                offsetX = 0f
+                                offsetY = 0f
                             }
-                        }
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onDoubleTap = {
-                                    if (scale > 1f) {
-                                        scale = 1f
-                                        offsetX = 0f
-                                        offsetY = 0f
-                                    } else {
-                                        scale = 2.5f
-                                    }
-                                }
-                            )
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isLocalFileMissing) {
-                        Column(
-                            modifier = Modifier
-                                .padding(32.dp)
-                                .fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Cloud,
-                                contentDescription = null,
-                                modifier = Modifier.size(64.dp),
-                                tint = Color.White.copy(alpha = 0.8f)
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "Receipt Stored on Other Phone",
-                                fontFamily = OutfitFamily,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                fontSize = 18.sp
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "This receipt was saved locally on your other phone. Once Google Drive Sync completes on your other phone, the receipt will be available here.",
-                                fontFamily = OutfitFamily,
-                                color = Color.White.copy(alpha = 0.7f),
-                                fontSize = 14.sp,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-                        }
-                    } else if (imageModel != null) {
-                        AsyncImage(
-                            model = imageModel,
-                            contentDescription = "Receipt photo full screen",
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer(
-                                    scaleX = scale,
-                                    scaleY = scale,
-                                    translationX = offsetX,
-                                    translationY = offsetY
-                                )
-                        )
-                    } else {
-                        // Stored in Google Drive fallback
-                        Column(
-                            modifier = Modifier
-                                .padding(32.dp)
-                                .fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Cloud,
-                                contentDescription = null,
-                                modifier = Modifier.size(64.dp),
-                                tint = Color.White.copy(alpha = 0.8f)
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Attachment in Google Drive",
-                                fontFamily = OutfitFamily,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                fontSize = 18.sp
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = previewFileName,
-                                fontFamily = OutfitFamily,
-                                color = Color.White.copy(alpha = 0.7f),
-                            )
                         }
                     }
-                }
-
-                // Top Bar overlay — dark scrim ensures icons visible on any background
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.40f))
-                        .statusBarsPadding()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = AttachmentDisplayHelper.cleanAttachmentLabel(previewFileName, previewIndex.coerceAtLeast(0), previewFileName.endsWith(".pdf", ignoreCase = true)),
-                        fontFamily = OutfitFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-
-                        if (isEditable && previewIndex >= 0 && onEditAttachment != null) {
-                            Surface(
-                                onClick = {
-                                    val idx = previewIndex
-                                    previewImageUrl = null
-                                    previewImageUri = null
-                                    previewIndex = -1
-                                    onEditAttachment(idx)
-                                },
-                                shape = RoundedCornerShape(20.dp),
-                                color = Color.White.copy(alpha = 0.15f),
-                                contentColor = Color.White
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Outlined.Edit, contentDescription = "Edit", modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Edit & Crop", fontFamily = OutfitFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onDoubleTap = {
+                                if (scale > 1f) {
+                                    scale = 1f
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                } else {
+                                    scale = 2.5f
                                 }
                             }
-                        }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                if (isLocalFileMissing) {
+                    Column(
+                        modifier = Modifier
+                            .padding(32.dp)
+                            .fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Cloud,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = Color.White.copy(alpha = 0.8f)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Receipt Stored on Other Phone",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "This receipt was saved locally on your other phone. Once Google Drive Sync completes on your other phone, the receipt will be available here.",
+                            fontFamily = OutfitFamily,
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 14.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                } else if (imageModel != null) {
+                    AsyncImage(
+                        model = imageModel,
+                        contentDescription = "Receipt photo full screen",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offsetX,
+                                translationY = offsetY
+                            )
+                    )
+                } else {
+                    // Stored in Google Drive fallback
+                    Column(
+                        modifier = Modifier
+                            .padding(32.dp)
+                            .fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Cloud,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = Color.White.copy(alpha = 0.8f)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Attachment in Google Drive",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = fileName,
+                            fontFamily = OutfitFamily,
+                            color = Color.White.copy(alpha = 0.7f),
+                        )
+                    }
+                }
+            }
 
-                        IconButton(
+            // Top Bar overlay — dark scrim ensures icons visible on any background
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.40f))
+                    .statusBarsPadding()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = AttachmentDisplayHelper.cleanAttachmentLabel(fileName, index.coerceAtLeast(0), fileName.endsWith(".pdf", ignoreCase = true)),
+                    fontFamily = OutfitFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (isEditable && index >= 0 && onEditAttachment != null) {
+                        Surface(
                             onClick = {
-                                previewImageUrl = null
-                                previewImageUri = null
-                                previewIndex = -1
+                                onEditAttachment(index)
                             },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.2f))
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.White.copy(alpha = 0.15f),
+                            contentColor = Color.White
                         ) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Outlined.Edit, contentDescription = "Edit", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Edit & Crop", fontFamily = OutfitFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
+                    }
+
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.2f))
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                     }
                 }
             }

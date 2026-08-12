@@ -147,9 +147,38 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         } else if (intent.action == android.content.Intent.ACTION_SEND && intent.type?.startsWith("image/") == true) {
             val uri = intent.getParcelableExtra<android.net.Uri>(android.content.Intent.EXTRA_STREAM)
             if (uri != null) {
-                com.splitsmith.app.data.FirebaseManager.sharedImageUri = uri
+                val cachedUri = copySharedUriToCache(this, uri)
+                if (cachedUri != null) {
+                    com.splitsmith.app.data.FirebaseManager.sharedImageUri = cachedUri
+                }
             }
             intent.action = null // Clear to prevent re-processing on activity recreate
+        }
+    }
+
+    private fun copySharedUriToCache(context: android.content.Context, uri: android.net.Uri): android.net.Uri? {
+        return try {
+            val contentResolver = context.contentResolver
+            val extension = when (contentResolver.getType(uri)) {
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                else -> "jpg"
+            }
+            val cacheDir = context.cacheDir
+            val tempFile = java.io.File(cacheDir, "shared_gpay_receipt_${System.currentTimeMillis()}.$extension")
+            contentResolver.openInputStream(uri)?.use { input ->
+                java.io.FileOutputStream(tempFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            if (tempFile.exists() && tempFile.length() > 0) {
+                android.net.Uri.fromFile(tempFile)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to copy shared URI to cache: ${e.message}")
+            null
         }
     }
 }

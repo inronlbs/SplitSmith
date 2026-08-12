@@ -589,6 +589,21 @@ object FirebaseManager {
             .delete().await()
     }
 
+    suspend fun removeSettlementReceipt(groupId: String, settlementId: String, receiptUrl: String) {
+        if (receiptUrl.isNotBlank() && receiptUrl.contains("cloudinary")) {
+            try {
+                CloudinaryManager.deleteReceipt(receiptUrl)
+            } catch (e: Exception) {
+                android.util.Log.e("FirebaseManager", "Failed to delete settlement proof from Cloudinary: ${e.message}")
+            }
+        }
+        db.collection("groups").document(groupId).collection("settlements").document(settlementId)
+            .update(mapOf(
+                "receiptUrl" to "",
+                "receiptUrls" to emptyList<String>()
+            )).await()
+    }
+
     fun observeSettlements(groupId: String): Flow<List<Settlement>> = callbackFlow {
         val listener = db.collection("groups").document(groupId).collection("settlements")
             .orderBy("timestamp")
