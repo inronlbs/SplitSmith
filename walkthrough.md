@@ -456,3 +456,35 @@
 - ✅ Committed: `fix: v0.3.9.3 patch - toggleable search filters, connected friends tab, search focus fix, disconnect/delete flow`
 - ✅ Pushed to `main` — commit `5c01bf3`
 - 9 files changed, 542 insertions(+), 80 deletions(-)
+
+---
+
+## [2026-08-13 01:29] Release v0.3.9.4 Published
+
+### Version
+- **versionCode**: `54` → `55`
+- **versionName**: `0.3.9.3` → `0.3.9.4`
+- **Type**: Patch Release
+
+### Changes
+- Fixed search bar text and placeholder getting clipped in Group Detail and Friend Splits views
+- Root cause: dynamic `Row` with conditional Clear button inside `trailingIcon` caused variable measured width, shrinking the text field's available space
+- Fix: replaced with a single static `IconButton(Tune)` — stable trailing width, no more clipping
+
+### Build
+- `./gradlew assembleRelease bundleRelease` — **BUILD SUCCESSFUL** in 2m 18s
+- Signed APK: `SplitSmith-v0.3.9.4-release.apk`
+- Signed AAB: `SplitSmith-v0.3.9.4-release.aab`
+
+### GitHub Release
+- ✅ Published: https://github.com/inronlbs/SplitSmith/releases/tag/v0.3.9.4
+- Both APK and AAB uploaded as release assets
+
+### Firebase Hosting CDN
+- ✅ `public/splitsmith.bin` updated with v0.3.9.4 APK
+- ✅ Deployed: https://splitsmith.web.app
+
+### Git
+- ✅ Committed: `fix: v0.3.9.4 patch - fix search bar text clipping in group and friend split views`
+- ✅ Pushed to `main` — commit `9872a40`
+- 6 files changed, 43 insertions(+), 30 deletions(-)

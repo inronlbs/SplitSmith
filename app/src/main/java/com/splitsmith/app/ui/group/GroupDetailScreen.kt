@@ -1151,7 +1151,7 @@ private fun StyledExpensesTab(
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(d.radiusSM),
                         placeholder = { Text("Search description...", fontFamily = OutfitFamily, fontSize = 12.sp, color = inkMuted) },
                         singleLine = true,
