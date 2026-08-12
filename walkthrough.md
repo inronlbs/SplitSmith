@@ -488,3 +488,30 @@
 - ✅ Committed: `fix: v0.3.9.4 patch - fix search bar text clipping in group and friend split views`
 - ✅ Pushed to `main` — commit `9872a40`
 - 6 files changed, 43 insertions(+), 30 deletions(-)
+
+## [2026-08-13 01:46] Release v0.3.9.5 Published
+
+### Summary
+Patch release fixing search bar text being clipped (cut in half) in the Group Expenses tab.
+
+### Root Cause
+OutlinedTextField at GroupDetailScreen.kt:L1154 had a hard Modifier.height(44.dp) constraint. Material 3's OutlinedTextField enforces a minimum internal height of ~56dp. Forcing it to 44dp caused Compose to clip the draw surface — text rendered at its natural Y-center but the bottom ~12dp of glyphs were outside the clipping boundary, appearing cut in half. A secondary fix attempt adding contentPadding failed compilation because that parameter only exists on the newer TextFieldState overload, not the alue/onValueChange overload. The final fix: simply remove the hard height() constraint and let the field size naturally.
+
+### Changes Made
+- **[MODIFY]** `GroupDetailScreen.kt`: Removed `Modifier.height(44.dp)` from `OutlinedTextField` in `StyledExpensesTab` (L1154).
+- **[MODIFY]** `app/build.gradle.kts`: Bumped `versionCode` 55 → 56, `versionName` `0.3.9.4` → `0.3.9.5`.
+- **[MODIFY]** `firebase.json`: Updated `Content-Disposition` download filename to `SplitSmith-v0.3.9.5-release.apk`.
+
+### Build Verification
+- **Compile Status**: `BUILD SUCCESSFUL` in 2m 23s
+- **Signed APK**: `SplitSmith-v0.3.9.5-release.apk`
+- **Signed AAB**: `SplitSmith-v0.3.9.5-release.aab`
+
+### Release Artifacts
+- **GitHub Release**: https://github.com/inronlbs/SplitSmith/releases/tag/v0.3.9.5
+- **Firebase Hosting CDN**: https://splitsmith.web.app (splitsmith.bin updated)
+
+### Git
+- ✅ Committed: `fix: v0.3.9.5 patch - search bar text clipping fix`
+- ✅ Pushed to `main` — commit `9c35fc5`
+- 5 files changed, 35 insertions(+), 3 deletions(-)

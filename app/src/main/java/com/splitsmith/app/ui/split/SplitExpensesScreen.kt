@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Clear
@@ -782,35 +783,35 @@ fun DirectSplitDetailBottomSheet(
                     }
                 }
 
-                if (!isSettled) {
-                    Box {
-                        IconButton(onClick = { showMenu = true }) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Options",
-                                tint = colors.inkPrimary
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Delete Split", fontFamily = OutfitFamily, color = colors.alertRed) },
-                                onClick = {
-                                    showMenu = false
-                                    coroutineScope.launch {
-                                        try {
-                                            FirebaseManager.deleteDirectSplit(split.id, split.receiptUrls)
-                                            Toast.makeText(context, "Split deleted", Toast.LENGTH_SHORT).show()
-                                            onDismiss()
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                        }
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Options",
+                            tint = colors.inkPrimary
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                        modifier = Modifier.background(colors.surfaceCard)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Delete Split", fontFamily = OutfitFamily, color = colors.alertRed) },
+                            onClick = {
+                                showMenu = false
+                                coroutineScope.launch {
+                                    try {
+                                        FirebaseManager.deleteDirectSplit(split.id, split.receiptUrls)
+                                        Toast.makeText(context, "Split deleted", Toast.LENGTH_SHORT).show()
+                                        onDismiss()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                                     }
                                 }
-                            )
-                        }
+                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = colors.alertRed) }
+                        )
                     }
                 }
             }

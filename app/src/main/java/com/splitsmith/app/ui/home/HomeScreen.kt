@@ -43,6 +43,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Edit
@@ -484,6 +487,7 @@ fun HomeScreen(
                     groupExpense = selectedGroupExpenseForDetail!!,
                     currentUserId = FirebaseManager.currentUserId ?: "",
                     onNavigateToGroup = onNavigateToGroup,
+                    onNavigateToAddExpense = onNavigateToAddExpense,
                     onDismiss = { selectedGroupExpenseForDetail = null }
                 )
             }
@@ -2848,13 +2852,44 @@ fun GroupExpenseDetailBottomSheet(
     groupExpense: com.splitsmith.app.data.GroupExpenseWithContext,
     currentUserId: String,
     onNavigateToGroup: (groupId: String) -> Unit,
+    onNavigateToAddExpense: (groupId: String, expenseId: String?) -> Unit = { _, _ -> },
     onDismiss: () -> Unit
 ) {
     val d = LocalDimens.current
     val colors = LocalSplitColors.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val exp = groupExpense.expense
     val isPayer = exp.paidBy == currentUserId
+
+    var showMenu by remember { mutableStateOf(false) }
+    var expenseToDelete by remember { mutableStateOf<com.splitsmith.app.data.Expense?>(null) }
+    val canManageExpense = currentUserId.isNotEmpty() && (
+        exp.createdBy == currentUserId ||
+        exp.paidBy == currentUserId ||
+        exp.createdBy.isBlank()
+    )
+
+    if (expenseToDelete != null) {
+        val targetExp = expenseToDelete!!
+        com.splitsmith.app.ui.components.DeleteExpenseDialog(
+            hasAttachments = targetExp.receiptUrls.isNotEmpty(),
+            onDismiss = { expenseToDelete = null },
+            onConfirmDelete = { _ ->
+                coroutineScope.launch {
+                    try {
+                        FirebaseManager.deleteExpense(groupExpense.groupId, targetExp.id, targetExp.getEffectiveReceiptUrls())
+                        android.widget.Toast.makeText(context, "Expense deleted", android.widget.Toast.LENGTH_SHORT).show()
+                        onDismiss()
+                    } catch (e: Exception) {
+                        android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+                expenseToDelete = null
+            }
+        )
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -2896,6 +2931,37 @@ fun GroupExpenseDetailBottomSheet(
                             fontSize = d.textLabelMedium,
                             color = colors.inkMuted
                         )
+                    }
+                }
+
+                if (canManageExpense) {
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = colors.inkPrimary)
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                            modifier = Modifier.background(colors.surfaceCard)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Edit Expense", fontFamily = OutfitFamily, color = colors.inkPrimary) },
+                                onClick = {
+                                    showMenu = false
+                                    onDismiss()
+                                    onNavigateToAddExpense(groupExpense.groupId, exp.id)
+                                },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = colors.inkPrimary) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete Expense", fontFamily = OutfitFamily, color = colors.alertRed) },
+                                onClick = {
+                                    showMenu = false
+                                    expenseToDelete = exp
+                                },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = colors.alertRed) }
+                            )
+                        }
                     }
                 }
             }

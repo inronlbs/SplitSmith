@@ -2976,7 +2976,12 @@ fun GroupExpenseDetailBottomSheet(
     val d = LocalDimens.current
     val colors = LocalSplitColors.current
     var showMenu by remember { mutableStateOf(false) }
-    val isCreator = expense.createdBy == FirebaseManager.currentUserId
+    val currentUid = FirebaseManager.currentUserId
+    val canManageExpense = currentUid != null && (
+        expense.createdBy == currentUid ||
+        expense.paidBy == currentUid ||
+        expense.createdBy.isBlank()
+    )
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -3012,7 +3017,7 @@ fun GroupExpenseDetailBottomSheet(
                     }
                 }
 
-                if (isCreator) {
+                if (canManageExpense) {
                     Box {
                         IconButton(onClick = { showMenu = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = colors.inkPrimary)
