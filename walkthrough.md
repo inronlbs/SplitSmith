@@ -384,6 +384,22 @@
 4. **Always-On Remote Search Trigger (`QuickSplitScreen.kt`)**:
    * Removed the blocker where local friend matches hid the global search card, allowing users to query SplitSmith globally anytime their query is >= 2 characters.
 
+---
 
+## [2026-08-12 23:28] Database Audit, Cleanup, & Security Rules Hardening
 
-
+### Key Technical Accomplishments
+1. **Firestore Database Purge (`cleanup_database.js`)**:
+   * **Duplicate Profiles Deleted**: Removed legacy user document IDs `0r4cYxLrGIZm4p0LQ3ZkVvG3MSh1` and `Hy4ucoEtjBUo10v6AmS8zvsc1Ru1` from the `/users` collection.
+   * **Orphan Connections Cleared**: Cleared connections pointing to legacy UIDs from active user documents (e.g. Abhijith and Amal Tom's active profiles).
+   * **Ghost User "Friend" Purged**: Deleted the corrupted direct split document `5lVNWLlxo2LH4uOr8Jaz` containing an empty `withUser` field which rendered as "Friend" in the app.
+   * **Settle Test Transactions Cleared**: Deleted 4 other settled direct splits and 2 settled group settlements created for testing to clean up UI clutter.
+2. **Security Rules Hardening (`firestore.rules`)**:
+   * Removed the legacy email and UID bypasses from the `isUser(uid)` helper function in both the root and subproject `firestore.rules` files:
+     ```javascript
+     function isUser(userId) {
+       return isAuthenticated() && request.auth.uid == userId;
+     }
+     ```
+     *(This locks down the database so that only the authenticated owner can access or write to their own profile, with no exceptions).*
+   * Deployed the rules successfully using the Firebase CLI to release `firestore.rules`.
