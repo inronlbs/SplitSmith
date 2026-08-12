@@ -318,3 +318,25 @@
 ## [2026-08-08 01.14] v0.3.8.4 Release
 - Fixed an issue where removing receipt attachments from expenses during edit did not delete the file from Cloudinary.
 - Added orphaned receipt cleanup to both group expenses and personal expenses.
+
+---
+
+## [2026-08-12 16:30] Release v0.3.9.1 Published
+
+### Key Technical Accomplishments
+1. **Google Pay Shared URI Caching (`MainActivity.kt`)**: Implemented local caching during intent delivery to prevent transient read permission revocation when importing GPay receipts.
+2. **Unified full-screen zoomable Image Viewer (`AttachmentChipsView.kt` & `GroupDetailScreen.kt`)**: Extracted the pan-and-zoom modal into a reusable `AttachmentImageViewerDialog` component.
+3. **Redesigned Proof Attachment Flow (`GroupDetailScreen.kt` & `FirebaseManager.kt`)**:
+   * Replaced the camera emoji with a styled `OutlinedButton` and vector icon.
+   * Added a local image preview modal to confirm the screenshot before uploading.
+   * Enabled debtors to remove/delete their attached proofs (which cleans them up from both Firestore and Cloudinary).
+   * Refactored remote proof clicks to fetch and decrypt the image in the background before opening it in the unified image viewer.
+4. **Duplicate-Settlement Prevention (`GroupDetailScreen.kt`)**: Disabled the **Settle** button and labeled it **Pending** if there is already an active pending settlement request between the debtor and creditor.
+
+### Deployed Artifacts & Links
+* **GitHub Release**: [v0.3.9.1 Patch Release](https://github.com/inronlbs/SplitSmith/releases/tag/v0.3.9.1)
+* **Production Binaries**:
+  * [SplitSmith-v0.3.9.1-release.apk](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/SplitSmith-v0.3.9.1-release.apk)
+  * [SplitSmith-v0.3.9.1-release.aab](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/SplitSmith-v0.3.9.1-release.aab)
+* **Firebase Hosting CDN URL**: [https://splitsmith.web.app](https://splitsmith.web.app) (Serving updated `splitsmith.bin`)
+
