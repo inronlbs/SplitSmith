@@ -29,12 +29,15 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
 import com.splitsmith.app.ui.components.UserAvatar
 import com.splitsmith.app.ui.components.GroupIconView
 import com.splitsmith.app.ui.components.dotGridBackground
 import com.splitsmith.app.util.UpiPaymentHelper
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,6 +95,7 @@ fun GroupDetailScreen(
     var memberProfilesMap by remember { mutableStateOf<Map<String, UserProfile>>(emptyMap()) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var expenseToDelete by remember { mutableStateOf<Expense?>(null) }
+    var showSearchFilters by rememberSaveable { mutableStateOf(false) }
     var pendingConfirmUpiSettlement by remember { mutableStateOf<Debt?>(null) }
 
     var selectedSettlementProofUri by remember { mutableStateOf<Uri?>(null) }
@@ -608,35 +612,52 @@ fun GroupDetailScreen(
                         .fillMaxWidth()
                         .offset(y = (-2).dp)
                         .padding(horizontal = d.space24),
-                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    listOf("Expenses", "Balances").forEachIndexed { index, label ->
-                        val isActive = pagerState.currentPage == index
-                        val bgColor by animateColorAsState(
-                            targetValue = if (isActive) accentIndigo else Color.Transparent,
-                            label = "tabBg$index"
-                        )
-                        val textColor by animateColorAsState(
-                            targetValue = if (isActive) canvasChalk else inkMuted,
-                            label = "tabText$index"
-                        )
-                        Surface(
-                            onClick = {
-                                coroutineScope.launch {
-                                    pagerState.animateScrollToPage(index)
-                                }
-                            },
-                            shape = RoundedCornerShape(d.radiusFull),
-                            color = bgColor,
-                            modifier = Modifier.height(d.space32 + d.space4)
-                        ) {
-                            Text(
-                                text = label,
-                                fontFamily = OutfitFamily,
-                                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                                fontSize = d.textLabelLarge,
-                                color = textColor,
-                                modifier = Modifier.padding(horizontal = d.space16, vertical = d.space8)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(d.space8),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        listOf("Expenses", "Balances").forEachIndexed { index, label ->
+                            val isActive = pagerState.currentPage == index
+                            val bgColor by animateColorAsState(
+                                targetValue = if (isActive) accentIndigo else Color.Transparent,
+                                label = "tabBg$index"
+                            )
+                            val textColor by animateColorAsState(
+                                targetValue = if (isActive) canvasChalk else inkMuted,
+                                label = "tabText$index"
+                            )
+                            Surface(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        pagerState.animateScrollToPage(index)
+                                    }
+                                },
+                                shape = RoundedCornerShape(d.radiusFull),
+                                color = bgColor,
+                                modifier = Modifier.height(d.space32 + d.space4)
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                                    fontSize = d.textLabelLarge,
+                                    color = textColor,
+                                    modifier = Modifier.padding(horizontal = d.space16, vertical = d.space8)
+                                )
+                            }
+                        }
+                    }
+                    
+                    if (pagerState.currentPage == 0) {
+                        IconButton(onClick = { showSearchFilters = !showSearchFilters }) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search group expenses",
+                                tint = if (showSearchFilters) colors.inkPrimary else colors.inkMuted,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
@@ -656,6 +677,7 @@ fun GroupDetailScreen(
                             groupId = groupId,
                             onNavigateToAddExpense = onNavigateToAddExpense,
                             onDeleteExpense = { expenseToDelete = it },
+                            showSearchFilters = showSearchFilters,
                             d = d,
                             inkPrimary = inkPrimary,
                             inkMuted = inkMuted,
@@ -1073,6 +1095,7 @@ private fun StyledExpensesTab(
     groupId: String,
     onNavigateToAddExpense: (groupId: String, expenseId: String?) -> Unit,
     onDeleteExpense: (Expense) -> Unit,
+    showSearchFilters: Boolean,
     d: com.splitsmith.app.theme.Dimens,
     inkPrimary: Color,
     inkMuted: Color,
@@ -1082,18 +1105,165 @@ private fun StyledExpensesTab(
     val coroutineScope = rememberCoroutineScope()
     var selectedExpenseForDetail by remember { mutableStateOf<Expense?>(null) }
 
+    val currentUserId = FirebaseManager.currentUserId ?: ""
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var selectedPayerFilter by rememberSaveable { mutableStateOf("All") } // "All", "Me", "Others"
+    var selectedCategory by rememberSaveable { mutableStateOf("All") }
+    var showFilterPills by rememberSaveable { mutableStateOf(false) }
+
+    val dynamicCategories = remember(expenses) {
+        val list = expenses.map { it.category }.distinct().filter { it.isNotEmpty() }
+        if (list.isEmpty()) listOf("All", "Food", "Groceries", "Travel", "Rent", "Utilities", "Others")
+        else listOf("All") + list
+    }
+
+    val processedExpenses = remember(expenses, searchQuery, selectedCategory, selectedPayerFilter, currentUserId) {
+        expenses.filter { exp ->
+            val trimmed = searchQuery.trim()
+            val matchesSearch = exp.description.contains(trimmed, ignoreCase = true)
+            val matchesCategory = selectedCategory == "All" || exp.category.equals(selectedCategory, ignoreCase = true)
+            val matchesPayer = when (selectedPayerFilter) {
+                "Me" -> exp.paidBy == currentUserId
+                "Others" -> exp.paidBy != currentUserId
+                else -> true
+            }
+            matchesSearch && matchesCategory && matchesPayer
+        }.sortedByDescending { it.date }
+    }
+
+    val colors = LocalSplitColors.current
+
     if (expenses.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No expenses yet. Tap + to log one.", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = inkMuted, textAlign = TextAlign.Center)
         }
     } else {
-        val sortedExpenses = remember(expenses) { expenses.sortedByDescending { it.date } }
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = d.space24, vertical = d.space8),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
-            items(sortedExpenses) { expense ->
+        Column(modifier = Modifier.fillMaxSize()) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showSearchFilters,
+                enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = d.space24).padding(top = d.space12, bottom = d.space4),
+                    verticalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        shape = RoundedCornerShape(d.radiusSM),
+                        placeholder = { Text("Search description...", fontFamily = OutfitFamily, fontSize = 12.sp, color = inkMuted) },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = inkMuted, modifier = Modifier.size(16.dp)) },
+                        trailingIcon = {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 4.dp)) {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(24.dp)) {
+                                        Icon(Icons.Default.Clear, contentDescription = "Clear", tint = inkMuted, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                                IconButton(onClick = { showFilterPills = !showFilterPills }, modifier = Modifier.size(24.dp)) {
+                                    Icon(
+                                        imageVector = Icons.Default.Tune,
+                                        contentDescription = "Toggle filters",
+                                        tint = if (showFilterPills) inkPrimary else inkMuted,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = inkPrimary,
+                            unfocusedBorderColor = borderWhisper,
+                            focusedContainerColor = colors.canvasChalk,
+                            unfocusedContainerColor = colors.canvasChalk,
+                            focusedTextColor = inkPrimary,
+                            unfocusedTextColor = inkPrimary
+                        ),
+                        textStyle = androidx.compose.ui.text.TextStyle(fontFamily = OutfitFamily, fontSize = 13.sp, color = inkPrimary)
+                    )
+
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = showFilterPills,
+                        enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                        exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = d.space4),
+                            horizontalArrangement = Arrangement.spacedBy(d.space8),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val payerLabel = when (selectedPayerFilter) {
+                                "Me" -> "Payer: Me"
+                                "Others" -> "Payer: Others"
+                                else -> "Payer: All"
+                            }
+                            val isPayerActive = selectedPayerFilter != "All"
+                            Surface(
+                            onClick = {
+                                selectedPayerFilter = when (selectedPayerFilter) {
+                                    "All" -> "Me"
+                                    "Me" -> "Others"
+                                    else -> "All"
+                                }
+                            },
+                            shape = RoundedCornerShape(d.radiusFull),
+                            color = if (isPayerActive) inkPrimary else colors.canvasChalk,
+                            border = if (!isPayerActive) BorderStroke(1.dp, borderWhisper) else null,
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
+                                Text(payerLabel, fontFamily = OutfitFamily, fontSize = 11.sp, color = if (isPayerActive) colors.canvasChalk else inkMuted, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        var showCategoryMenu by remember { mutableStateOf(false) }
+                        val isCategoryActive = selectedCategory != "All"
+                        Box {
+                            Surface(
+                                onClick = { showCategoryMenu = true },
+                                shape = RoundedCornerShape(d.radiusFull),
+                                color = if (isCategoryActive) inkPrimary else colors.canvasChalk,
+                                border = if (!isCategoryActive) BorderStroke(1.dp, borderWhisper) else null,
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
+                                    Text("Category: $selectedCategory \u25be", fontFamily = OutfitFamily, fontSize = 11.sp, color = if (isCategoryActive) colors.canvasChalk else inkMuted, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            DropdownMenu(
+                                expanded = showCategoryMenu,
+                                onDismissRequest = { showCategoryMenu = false },
+                                containerColor = colors.surfaceCard
+                            ) {
+                                dynamicCategories.forEach { cat ->
+                                    DropdownMenuItem(
+                                        text = { Text(cat, fontFamily = OutfitFamily, color = inkPrimary) },
+                                        onClick = {
+                                            selectedCategory = cat
+                                            showCategoryMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            }
+
+            if (processedExpenses.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No matching expenses found.", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = inkMuted)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = d.space24, vertical = d.space8),
+                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
+                    items(processedExpenses) { expense ->
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1130,6 +1300,8 @@ private fun StyledExpensesTab(
             }
         }
     }
+}
+}
 
     if (selectedExpenseForDetail != null) {
         val exp = selectedExpenseForDetail!!

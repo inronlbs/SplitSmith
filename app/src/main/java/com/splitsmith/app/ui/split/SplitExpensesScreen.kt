@@ -10,6 +10,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,8 +32,11 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,7 +93,7 @@ fun SplitExpensesScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedSegment by remember { mutableIntStateOf(savedSplitSegment) } // 0 = GROUPS, 1 = PEOPLE
     var showCreateGroup by remember { mutableStateOf(false) }
     var fabExpanded by remember { mutableStateOf(false) }
@@ -100,13 +105,16 @@ fun SplitExpensesScreen(
     // Use collectAsState with remember(currentUserId) to ensure flows re-subscribe properly when user changes
     val groupsFlow = remember(currentUserId) { FirebaseManager.observeGroups() }
     val directSplitsFlow = remember(currentUserId) { FirebaseManager.observeDirectSplits() }
+    val connectionsFlow = remember(currentUserId) { FirebaseManager.observeConnections() }
 
     val groupsState = groupsFlow.collectAsState(initial = null)
     val directSplitsState = directSplitsFlow.collectAsState(initial = null)
+    val connectionsState = connectionsFlow.collectAsState(initial = null)
 
-    val isLoaded = groupsState.value != null && directSplitsState.value != null
+    val isLoaded = groupsState.value != null && directSplitsState.value != null && connectionsState.value != null
     val groups = groupsState.value ?: emptyList()
     val directSplits = directSplitsState.value ?: emptyList()
+    val connectedUsers = connectionsState.value ?: emptyList()
 
     // Resolve direct splits contact names with instant memory-cache pre-population
     var contactNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -149,20 +157,26 @@ fun SplitExpensesScreen(
         groups.filter { it.name.contains(searchQuery, ignoreCase = true) }
     }
     
-    val individualPeers = remember(directSplits, contactNames, contactAvatars, contactUpis, currentUserId, searchQuery) {
-        val grouped = directSplits.groupBy { split ->
+    val individualPeers = remember(directSplits, connectedUsers, contactNames, contactAvatars, contactUpis, currentUserId, searchQuery) {
+        val splitsGrouped = directSplits.groupBy { split ->
             val rawPeer = if (split.paidBy == currentUserId) split.withUser else split.paidBy
             val cached = FirebaseManager.getCachedUserProfile(rawPeer)
             cached?.uid?.ifEmpty { rawPeer } ?: rawPeer
         }
-        grouped.map { (peerUid, splitsList) ->
-            val resolvedProfile = FirebaseManager.getCachedUserProfile(peerUid)
-            val name = contactNames[peerUid] ?: resolvedProfile?.getResolvedName("Friend") ?: "Friend"
-            val avatar = contactAvatars[peerUid] ?: resolvedProfile?.avatarUrl ?: ""
-            val upi = contactUpis[peerUid] ?: resolvedProfile?.upiId ?: ""
-
+        
+        val allPeerUids = (splitsGrouped.keys + connectedUsers.map { it.uid })
+            .filter { it.isNotEmpty() && it != currentUserId }
+            .toSet()
+        
+        allPeerUids.map { peerUid ->
+            val resolvedProfile = connectedUsers.find { it.uid == peerUid } ?: FirebaseManager.getCachedUserProfile(peerUid)
+            val name = resolvedProfile?.getResolvedName() ?: contactNames[peerUid] ?: resolvedProfile?.displayName ?: "Friend"
+            val avatar = resolvedProfile?.avatarUrl ?: contactAvatars[peerUid] ?: ""
+            val upi = resolvedProfile?.upiId ?: contactUpis[peerUid] ?: ""
+            
+            val peerSplits = splitsGrouped[peerUid] ?: emptyList()
             var net = 0.0
-            splitsList.forEach { s ->
+            peerSplits.forEach { s ->
                 if (s.status != "SETTLED") {
                     if (s.paidBy == currentUserId) {
                         net += s.myShare
@@ -178,12 +192,21 @@ fun SplitExpensesScreen(
                 peerAvatar = avatar,
                 peerUpi = upi,
                 netBalance = net,
-                splits = splitsList.sortedByDescending { it.date }
+                splits = peerSplits.sortedByDescending { it.date }
             )
         }.filter { peerGroup ->
-            peerGroup.peerName.contains(searchQuery, ignoreCase = true) ||
-            peerGroup.splits.any { it.description.contains(searchQuery, ignoreCase = true) }
-        }.sortedByDescending { Math.abs(it.netBalance) }
+            val trimmed = searchQuery.trim()
+            val resolvedProfile = connectedUsers.find { it.uid == peerGroup.peerUid } ?: FirebaseManager.getCachedUserProfile(peerGroup.peerUid)
+            peerGroup.peerName.contains(trimmed, ignoreCase = true) ||
+            resolvedProfile?.email?.contains(trimmed, ignoreCase = true) == true ||
+            resolvedProfile?.shortCode?.contains(trimmed, ignoreCase = true) == true ||
+            peerGroup.splits.any { it.description.contains(trimmed, ignoreCase = true) }
+        }.sortedWith { a, b ->
+            // Active balances first, then sort alphabetically by name
+            if (a.netBalance != 0.0 && b.netBalance == 0.0) -1
+            else if (a.netBalance == 0.0 && b.netBalance != 0.0) 1
+            else a.peerName.compareTo(b.peerName, ignoreCase = true)
+        }
     }
 
     val totalOwedToYou = remember(individualPeers) {
@@ -1582,6 +1605,13 @@ fun PersonDetailBottomSheet(
     
     var selectedSubTab by remember { mutableIntStateOf(0) }
 
+    // Toggleable search & minimal filters inside sheet
+    var showSearchFilters by rememberSaveable { mutableStateOf(false) }
+    var searchHistoryQuery by rememberSaveable { mutableStateOf("") }
+    var selectedPayerFilter by rememberSaveable { mutableStateOf("All") }
+    var selectedCategory by rememberSaveable { mutableStateOf("All") }
+    var showFilterPills by rememberSaveable { mutableStateOf(false) }
+
     val net = peerGroup.netBalance
     val balanceText = when {
         net > 0 -> "${peerGroup.peerName} owes you \u20b9${net.formatCurrency()}"
@@ -1644,26 +1674,43 @@ fun PersonDetailBottomSheet(
             // ── Segmented Pill Tab Bar ─────────────────────
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(d.space8)
+                horizontalArrangement = Arrangement.spacedBy(d.space8),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                listOf("Expenses", "Balances", "Settings").forEachIndexed { index, label ->
-                    val isActive = selectedSubTab == index
-                    Surface(
-                        onClick = { selectedSubTab = index },
-                        shape = RoundedCornerShape(d.radiusFull),
-                        color = if (isActive) colors.inkPrimary else colors.canvasChalk,
-                        border = if (!isActive) BorderStroke(1.dp, colors.borderWhisper) else null,
-                        modifier = Modifier.height(36.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space16)) {
-                            Text(
-                                text = label,
-                                fontFamily = OutfitFamily,
-                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = d.textLabelLarge,
-                                color = if (isActive) colors.canvasChalk else colors.inkMuted
-                            )
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    listOf("Expenses", "Balances", "Settings").forEachIndexed { index, label ->
+                        val isActive = selectedSubTab == index
+                        Surface(
+                            onClick = { selectedSubTab = index },
+                            shape = RoundedCornerShape(d.radiusFull),
+                            color = if (isActive) colors.inkPrimary else colors.canvasChalk,
+                            border = if (!isActive) BorderStroke(1.dp, colors.borderWhisper) else null,
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space16)) {
+                                Text(
+                                    text = label,
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = d.textLabelLarge,
+                                    color = if (isActive) colors.canvasChalk else colors.inkMuted
+                                )
+                            }
                         }
+                    }
+                }
+                
+                if (selectedSubTab == 0) {
+                    IconButton(onClick = { showSearchFilters = !showSearchFilters }) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search history",
+                            tint = if (showSearchFilters) colors.inkPrimary else colors.inkMuted,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
@@ -1673,7 +1720,136 @@ fun PersonDetailBottomSheet(
                 when (selectedSubTab) {
                     0 -> {
                         // ── EXPENSES TAB ──
+                        val processedSplits = remember(peerGroup.splits, searchHistoryQuery, selectedPayerFilter, selectedCategory) {
+                            peerGroup.splits.filter { split ->
+                                val trimmed = searchHistoryQuery.trim()
+                                val matchesSearch = split.description.contains(trimmed, ignoreCase = true)
+                                val matchesCategory = selectedCategory == "All" || split.category.equals(selectedCategory, ignoreCase = true)
+                                val matchesPayer = when (selectedPayerFilter) {
+                                    "Me" -> split.paidBy == currentUserId
+                                    "Others" -> split.paidBy != currentUserId
+                                    else -> true
+                                }
+                                matchesSearch && matchesCategory && matchesPayer
+                            }
+                        }
+
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            AnimatedVisibility(
+                                visible = showSearchFilters,
+                                enter = expandVertically() + fadeIn(),
+                                exit = shrinkVertically() + fadeOut()
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = d.space8),
+                                    verticalArrangement = Arrangement.spacedBy(d.space8)
+                                ) {
+                                    OutlinedTextField(
+                                        value = searchHistoryQuery,
+                                        onValueChange = { searchHistoryQuery = it },
+                                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                                        shape = RoundedCornerShape(d.radiusSM),
+                                        placeholder = { Text("Search...", fontFamily = OutfitFamily, fontSize = 12.sp, color = colors.inkMuted) },
+                                        singleLine = true,
+                                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = colors.inkMuted, modifier = Modifier.size(16.dp)) },
+                                        trailingIcon = {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 4.dp)) {
+                                                if (searchHistoryQuery.isNotEmpty()) {
+                                                    IconButton(onClick = { searchHistoryQuery = "" }, modifier = Modifier.size(24.dp)) {
+                                                        Icon(Icons.Default.Clear, contentDescription = "Clear", tint = colors.inkMuted, modifier = Modifier.size(16.dp))
+                                                    }
+                                                }
+                                                IconButton(onClick = { showFilterPills = !showFilterPills }, modifier = Modifier.size(24.dp)) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Tune,
+                                                        contentDescription = "Toggle filters",
+                                                        tint = if (showFilterPills) colors.inkPrimary else colors.inkMuted,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = colors.inkPrimary,
+                                            unfocusedBorderColor = colors.borderWhisper,
+                                            focusedContainerColor = colors.canvasChalk,
+                                            unfocusedContainerColor = colors.canvasChalk,
+                                            focusedTextColor = colors.inkPrimary,
+                                            unfocusedTextColor = colors.inkPrimary
+                                        ),
+                                        textStyle = androidx.compose.ui.text.TextStyle(fontFamily = OutfitFamily, fontSize = 13.sp, color = colors.inkPrimary)
+                                    )
+
+                                    AnimatedVisibility(
+                                        visible = showFilterPills,
+                                        enter = expandVertically() + fadeIn(),
+                                        exit = shrinkVertically() + fadeOut()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(top = d.space4),
+                                            horizontalArrangement = Arrangement.spacedBy(d.space8),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            val payerLabel = when (selectedPayerFilter) {
+                                                "Me" -> "Payer: Me"
+                                                "Others" -> "Payer: Others"
+                                                else -> "Payer: All"
+                                            }
+                                            val isPayerActive = selectedPayerFilter != "All"
+                                            Surface(
+                                                onClick = {
+                                                    selectedPayerFilter = when (selectedPayerFilter) {
+                                                        "All" -> "Me"
+                                                        "Me" -> "Others"
+                                                        else -> "All"
+                                                    }
+                                                },
+                                                shape = RoundedCornerShape(d.radiusFull),
+                                                color = if (isPayerActive) colors.inkPrimary else colors.canvasChalk,
+                                                border = if (!isPayerActive) BorderStroke(1.dp, colors.borderWhisper) else null,
+                                                modifier = Modifier.height(28.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
+                                                    Text(payerLabel, fontFamily = OutfitFamily, fontSize = 11.sp, color = if (isPayerActive) colors.canvasChalk else colors.inkMuted, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                            
+                                            var showCategoryMenu by remember { mutableStateOf(false) }
+                                            val isCategoryActive = selectedCategory != "All"
+                                            Box {
+                                                Surface(
+                                                    onClick = { showCategoryMenu = true },
+                                                    shape = RoundedCornerShape(d.radiusFull),
+                                                    color = if (isCategoryActive) colors.inkPrimary else colors.canvasChalk,
+                                                    border = if (!isCategoryActive) BorderStroke(1.dp, colors.borderWhisper) else null,
+                                                    modifier = Modifier.height(28.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
+                                                        Text("Category: $selectedCategory \u25be", fontFamily = OutfitFamily, fontSize = 11.sp, color = if (isCategoryActive) colors.canvasChalk else colors.inkMuted, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                                DropdownMenu(
+                                                    expanded = showCategoryMenu,
+                                                    onDismissRequest = { showCategoryMenu = false },
+                                                    containerColor = colors.surfaceCard
+                                                ) {
+                                                    val cats = listOf("All", "Food", "Groceries", "Travel", "Rent", "Utilities", "Others")
+                                                    cats.forEach { cat ->
+                                                        DropdownMenuItem(
+                                                            text = { Text(cat, fontFamily = OutfitFamily, color = colors.inkPrimary) },
+                                                            onClick = {
+                                                                selectedCategory = cat
+                                                                showCategoryMenu = false
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1701,10 +1877,10 @@ fun PersonDetailBottomSheet(
                             }
 
                             LazyColumn(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(peerGroup.splits) { split ->
+                                items(processedSplits) { split ->
                                     DirectSplitListItem(
                                         split = split,
                                         peerName = peerGroup.peerName,
@@ -1903,7 +2079,7 @@ fun PersonDetailBottomSheet(
                                     shape = RoundedCornerShape(d.radiusMD),
                                     colors = ButtonDefaults.buttonColors(containerColor = colors.alertRed)
                                 ) {
-                                    Text("Disconnect User", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                                    Text("Disconnect Friend", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
                                 }
                             } else {
                                 Button(
@@ -1921,7 +2097,70 @@ fun PersonDetailBottomSheet(
                                     shape = RoundedCornerShape(d.radiusMD),
                                     colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
                                 ) {
-                                    Text("Reconnect User", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                                    Text("Connect Friend", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                                }
+
+                                Spacer(modifier = Modifier.height(d.space4))
+
+                                val isSettled = peerGroup.netBalance == 0.0
+                                var showDeleteConfirm by remember { mutableStateOf(false) }
+
+                                Button(
+                                    onClick = { showDeleteConfirm = true },
+                                    enabled = isSettled,
+                                    modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                                    shape = RoundedCornerShape(d.radiusMD),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = colors.alertRed,
+                                        disabledContainerColor = colors.canvasChalk
+                                    )
+                                ) {
+                                    Text(
+                                        text = if (isSettled) "Delete Friend & History" else "Settle balance to delete",
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSettled) colors.canvasChalk else colors.inkMuted
+                                    )
+                                }
+
+                                if (showDeleteConfirm) {
+                                    AlertDialog(
+                                        onDismissRequest = { showDeleteConfirm = false },
+                                        containerColor = colors.surfaceCard,
+                                        title = { Text("Delete Friend?", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.inkPrimary) },
+                                        text = {
+                                            Text(
+                                                "This will permanently delete all 1-on-1 direct splits history with ${peerGroup.peerName} and remove them completely. This action is irreversible.",
+                                                fontFamily = OutfitFamily,
+                                                fontSize = 14.sp,
+                                                color = colors.inkMuted
+                                            )
+                                        },
+                                        confirmButton = {
+                                            Button(
+                                                onClick = {
+                                                    coroutineScope.launch {
+                                                        try {
+                                                            FirebaseManager.deleteDirectSplitsWithUser(peerGroup.peerUid)
+                                                            showDeleteConfirm = false
+                                                            onDismiss()
+                                                            Toast.makeText(context, "Friend and splits deleted", Toast.LENGTH_SHORT).show()
+                                                        } catch (e: Exception) {
+                                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = colors.alertRed)
+                                            ) {
+                                                Text("Delete", fontFamily = OutfitFamily, color = colors.canvasChalk)
+                                            }
+                                        },
+                                        dismissButton = {
+                                            TextButton(onClick = { showDeleteConfirm = false }) {
+                                                Text("Cancel", fontFamily = OutfitFamily, color = colors.inkMuted)
+                                            }
+                                        }
+                                    )
                                 }
                             }
 
@@ -1932,7 +2171,7 @@ fun PersonDetailBottomSheet(
                                     title = { Text("Disconnect ${peerGroup.peerName}?", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.inkPrimary) },
                                     text = {
                                         Text(
-                                            "Disconnecting removes them from your connected friends for quick splits. Your past split history will NOT be deleted.",
+                                            "Disconnecting removes them from your connected friends list. Your transaction history will NOT be deleted unless you choose to Delete them.",
                                             fontFamily = OutfitFamily,
                                             fontSize = 14.sp,
                                             color = colors.inkMuted

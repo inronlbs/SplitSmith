@@ -293,7 +293,7 @@ fun QuickSplitScreen(
                                     onValueChange = { searchQuery = it },
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(d.radiusSM),
-                                    placeholder = { Text("Search connected friends by name...", fontFamily = OutfitFamily, fontSize = 13.sp) },
+                                    placeholder = { Text("Search...", fontFamily = OutfitFamily, fontSize = 13.sp) },
                                     singleLine = true,
                                     trailingIcon = {
                                         if (searchQuery.isNotEmpty()) {

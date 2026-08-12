@@ -1362,6 +1362,23 @@ object FirebaseManager {
             .update("fcmToken", token, "lastTokenUpdate", System.currentTimeMillis())
             .await()
     }
+
+    suspend fun deleteDirectSplitsWithUser(peerUid: String) {
+        val myUid = currentUserId ?: return
+        val batch = db.batch()
+        val splits = db.collection("direct_splits")
+            .whereIn("paidBy", listOf(myUid, peerUid))
+            .get().await()
+        
+        splits.documents.forEach { doc ->
+            val withUser = doc.getString("withUser") ?: ""
+            val paidBy = doc.getString("paidBy") ?: ""
+            if ((paidBy == myUid && withUser == peerUid) || (paidBy == peerUid && withUser == myUid)) {
+                batch.delete(doc.reference)
+            }
+        }
+        batch.commit().await()
+    }
 }
 
 

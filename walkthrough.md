@@ -403,3 +403,29 @@
      ```
      *(This locks down the database so that only the authenticated owner can access or write to their own profile, with no exceptions).*
    * Deployed the rules successfully using the Firebase CLI to release `firestore.rules`.
+
+---
+
+## [2026-08-13 01:07] Friends Integration, Search Bar Fix & Minimal Filters
+
+### Key Technical Accomplishments
+1. **Unified People Tab & Connections Integration**:
+   * Merged the active connection stream (`observeConnections()`) with the splits history stream (`observeDirectSplits()`) in `SplitExpensesScreen.kt`.
+   * Displays all connected users in the **People** tab, even if their net balance is `₹0` (which renders as `"Settled up"`).
+   * Put active balances at the top of the list, followed by settled friends in alphabetical order.
+2. **Search Bar Stability & Focus Fix**:
+   * Wrapped unstable horizontal pager lambdas in `HomeScreen.kt` with `remember` to prevent recreating children views on parent recompositions.
+   * Utilized `rememberSaveable { mutableStateOf("") }` for `searchQuery` in `SplitExpensesScreen.kt` to ensure focus and keyboard input are maintained seamlessly.
+   * Enhanced the local search query matching algorithm to check the contact's email address and 6-letter User Code in addition to their display name and transaction descriptions.
+3. **Targeted, Toggleable Search & Minimal Filters**:
+   * Added a clickable search icon to the right of the tab rows in both `GroupDetailScreen.kt` (Expenses/Balances tabs) and `PersonDetailBottomSheet` (Expenses/Balances/Settings tabs). Tapping it slides open the search field.
+   * **Filter Icon Toggler**: Placed a settings/filter icon (`Icons.Default.Tune`) inside the trailing end of the search bar. Tapping it toggles the expansion of the filter row dynamically. By default, the filter pills are hidden.
+   * Implemented a compact **2-pill filter layout** (no sorting menu to avoid layout clutter) under the animated toggle:
+     * **Payer Pill**: Cycles between `Payer: All` ➔ `Payer: Me` ➔ `Payer: Others` on click.
+     * **Category Pill**: Toggles a compact dropdown menu dynamically populated with categories from the active expenses list.
+4. **2-Step Disconnect & Delete Flow**:
+   * Implemented settings buttons in `PersonDetailBottomSheet`:
+     * **Disconnect Friend**: Deletes mutual connection documents in Firestore (removing them from active quick-split networks).
+     * **Delete Friend & History**: Active only when disconnected and net balance is `₹0`. Purges the entire direct splits history with that peer via `deleteDirectSplitsWithUser` in `FirebaseManager.kt`, removing them from the app completely.
+5. **Gradle Build Verification**:
+   * Successfully verified that all changes compile, run, and pass Android compilation checks: `./gradlew assembleDebug` exited with code 0.

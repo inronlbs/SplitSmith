@@ -330,6 +330,14 @@ fun HomeScreen(
         },
         contentWindowInsets = WindowInsets(0)
     ) { paddingValues ->
+        val handleScrollToPage1 = remember(pagerState, coroutineScope) {
+            { coroutineScope.launch { pagerState.animateScrollToPage(1) }; Unit }
+        }
+        val handleScrollToPage0 = remember(pagerState, coroutineScope) {
+            { coroutineScope.launch { pagerState.animateScrollToPage(0) }; Unit }
+        }
+        val handleCreateGroupClick = remember { { showCreateGroupSheet = true } }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -347,8 +355,8 @@ fun HomeScreen(
                         groups = groupsState.value,
                         userProfile = userProfileState.value,
                         onNavigateToGroup = onNavigateToGroup,
-                        onSeeAllGroups = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
-                        onCreateGroup = { showCreateGroupSheet = true },
+                        onSeeAllGroups = handleScrollToPage1,
+                        onCreateGroup = handleCreateGroupClick,
                         onNavigateToQRCode = onNavigateToQRCode,
                         onNavigateToQuickSplit = onNavigateToQuickSplit,
                         onSplitClick = { selectedSplitForDetail = it },
@@ -360,13 +368,13 @@ fun HomeScreen(
                         onNavigateToGroup = onNavigateToGroup,
                         onNavigateToQuickSplit = onNavigateToQuickSplit,
                         onNavigateToDirectSplit = onNavigateToDirectSplit,
-                        onBack = { coroutineScope.launch { pagerState.animateScrollToPage(0) } }
+                        onBack = handleScrollToPage0
                     )
                     2 -> PersonalExpensesScreen(
                         showAddPersonalInitially = showAddPersonalInitially,
                         initialSelectedExpenseId = targetPersonalExpenseId,
                         onNavigateToQuickSplit = onNavigateToQuickSplit,
-                        onBack = { coroutineScope.launch { pagerState.animateScrollToPage(0) } }
+                        onBack = handleScrollToPage0
                     )
                     3 -> ProfileSettingsView(
                         onNavigateToQRCode = onNavigateToQRCode,
