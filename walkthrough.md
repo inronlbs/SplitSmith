@@ -340,3 +340,26 @@
   * [SplitSmith-v0.3.9.1-release.aab](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/SplitSmith-v0.3.9.1-release.aab)
 * **Firebase Hosting CDN URL**: [https://splitsmith.web.app](https://splitsmith.web.app) (Serving updated `splitsmith.bin`)
 
+---
+
+## [2026-08-12 19:00] Settlements Layout, Sheets & Editing Enhancements
+
+### Key Accomplishments
+1. **Interactive Settlements Bottom Sheet (`SettlementDetailBottomSheet`)**:
+   * Removed separate "Pending Confirmations" list from the top of the tab.
+   * Merged pending and confirmed settlements into a single chronological timeline under `"SETTLED TRANSACTIONS"`.
+   * Pending items show a `"Pending Approval"` tag with directional amount coloring (red for outgoing payments, green for incoming payments).
+   * Tapping any row in the list opens the modal bottom sheet showing payer/creditor details, dates, and attachment previews.
+   * The debtor can edit/crop or delete unapproved proofs inside this sheet. If confirmed/approved, all modifications are disabled and locked.
+2. **"Settle Up" Peer Selection Sheet (`SelectSettlePeerBottomSheet`)**:
+   * Removed individual Settle action buttons next to debt rows in "WHO OWES WHAT".
+   * Tapping the sticky bottom **"Settle Up"** button opens a selection sheet listing all outstanding peers you owe money to, allowing you to select who to settle with.
+   * If a pending settlement request already exists with a peer, their row inside this sheet shows a `"Pending confirmation"` status and is disabled.
+3. **Directional Debt Balance Colors**:
+   * Updated the "WHO OWES WHAT" debt list to display amount balances in green (`colors.positiveGreen`) if the peer owes you, and red (`alertRed`) if you owe them.
+4. **Emoji Cleanups**:
+   * Replaced the camera emoji (`📷`) on line 869 with the standard `Icons.Default.CameraAlt` vector icon.
+5. **Orphan Storage Protection**:
+   * Updated the confirmation upload dialog to delete the old proof file from Cloudinary before uploading the cropped edited proof, preventing orphan file leaks.
+
+

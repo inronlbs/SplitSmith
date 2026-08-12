@@ -57,7 +57,9 @@ import com.splitsmith.app.theme.OutfitFamily
 import com.splitsmith.app.data.Settlement
 import com.splitsmith.app.data.UserProfile
 import com.splitsmith.app.ui.components.AttachmentImageViewerDialog
+import com.splitsmith.app.ui.components.attachments.ReceiptEditorModal
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Schedule
 import com.splitsmith.app.util.AttachmentDownloader
 import com.splitsmith.app.util.formatCurrency
 import kotlinx.coroutines.launch
@@ -866,7 +868,18 @@ fun GroupDetailScreen(
                                 modifier = Modifier.fillMaxWidth().padding(top = d.space4),
                                 shape = RoundedCornerShape(d.radiusMD)
                             ) {
-                                Text("📷 Attach GPay / PhonePe Screenshot", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkPrimary)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CameraAlt,
+                                        contentDescription = "Camera",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = colors.inkPrimary
+                                    )
+                                    Text("Attach GPay / PhonePe Screenshot", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkPrimary)
+                                }
                             }
                         }
                     }
@@ -1159,6 +1172,7 @@ private fun StyledBalancesTab(
     val context = LocalContext.current
     var showFullLedger by remember { mutableStateOf(false) }
     var selectedReceiptUrlForPreview by remember { mutableStateOf<String?>(null) }
+    var targetSettlementForPreview by remember { mutableStateOf<Settlement?>(null) }
     var targetPendingSettlementForProof by remember { mutableStateOf<Settlement?>(null) }
 
     var pendingProofUriToConfirm by remember { mutableStateOf<Uri?>(null) }
@@ -1166,6 +1180,11 @@ private fun StyledBalancesTab(
 
     var resolvedReceiptUri by remember { mutableStateOf<Uri?>(null) }
     var isDownloadingPreview by remember { mutableStateOf(false) }
+
+    var selectedSettlementForDetail by remember { mutableStateOf<Settlement?>(null) }
+    var editingProofUri by remember { mutableStateOf<Uri?>(null) }
+    var editingProofSettlement by remember { mutableStateOf<Settlement?>(null) }
+    var showSettlePeerSelectionSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedReceiptUrlForPreview) {
         val url = selectedReceiptUrlForPreview
@@ -1205,6 +1224,7 @@ private fun StyledBalancesTab(
     val confirmedSettlements = remember(settlements) {
         settlements.filter { it.status == "CONFIRMED" }
     }
+    val allTransactions = remember(settlements) { settlements }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -1212,163 +1232,7 @@ private fun StyledBalancesTab(
             contentPadding = PaddingValues(start = d.space24, top = d.space16, end = d.space24, bottom = 160.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-            // Pending confirmations
-            if (pendingRequests.isNotEmpty()) {
-                item {
-                    Text("Pending Confirmations", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold,
-                        fontSize = d.textLabelLarge, color = inkPrimary)
-                    Spacer(modifier = Modifier.height(d.space8))
-                }
-                items(pendingRequests) { req ->
-                    val isCreditor = req.toUser == currentUserId
-                    val otherUid = if (isCreditor) req.fromUser else req.toUser
-                    val otherName = userNames[otherUid] ?: "Member"
-                    val otherProfile = memberProfilesMap[otherUid]
-                    val methodLabel = if (req.method == "UPI") "UPI" else if (req.method == "DIRECT") "Direct" else "Cash"
-                    val subtitleText = if (isCreditor) {
-                        "$otherName says they paid via $methodLabel"
-                    } else {
-                        "You requested settlement ($methodLabel). Waiting for $otherName to confirm."
-                    }
-                    val effectiveProof = req.receiptUrl.ifBlank { req.receiptUrls.firstOrNull() ?: "" }
 
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = d.space8),
-                        shape = RoundedCornerShape(d.radiusLG),
-                        color = borderWhisper.copy(alpha = 0.3f)
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(d.space16)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space12)) {
-                                    UserAvatar(avatarUrl = otherProfile?.avatarUrl ?: "", displayName = otherName, size = d.avatarSm)
-                                    Column {
-                                        Text(subtitleText, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textBodyLarge, color = inkPrimary)
-                                        Text("\u20b9${req.amount.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyMedium, color = inkMuted)
-                                    }
-                                }
-
-                                if (isCreditor) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(d.space4)) {
-                                        IconButton(onClick = {
-                                            coroutineScope.launch {
-                                                try {
-                                                    FirebaseManager.approveSettlement(groupId, req.id)
-                                                    Toast.makeText(context, "Confirmed!", Toast.LENGTH_SHORT).show()
-                                                } catch (e: Exception) { Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show() }
-                                            }
-                                        }) { Icon(Icons.Default.Check, contentDescription = "Approve", tint = inkPrimary) }
-                                        IconButton(onClick = {
-                                            coroutineScope.launch {
-                                                try {
-                                                    FirebaseManager.declineSettlement(groupId, req.id)
-                                                    Toast.makeText(context, "Declined", Toast.LENGTH_SHORT).show()
-                                                } catch (e: Exception) { Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show() }
-                                            }
-                                        }) { Icon(Icons.Default.Clear, contentDescription = "Decline", tint = alertRed) }
-                                    }
-                                } else {
-                                    IconButton(onClick = {
-                                        coroutineScope.launch {
-                                            try {
-                                                FirebaseManager.declineSettlement(groupId, req.id)
-                                                Toast.makeText(context, "Request cancelled", Toast.LENGTH_SHORT).show()
-                                            } catch (e: Exception) { Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show() }
-                                        }
-                                    }) { Icon(Icons.Default.Clear, contentDescription = "Cancel Request", tint = inkMuted) }
-                                }
-                            }
-
-                            if (effectiveProof.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(d.space8))
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(d.space8)
-                                ) {
-                                    Surface(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(d.radiusMD))
-                                            .clickable { selectedReceiptUrlForPreview = effectiveProof },
-                                        color = inkPrimary.copy(alpha = 0.08f)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = d.space12, vertical = d.space8),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(d.space8)
-                                        ) {
-                                            Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = inkPrimary, modifier = Modifier.size(16.dp))
-                                            Text("Attached Proof (Tap to view)", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelSmall, color = inkPrimary)
-                                        }
-                                    }
-                                    if (!isCreditor) {
-                                        var isDeletingProof by remember { mutableStateOf(false) }
-                                        IconButton(
-                                            onClick = {
-                                                isDeletingProof = true
-                                                coroutineScope.launch {
-                                                    try {
-                                                        FirebaseManager.removeSettlementReceipt(groupId, req.id, effectiveProof)
-                                                        Toast.makeText(context, "Payment proof removed!", Toast.LENGTH_SHORT).show()
-                                                    } catch (e: Exception) {
-                                                        Toast.makeText(context, "Failed to remove proof: ${e.message}", Toast.LENGTH_LONG).show()
-                                                    } finally {
-                                                        isDeletingProof = false
-                                                    }
-                                                }
-                                            },
-                                            modifier = Modifier.size(32.dp),
-                                            enabled = !isDeletingProof
-                                        ) {
-                                            if (isDeletingProof) {
-                                                CircularProgressIndicator(color = alertRed, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                            } else {
-                                                Icon(
-                                                    imageVector = Icons.Default.Clear,
-                                                    contentDescription = "Remove Proof",
-                                                    tint = alertRed,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            } else if (!isCreditor) {
-                                Spacer(modifier = Modifier.height(d.space8))
-                                OutlinedButton(
-                                    onClick = {
-                                        targetPendingSettlementForProof = req
-                                        pendingProofPicker.launch(
-                                            androidx.activity.result.PickVisualMediaRequest(
-                                                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
-                                            )
-                                        )
-                                    },
-                                    shape = RoundedCornerShape(d.radiusSM),
-                                    border = BorderStroke(1.dp, borderWhisper),
-                                    contentPadding = PaddingValues(horizontal = d.space12, vertical = d.space4),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = inkPrimary)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CameraAlt,
-                                            contentDescription = "Camera",
-                                            modifier = Modifier.size(14.dp),
-                                            tint = inkPrimary
-                                        )
-                                        Text("Attach Payment Proof", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelSmall)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
 
             item {
                 Text("WHO OWES WHAT", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
@@ -1386,9 +1250,23 @@ private fun StyledBalancesTab(
                     val debtorName = userNames[debt.fromUser] ?: "Debtor"
                     val creditorName = userNames[debt.toUser] ?: "Creditor"
                     val isPayer = debt.fromUser == currentUserId
+                    val isCreditor = debt.toUser == currentUserId
+                    
+                    val matchingPendingRequest = pendingRequests.find { 
+                        (it.fromUser == debt.fromUser && it.toUser == debt.toUser)
+                    }
+                    val isPending = matchingPendingRequest != null
 
                     Row(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = d.rowHeightLg).padding(vertical = d.space12),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = d.rowHeightLg)
+                            .clickable(enabled = isPending) {
+                                if (isPending && matchingPendingRequest != null) {
+                                    selectedSettlementForDetail = matchingPendingRequest
+                                }
+                            }
+                            .padding(vertical = d.space12),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         UserAvatar(
@@ -1400,52 +1278,50 @@ private fun StyledBalancesTab(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(debtorName, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
                             Text("owes $creditorName", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                            if (isPending) {
+                                Text(
+                                    text = if (isPayer) "Waiting for Confirmation" else "Needs Approval",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textLabelSmall,
+                                    color = if (isPayer) inkMuted else colors.positiveGreen,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                         val formattedDebtAmount = if (debt.amount % 1.0 == 0.0) debt.amount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", debt.amount)
+                        
+                        val amountColor = if (isCreditor) colors.positiveGreen else alertRed
+                        
                         Text(
                             text = "\u20b9$formattedDebtAmount",
                             fontFamily = JetBrainsMonoFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = d.textMonoLarge,
-                            color = alertRed
+                            color = if (isPending) amountColor.copy(alpha = 0.5f) else amountColor
                         )
-                        if (isPayer) {
-                            Spacer(modifier = Modifier.width(d.space8))
-                            val isPending = pendingRequests.any { it.fromUser == debt.fromUser && it.toUser == debt.toUser }
-                            Surface(
-                                onClick = { if (!isPending) onSettleClick(debt) },
-                                shape = RoundedCornerShape(d.radiusFull),
-                                color = if (isPending) colors.borderWhisper else accentIndigo,
-                                modifier = Modifier.height(32.dp)
-                            ) {
-                                Text(
-                                    text = if (isPending) "Pending" else "Settle",
-                                    fontFamily = OutfitFamily,
-                                    fontSize = d.textLabelSmall,
-                                    color = if (isPending) inkMuted else colors.canvasChalk,
-                                    modifier = Modifier.padding(horizontal = d.space12, vertical = d.space4)
-                                )
-                            }
-                        }
                     }
                     HorizontalDivider(color = borderWhisper)
                 }
             }
 
-            if (confirmedSettlements.isNotEmpty()) {
+            if (allTransactions.isNotEmpty()) {
                 item {
                     Spacer(modifier = Modifier.height(d.space16))
                     Text("SETTLED TRANSACTIONS", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
                     Spacer(modifier = Modifier.height(d.space8))
                 }
-                items(confirmedSettlements) { settlement ->
+                items(allTransactions) { settlement ->
                     val senderName = userNames[settlement.fromUser] ?: "Payer"
                     val receiverName = userNames[settlement.toUser] ?: "Receiver"
+                    val isPending = settlement.status == "PENDING"
+                    val isPayer = settlement.fromUser == currentUserId
+                    val isCreditor = settlement.toUser == currentUserId
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = d.rowHeightLg)
+                            .clickable { selectedSettlementForDetail = settlement }
                             .padding(vertical = d.space12),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1456,13 +1332,22 @@ private fun StyledBalancesTab(
                                 .background(colors.surfaceCard),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                "✓",
-                                fontFamily = OutfitFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = d.textBodyMedium,
-                                color = colors.inkPrimary
-                            )
+                            if (isPending) {
+                                Icon(
+                                    imageVector = Icons.Default.Schedule,
+                                    contentDescription = "Pending",
+                                    tint = inkMuted,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            } else {
+                                Text(
+                                    "✓",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = d.textBodyMedium,
+                                    color = colors.inkPrimary
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.width(d.space12))
                         Column(modifier = Modifier.weight(1f)) {
@@ -1482,6 +1367,22 @@ private fun StyledBalancesTab(
                                     fontSize = d.textLabelMedium,
                                     color = inkMuted
                                 )
+                                if (isPending) {
+                                    Surface(
+                                        shape = RoundedCornerShape(d.radiusXS),
+                                        color = borderWhisper.copy(alpha = 0.5f),
+                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "Pending Approval",
+                                            fontFamily = OutfitFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 9.sp,
+                                            color = alertRed,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
                                 if (proofUrl.isNotBlank()) {
                                     Text(
                                         text = "· Proof Attached",
@@ -1489,17 +1390,29 @@ private fun StyledBalancesTab(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = d.textLabelMedium,
                                         color = colors.inkPrimary,
-                                        modifier = Modifier.clickable { selectedReceiptUrlForPreview = proofUrl }
+                                        modifier = Modifier.clickable { 
+                                            selectedReceiptUrlForPreview = proofUrl 
+                                            targetSettlementForPreview = settlement
+                                        }
                                     )
                                 }
                             }
                         }
+                        
+                        val amountColor = if (isCreditor) {
+                            colors.positiveGreen
+                        } else if (isPayer) {
+                            alertRed
+                        } else {
+                            inkMuted
+                        }
+                        
                         Text(
                             text = "\u20b9${settlement.amount.formatCurrency()}",
                             fontFamily = JetBrainsMonoFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = d.textMonoLarge,
-                            color = inkMuted
+                            color = if (isPending) amountColor.copy(alpha = 0.6f) else amountColor
                         )
                     }
                     HorizontalDivider(color = borderWhisper)
@@ -1523,9 +1436,9 @@ private fun StyledBalancesTab(
             ) {
                 Button(
                     onClick = {
-                        val myDebt = debts.find { it.fromUser == currentUserId }
-                        if (myDebt != null) {
-                            onSettleClick(myDebt)
+                        val myDebts = debts.filter { it.fromUser == currentUserId }
+                        if (myDebts.isNotEmpty()) {
+                            showSettlePeerSelectionSheet = true
                         } else {
                             Toast.makeText(context, "You have no outstanding debts to settle!", Toast.LENGTH_SHORT).show()
                         }
@@ -1545,12 +1458,120 @@ private fun StyledBalancesTab(
         }
         
         if (selectedReceiptUrlForPreview != null && !isDownloadingPreview && resolvedReceiptUri != null) {
+            val isCreditor = targetSettlementForPreview?.toUser == currentUserId
+            val isConfirmed = targetSettlementForPreview?.status == "CONFIRMED"
             AttachmentImageViewerDialog(
                 imageUri = resolvedReceiptUri,
                 imageUrl = null,
                 fileName = "Payment Proof",
-                isEditable = false,
-                onDismiss = { selectedReceiptUrlForPreview = null }
+                isEditable = (!isCreditor && !isConfirmed),
+                onEditAttachment = { _ ->
+                    editingProofUri = resolvedReceiptUri
+                    editingProofSettlement = targetSettlementForPreview
+                    selectedReceiptUrlForPreview = null
+                },
+                onDismiss = {
+                    selectedReceiptUrlForPreview = null
+                    targetSettlementForPreview = null
+                }
+            )
+        }
+
+        if (editingProofUri != null) {
+            ReceiptEditorModal(
+                imageUri = editingProofUri!!,
+                onDismiss = {
+                    editingProofUri = null
+                    editingProofSettlement = null
+                },
+                onEditedImageSaved = { newUri ->
+                    pendingProofUriToConfirm = newUri
+                    pendingProofRequestForConfirm = editingProofSettlement
+                    editingProofUri = null
+                    editingProofSettlement = null
+                }
+            )
+        }
+
+        if (selectedSettlementForDetail != null) {
+            val req = selectedSettlementForDetail!!
+            val isCreditor = req.toUser == currentUserId
+            SettlementDetailBottomSheet(
+                settlement = req,
+                groupId = groupId,
+                userNames = userNames,
+                memberProfilesMap = memberProfilesMap,
+                isCreditor = isCreditor,
+                onDismiss = { selectedSettlementForDetail = null },
+                onApprove = {
+                    coroutineScope.launch {
+                        try {
+                            FirebaseManager.approveSettlement(groupId, req.id)
+                            Toast.makeText(context, "Confirmed!", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        } finally {
+                            selectedSettlementForDetail = null
+                        }
+                    }
+                },
+                onDecline = {
+                    coroutineScope.launch {
+                        try {
+                            FirebaseManager.declineSettlement(groupId, req.id)
+                            Toast.makeText(context, "Request processed/cancelled", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        } finally {
+                            selectedSettlementForDetail = null
+                        }
+                    }
+                },
+                onAttachProof = {
+                    targetPendingSettlementForProof = req
+                    pendingProofPicker.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                        )
+                    )
+                    selectedSettlementForDetail = null
+                },
+                onRemoveProof = { proofUrl ->
+                    coroutineScope.launch {
+                        try {
+                            FirebaseManager.removeSettlementReceipt(groupId, req.id, proofUrl)
+                            Toast.makeText(context, "Payment proof removed!", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Failed to remove proof: ${e.message}", Toast.LENGTH_LONG).show()
+                        } finally {
+                            selectedSettlementForDetail = null
+                        }
+                    }
+                },
+                onViewProof = { proofUrl ->
+                    selectedReceiptUrlForPreview = proofUrl
+                    targetSettlementForPreview = req
+                }
+            )
+        }
+
+        if (showSettlePeerSelectionSheet) {
+            val myDebts = debts.filter { it.fromUser == currentUserId }
+            SelectSettlePeerBottomSheet(
+                myDebts = myDebts,
+                pendingRequests = pendingRequests,
+                userNames = userNames,
+                memberProfilesMap = memberProfilesMap,
+                colors = colors,
+                d = d,
+                inkPrimary = inkPrimary,
+                inkMuted = inkMuted,
+                borderWhisper = borderWhisper,
+                alertRed = alertRed,
+                onSettleClick = { debt ->
+                    onSettleClick(debt)
+                },
+                onDismiss = { showSettlePeerSelectionSheet = false }
             )
         }
 
@@ -1613,6 +1634,14 @@ private fun StyledBalancesTab(
                             coroutineScope.launch {
                                 try {
                                     isUploadingSettlementProof = true
+                                    val oldProof = req.receiptUrl.ifBlank { req.receiptUrls.firstOrNull() ?: "" }
+                                    if (oldProof.isNotBlank() && oldProof.contains("cloudinary")) {
+                                        try {
+                                            CloudinaryManager.deleteReceipt(oldProof)
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("GroupDetailScreen", "Failed to delete old proof from Cloudinary: ${e.message}")
+                                        }
+                                    }
                                     val uploadResult = CloudinaryManager.uploadReceipt(context, uri, currentUserId ?: "user", "settlements")
                                     val uploadedUrl = uploadResult.getOrThrow()
                                     FirebaseManager.attachSettlementReceipt(groupId, req.id, uploadedUrl)
@@ -2945,6 +2974,334 @@ fun GroupExpenseDetailBottomSheet(
         }
     }
 }
+
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SelectSettlePeerBottomSheet(
+    myDebts: List<Debt>,
+    pendingRequests: List<Settlement>,
+    userNames: Map<String, String>,
+    memberProfilesMap: Map<String, UserProfile>,
+    colors: com.splitsmith.app.theme.SplitColors,
+    d: com.splitsmith.app.theme.Dimens,
+    inkPrimary: Color,
+    inkMuted: Color,
+    borderWhisper: Color,
+    alertRed: Color,
+    onSettleClick: (Debt) -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = colors.surfaceCard,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = colors.borderWhisper) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = d.space24, vertical = d.space16),
+            verticalArrangement = Arrangement.spacedBy(d.space16)
+        ) {
+            Text(
+                "Settle Up with Peers",
+                fontFamily = OutfitFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = d.textTitleLarge,
+                color = colors.inkPrimary
+            )
+            Text(
+                "Select a peer to settle your outstanding balances:",
+                fontFamily = OutfitFamily,
+                fontSize = d.textLabelMedium,
+                color = colors.inkMuted
+            )
+
+            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(d.space8)
+            ) {
+                myDebts.forEach { debt ->
+                    val creditorName = userNames[debt.toUser] ?: "Creditor"
+                    val isPending = pendingRequests.any { it.fromUser == debt.fromUser && it.toUser == debt.toUser }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = d.rowHeightLg)
+                            .clip(RoundedCornerShape(d.radiusMD))
+                            .background(if (isPending) colors.borderWhisper.copy(alpha = 0.1f) else Color.Transparent)
+                            .clickable(enabled = !isPending) {
+                                onSettleClick(debt)
+                                onDismiss()
+                            }
+                            .padding(horizontal = d.space8, vertical = d.space12),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(d.space12)
+                        ) {
+                            UserAvatar(
+                                avatarUrl = memberProfilesMap[debt.toUser]?.avatarUrl ?: "",
+                                displayName = creditorName,
+                                size = d.avatarMd
+                            )
+                            Column {
+                                Text(
+                                    creditorName,
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = d.textTitleMedium,
+                                    color = if (isPending) colors.inkMuted else colors.inkPrimary
+                                )
+                                if (isPending) {
+                                    Text(
+                                        "Pending confirmation",
+                                        fontFamily = OutfitFamily,
+                                        fontSize = d.textLabelSmall,
+                                        color = colors.inkMuted
+                                    )
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = "₹${if (debt.amount % 1.0 == 0.0) debt.amount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", debt.amount)}",
+                            fontFamily = JetBrainsMonoFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textMonoLarge,
+                            color = if (isPending) colors.inkMuted else alertRed
+                        )
+                    }
+                    HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettlementDetailBottomSheet(
+    settlement: Settlement,
+    groupId: String,
+    userNames: Map<String, String>,
+    memberProfilesMap: Map<String, UserProfile>,
+    isCreditor: Boolean,
+    onDismiss: () -> Unit,
+    onApprove: () -> Unit,
+    onDecline: () -> Unit,
+    onAttachProof: () -> Unit,
+    onRemoveProof: (String) -> Unit,
+    onViewProof: (String) -> Unit
+) {
+    val d = LocalDimens.current
+    val colors = LocalSplitColors.current
+    val isConfirmed = settlement.status == "CONFIRMED"
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = colors.surfaceCard,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = colors.borderWhisper) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = d.space24, vertical = d.space16),
+            verticalArrangement = Arrangement.spacedBy(d.space16)
+        ) {
+            // Header bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space12)) {
+                    Surface(
+                        shape = CircleShape,
+                        color = colors.inkPrimary,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (isConfirmed) Icons.Default.Check else Icons.Default.Schedule,
+                                contentDescription = null,
+                                tint = colors.canvasChalk,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Column {
+                        Text(
+                            text = if (isConfirmed) "Settled Transaction" else "Pending Confirmation",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textTitleMedium,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            text = if (settlement.method == "UPI") "Paid via UPI" else "Paid in cash",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelSmall,
+                            color = colors.inkMuted
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+            // Prominent Amount
+            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                val amountColor = if (isCreditor) colors.positiveGreen else colors.alertRed
+                Text(
+                    text = "₹${settlement.amount.formatCurrency()}",
+                    fontFamily = JetBrainsMonoFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 36.sp,
+                    color = if (!isConfirmed) amountColor.copy(alpha = 0.6f) else amountColor
+                )
+                Text(
+                    text = if (isConfirmed) "Settled Amount" else "Pending Amount",
+                    fontFamily = OutfitFamily,
+                    fontSize = d.textLabelSmall,
+                    color = colors.inkMuted
+                )
+            }
+
+            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+            // Details metadata
+            Column(verticalArrangement = Arrangement.spacedBy(d.space12)) {
+                val formattedDate = remember(settlement.timestamp) {
+                    val sdf = java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault())
+                    sdf.format(java.util.Date(settlement.timestamp))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Paid By", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
+                    Text(userNames[settlement.fromUser] ?: "Member", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary, fontSize = d.textBodyLarge)
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Paid To", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
+                    Text(userNames[settlement.toUser] ?: "Member", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary, fontSize = d.textBodyLarge)
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Date & Time", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
+                    Text(formattedDate, fontFamily = OutfitFamily, fontWeight = FontWeight.Medium, color = colors.inkPrimary, fontSize = d.textBodyLarge)
+                }
+
+                val proofUrl = settlement.receiptUrl.ifBlank { settlement.receiptUrls.firstOrNull() ?: "" }
+                if (proofUrl.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(d.space8))
+                    Text("PAYMENT PROOF / RECEIPT", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.2.sp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(d.space8)
+                    ) {
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(d.radiusMD))
+                                .clickable { onViewProof(proofUrl) },
+                            color = colors.inkPrimary.copy(alpha = 0.08f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = d.space12, vertical = d.space8),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(d.space8)
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = colors.inkPrimary, modifier = Modifier.size(16.dp))
+                                Text(
+                                    text = if (!isConfirmed && !isCreditor) "Attached Proof (Tap to view/edit)" else "Attached Proof (Tap to view)",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = d.textLabelSmall,
+                                    color = colors.inkPrimary
+                                )
+                            }
+                        }
+                        if (!isConfirmed && !isCreditor) {
+                            IconButton(
+                                onClick = { onRemoveProof(proofUrl) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Remove Proof",
+                                    tint = colors.alertRed,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                } else if (!isConfirmed && !isCreditor) {
+                    Spacer(modifier = Modifier.height(d.space8))
+                    OutlinedButton(
+                        onClick = onAttachProof,
+                        shape = RoundedCornerShape(d.radiusSM),
+                        border = BorderStroke(1.dp, colors.borderWhisper),
+                        contentPadding = PaddingValues(horizontal = d.space12, vertical = d.space4),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.inkPrimary)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "Camera",
+                                modifier = Modifier.size(14.dp),
+                                tint = colors.inkPrimary
+                            )
+                            Text("Attach Payment Proof", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelSmall)
+                        }
+                    }
+                }
+            }
+
+            if (!isConfirmed) {
+                HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+                if (isCreditor) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(d.space12)
+                    ) {
+                        OutlinedButton(
+                            onClick = onDecline,
+                            modifier = Modifier.weight(1f).height(d.buttonHeight),
+                            shape = RoundedCornerShape(d.radiusMD),
+                            border = BorderStroke(1.dp, colors.borderWhisper)
+                        ) {
+                            Text("Decline", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.alertRed, fontSize = d.textLabelLarge)
+                        }
+                        Button(
+                            onClick = onApprove,
+                            modifier = Modifier.weight(1f).height(d.buttonHeight),
+                            shape = RoundedCornerShape(d.radiusMD),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
+                        ) {
+                            Text("Approve Received", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onDecline, // cancel request acts as decline/delete
+                        modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                        shape = RoundedCornerShape(d.radiusMD),
+                        border = BorderStroke(1.dp, colors.borderWhisper)
+                    ) {
+                        Text("Cancel Settle Request", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.inkMuted, fontSize = d.textLabelLarge)
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 
 
