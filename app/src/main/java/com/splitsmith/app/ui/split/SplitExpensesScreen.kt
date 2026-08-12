@@ -1753,20 +1753,13 @@ fun PersonDetailBottomSheet(
                                         singleLine = true,
                                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = colors.inkMuted, modifier = Modifier.size(16.dp)) },
                                         trailingIcon = {
-                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 4.dp)) {
-                                                if (searchHistoryQuery.isNotEmpty()) {
-                                                    IconButton(onClick = { searchHistoryQuery = "" }, modifier = Modifier.size(24.dp)) {
-                                                        Icon(Icons.Default.Clear, contentDescription = "Clear", tint = colors.inkMuted, modifier = Modifier.size(16.dp))
-                                                    }
-                                                }
-                                                IconButton(onClick = { showFilterPills = !showFilterPills }, modifier = Modifier.size(24.dp)) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Tune,
-                                                        contentDescription = "Toggle filters",
-                                                        tint = if (showFilterPills) colors.inkPrimary else colors.inkMuted,
-                                                        modifier = Modifier.size(18.dp)
-                                                    )
-                                                }
+                                            IconButton(onClick = { showFilterPills = !showFilterPills }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Tune,
+                                                    contentDescription = "Toggle filters",
+                                                    tint = if (showFilterPills) colors.inkPrimary else colors.inkMuted,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
                                             }
                                         },
                                         colors = OutlinedTextFieldDefaults.colors(

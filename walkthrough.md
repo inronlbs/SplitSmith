@@ -429,3 +429,30 @@
      * **Delete Friend & History**: Active only when disconnected and net balance is `₹0`. Purges the entire direct splits history with that peer via `deleteDirectSplitsWithUser` in `FirebaseManager.kt`, removing them from the app completely.
 5. **Gradle Build Verification**:
    * Successfully verified that all changes compile, run, and pass Android compilation checks: `./gradlew assembleDebug` exited with code 0.
+
+---
+
+## [2026-08-13 01:19] Release v0.3.9.3 Published
+
+### Version
+- **versionCode**: `53` → `54`
+- **versionName**: `0.3.9.2` → `0.3.9.3`
+- **Type**: Patch Release
+
+### Build
+- `./gradlew assembleRelease bundleRelease` — **BUILD SUCCESSFUL** in 2m 45s
+- Signed APK: `SplitSmith-v0.3.9.3-release.apk`
+- Signed AAB: `SplitSmith-v0.3.9.3-release.aab`
+
+### GitHub Release
+- ✅ Published: https://github.com/inronlbs/SplitSmith/releases/tag/v0.3.9.3
+- Both APK and AAB uploaded as release assets
+
+### Firebase Hosting CDN
+- ✅ `public/splitsmith.bin` updated with v0.3.9.3 APK
+- ✅ Deployed: https://splitsmith.web.app
+
+### Git
+- ✅ Committed: `fix: v0.3.9.3 patch - toggleable search filters, connected friends tab, search focus fix, disconnect/delete flow`
+- ✅ Pushed to `main` — commit `5c01bf3`
+- 9 files changed, 542 insertions(+), 80 deletions(-)
