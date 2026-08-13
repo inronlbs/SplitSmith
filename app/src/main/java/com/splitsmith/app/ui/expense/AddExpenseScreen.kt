@@ -148,7 +148,12 @@ fun AddExpenseScreen(
                 splitMode = exp.splitMode
                 val tempInputs = mutableMapOf<String, String>()
                 exp.splits.forEach { (uid, share) ->
-                    tempInputs[uid] = share.toString()
+                    if (exp.splitMode == "PERCENTAGE" && exp.amount > 0) {
+                        val pct = (share / exp.amount) * 100.0
+                        tempInputs[uid] = if (pct % 1.0 == 0.0) pct.toInt().toString() else String.format(java.util.Locale.US, "%.1f", pct)
+                    } else {
+                        tempInputs[uid] = if (share % 1.0 == 0.0) share.toInt().toString() else share.toString()
+                    }
                 }
                 customSplitInputs = tempInputs
                 selectedMembers = exp.splits.keys
@@ -161,7 +166,7 @@ fun AddExpenseScreen(
 
     val amountVal = amountStr.toDoubleOrNull() ?: 0.0
     val eachShare = if (selectedMembers.isNotEmpty() && amountVal > 0)
-        "= \u20b9${"%.2f".format(amountVal / selectedMembers.size)} each" else ""
+        "= \u20b9${String.format(java.util.Locale.US, "%.2f", amountVal / selectedMembers.size)} each" else ""
 
     // Remainder calculation for live banner
     val liveRemainder = remember(customSplitInputs, amountVal, splitMode, selectedMembers) {
@@ -262,40 +267,49 @@ fun AddExpenseScreen(
                             }
                             "EXACT" -> {
                                 var sum = 0.0
+                                var totalAllocated = 0.0
                                 selectedMembers.forEach { uid ->
                                     val exactVal = customSplitInputs[uid]?.toDoubleOrNull() ?: 0.0
-                                    computedSplits[uid] = exactVal; sum += exactVal
+                                    computedSplits[uid] = exactVal
+                                    sum += exactVal
+                                    totalAllocated += exactVal
                                 }
                                 if (Math.abs(sum - amountVal) > 0.05) {
                                     Toast.makeText(context, "Exact shares must sum to \u20b9$amountVal (got \u20b9$sum)", Toast.LENGTH_LONG).show()
                                     return@Button
                                 }
+                                val remainder = Math.round((amountVal - totalAllocated) * 100.0) / 100.0
+                                if (Math.abs(remainder) in 0.01..0.09 && computedSplits.containsKey(selectedPayerId)) {
+                                    computedSplits[selectedPayerId] = Math.round(((computedSplits[selectedPayerId] ?: 0.0) + remainder) * 100.0) / 100.0
+                                }
                             }
                             "PERCENTAGE" -> {
                                 var percentSum = 0.0
+                                var totalAllocated = 0.0
                                 selectedMembers.forEach { uid ->
                                     val pct = customSplitInputs[uid]?.toDoubleOrNull() ?: 0.0
                                     percentSum += pct
-                                    computedSplits[uid] = Math.round((amountVal * (pct / 100.0)) * 100.0) / 100.0
+                                    val shareVal = Math.round((amountVal * (pct / 100.0)) * 100.0) / 100.0
+                                    computedSplits[uid] = shareVal
+                                    totalAllocated += shareVal
                                 }
                                 if (Math.abs(percentSum - 100.0) > 0.5) {
                                     Toast.makeText(context, "Percentages must sum to 100% (got ${percentSum}%)", Toast.LENGTH_LONG).show()
                                     return@Button
                                 }
+                                val remainder = Math.round((amountVal - totalAllocated) * 100.0) / 100.0
+                                if (Math.abs(remainder) in 0.01..0.09 && computedSplits.containsKey(selectedPayerId)) {
+                                    computedSplits[selectedPayerId] = Math.round(((computedSplits[selectedPayerId] ?: 0.0) + remainder) * 100.0) / 100.0
+                                }
                             }
-                            "SHARES" -> {
-                                var shareSum = 0.0
-                                selectedMembers.forEach { uid ->
-                                    val shares = customSplitInputs[uid]?.toDoubleOrNull() ?: 0.0
-                                    shareSum += shares
-                                }
-                                if (shareSum <= 0.0) {
-                                    Toast.makeText(context, "Total shares must be greater than 0", Toast.LENGTH_LONG).show()
-                                    return@Button
-                                }
-                                selectedMembers.forEach { uid ->
-                                    val shares = customSplitInputs[uid]?.toDoubleOrNull() ?: 0.0
-                                    computedSplits[uid] = Math.round((amountVal * (shares / shareSum)) * 100.0) / 100.0
+                            else -> {
+                                val count = selectedMembers.size
+                                if (count > 0) {
+                                    val baseShare = Math.floor((amountVal / count) * 100.0) / 100.0
+                                    var totalAllocated = 0.0
+                                    selectedMembers.forEach { uid -> computedSplits[uid] = baseShare; totalAllocated += baseShare }
+                                    val remainder = Math.round((amountVal - totalAllocated) * 100.0) / 100.0
+                                    computedSplits[selectedPayerId] = (computedSplits[selectedPayerId] ?: 0.0) + remainder
                                 }
                             }
                         }
@@ -735,13 +749,17 @@ fun AddExpenseScreen(
 
                     // Split Mode Chips
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(d.space8)) {
-                        listOf("EQUAL", "EXACT", "PERCENTAGE", "SHARES").forEach { mode ->
+                        listOf("EQUAL", "EXACT", "PERCENTAGE").forEach { mode ->
                             val isActive = splitMode == mode
                             Surface(
                                 onClick = {
                                     splitMode = mode
-                                    explicitlyEditedUids = emptySet()
-                                    if (mode != "EQUAL") showAdvancedSplitSheet = true
+                                    if (mode == "EQUAL") {
+                                        customSplitInputs = emptyMap()
+                                        explicitlyEditedUids = emptySet()
+                                    } else {
+                                        showAdvancedSplitSheet = true
+                                    }
                                 },
                                 shape = RoundedCornerShape(d.radiusFull),
                                 color = if (isActive) colors.inkPrimary else colors.canvasChalk,
@@ -766,6 +784,7 @@ fun AddExpenseScreen(
 
     // ── Advanced Splits Customizer Sheet ────────────────────────
     if (showAdvancedSplitSheet) {
+        val isSheetBalanced = Math.abs(liveRemainder) < 0.05
         ModalBottomSheet(
             onDismissRequest = { showAdvancedSplitSheet = false },
             containerColor = colors.surfaceCard,
@@ -795,12 +814,10 @@ fun AddExpenseScreen(
                 // Live Remainder Display Banner
                 if (splitMode == "EXACT" || splitMode == "PERCENTAGE") {
                     val unitStr = if (splitMode == "EXACT") "\u20b9" else "%"
-                    val label = if (splitMode == "EXACT") "Remaining cash" else "Remaining percent"
-                    val isBalanced = Math.abs(liveRemainder) < 0.05
                     Surface(
                         shape = RoundedCornerShape(d.radiusSM),
-                        color = if (isBalanced) colors.canvasChalk else colors.alertRed.copy(alpha = 0.1f),
-                        border = BorderStroke(1.dp, if (isBalanced) colors.borderWhisper else colors.alertRed.copy(alpha = 0.3f)),
+                        color = if (isSheetBalanced) colors.canvasChalk else colors.alertRed.copy(alpha = 0.1f),
+                        border = BorderStroke(1.dp, if (isSheetBalanced) colors.borderWhisper else colors.alertRed.copy(alpha = 0.3f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
@@ -808,38 +825,53 @@ fun AddExpenseScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(label, fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = colors.inkPrimary)
-                                Text(
-                                    text = "$unitStr${"%.2f".format(liveRemainder)}",
-                                    fontFamily = JetBrainsMonoFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = d.textLabelLarge,
-                                    color = if (isBalanced) colors.positiveGreen else colors.alertRed
-                                )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(d.space8),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (isSheetBalanced) {
+                                    Text(
+                                        text = "Balanced",
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = d.textLabelMedium,
+                                        color = colors.positiveGreen
+                                    )
+                                } else {
+                                    val label = if (liveRemainder > 0) "Remaining" else "Over by"
+                                    val displayVal = Math.abs(liveRemainder)
+                                    Text(
+                                        text = "$label: $unitStr${String.format(java.util.Locale.US, "%.2f", displayVal)}",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = d.textLabelMedium,
+                                        color = colors.alertRed
+                                    )
+                                }
                             }
-                            if (!isBalanced) {
+                            if (!isSheetBalanced) {
                                 Surface(
                                     onClick = {
                                         val membersList = selectedMembers.toList()
-                                        val unsetMembers = membersList.filter { it !in explicitlyEditedUids }
-                                        val targetMembers = if (unsetMembers.isNotEmpty()) unsetMembers else membersList
+                                        val emptyMembers = membersList.filter { (customSplitInputs[it] ?: "").trim().isEmpty() }
+                                        val targetMembers = if (emptyMembers.isNotEmpty()) emptyMembers else membersList
                                         val newInputs = customSplitInputs.toMutableMap()
                                         val totalAmt = amountStr.toDoubleOrNull() ?: 0.0
 
                                         if (splitMode == "PERCENTAGE") {
-                                            val sumLockedPct = explicitlyEditedUids.sumOf { newInputs[it]?.toDoubleOrNull() ?: 0.0 }
-                                            val remainingPct = (100.0 - sumLockedPct).coerceAtLeast(0.0)
+                                            val sumFilledPct = membersList.filter { it !in targetMembers }.sumOf { newInputs[it]?.toDoubleOrNull() ?: 0.0 }
+                                            val remainingPct = (100.0 - sumFilledPct).coerceAtLeast(0.0)
                                             val perTarget = if (targetMembers.isNotEmpty()) remainingPct / targetMembers.size else 0.0
                                             targetMembers.forEach { targetUid ->
-                                                newInputs[targetUid] = if (perTarget == 0.0) "" else if (perTarget % 1.0 == 0.0) perTarget.toInt().toString() else String.format("%.1f", perTarget)
+                                                newInputs[targetUid] = if (perTarget == 0.0) "" else if (perTarget % 1.0 == 0.0) perTarget.toInt().toString() else String.format(java.util.Locale.US, "%.1f", perTarget)
                                             }
                                         } else if (splitMode == "EXACT" && totalAmt > 0) {
-                                            val sumLockedAmt = explicitlyEditedUids.sumOf { newInputs[it]?.toDoubleOrNull() ?: 0.0 }
-                                            val remainingAmt = (totalAmt - sumLockedAmt).coerceAtLeast(0.0)
+                                            val sumFilledAmt = membersList.filter { it !in targetMembers }.sumOf { newInputs[it]?.toDoubleOrNull() ?: 0.0 }
+                                            val remainingAmt = (totalAmt - sumFilledAmt).coerceAtLeast(0.0)
                                             val perTarget = if (targetMembers.isNotEmpty()) remainingAmt / targetMembers.size else 0.0
                                             targetMembers.forEach { targetUid ->
-                                                newInputs[targetUid] = if (perTarget == 0.0) "" else if (perTarget % 1.0 == 0.0) perTarget.toInt().toString() else String.format("%.2f", perTarget)
+                                                newInputs[targetUid] = if (perTarget == 0.0) "" else if (perTarget % 1.0 == 0.0) perTarget.toInt().toString() else String.format(java.util.Locale.US, "%.2f", perTarget)
                                             }
                                         }
                                         customSplitInputs = newInputs
@@ -881,39 +913,6 @@ fun AddExpenseScreen(
                                 onValueChange = { inputVal ->
                                     val newInputs = customSplitInputs.toMutableMap()
                                     newInputs[uid] = inputVal
-
-                                    val newEditedUids = if (inputVal.trim().isNotEmpty() && (inputVal.toDoubleOrNull() ?: 0.0) >= 0.0) {
-                                        explicitlyEditedUids + uid
-                                    } else {
-                                        explicitlyEditedUids - uid
-                                    }
-                                    explicitlyEditedUids = newEditedUids
-
-                                    val membersList = selectedMembers.toList()
-                                    if (membersList.size > 1) {
-                                        val totalAmt = amountStr.toDoubleOrNull() ?: 0.0
-                                        val unsetMembers = membersList.filter { it !in newEditedUids }
-
-                                        if (unsetMembers.isNotEmpty()) {
-                                            if (splitMode == "PERCENTAGE") {
-                                                val sumLockedPct = newEditedUids.sumOf { newInputs[it]?.toDoubleOrNull() ?: 0.0 }
-                                                val remainingPct = (100.0 - sumLockedPct).coerceAtLeast(0.0)
-                                                val perUnsetPct = remainingPct / unsetMembers.size
-
-                                                unsetMembers.forEach { unsetUid ->
-                                                    newInputs[unsetUid] = if (perUnsetPct == 0.0) "" else if (perUnsetPct % 1.0 == 0.0) perUnsetPct.toInt().toString() else String.format("%.1f", perUnsetPct)
-                                                }
-                                            } else if (splitMode == "EXACT" && totalAmt > 0) {
-                                                val sumLockedAmt = newEditedUids.sumOf { newInputs[it]?.toDoubleOrNull() ?: 0.0 }
-                                                val remainingAmt = (totalAmt - sumLockedAmt).coerceAtLeast(0.0)
-                                                val perUnsetAmt = remainingAmt / unsetMembers.size
-
-                                                unsetMembers.forEach { unsetUid ->
-                                                    newInputs[unsetUid] = if (perUnsetAmt == 0.0) "" else if (perUnsetAmt % 1.0 == 0.0) perUnsetAmt.toInt().toString() else String.format("%.2f", perUnsetAmt)
-                                                }
-                                            }
-                                        }
-                                    }
                                     customSplitInputs = newInputs
                                 },
                                 modifier = Modifier.width(120.dp).heightIn(min = d.inputHeight),
@@ -921,7 +920,7 @@ fun AddExpenseScreen(
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 placeholder = {
                                     Text(
-                                        text = when (splitMode) { "EXACT" -> "\u20b90.0"; "PERCENTAGE" -> "%0"; else -> "Ratio" },
+                                        text = when (splitMode) { "EXACT" -> "\u20b90.0"; else -> "%0" },
                                         fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkMuted
                                     )
                                 },
@@ -941,11 +940,22 @@ fun AddExpenseScreen(
 
                 Button(
                     onClick = { showAdvancedSplitSheet = false },
+                    enabled = isSheetBalanced,
                     modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
                     shape = RoundedCornerShape(d.radiusMD),
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.inkPrimary,
+                        disabledContainerColor = colors.inkMuted.copy(alpha = 0.3f),
+                        disabledContentColor = colors.canvasChalk.copy(alpha = 0.6f)
+                    )
                 ) {
-                    Text("Apply custom split", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge, color = colors.canvasChalk)
+                    Text(
+                        text = "Apply custom split",
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = d.textLabelLarge,
+                        color = if (isSheetBalanced) colors.canvasChalk else colors.canvasChalk.copy(alpha = 0.6f)
+                    )
                 }
             }
         }

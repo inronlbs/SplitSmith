@@ -63,7 +63,7 @@ data class Expense(
     val date: Long = 0,
     val paidBy: String = "",
     val category: String = "Other", // Food, Travel, Stay, Utilities, Movie, Shopping, Other
-    val splitMode: String = "EQUAL", // EQUAL, EXACT, PERCENTAGE, SHARES
+    val splitMode: String = "EQUAL", // EQUAL, EXACT, PERCENTAGE
     val splits: Map<String, Double> = emptyMap(), // uid -> amount
     val receiptUrl: String = "",
     val receiptUrls: List<String> = emptyList(),

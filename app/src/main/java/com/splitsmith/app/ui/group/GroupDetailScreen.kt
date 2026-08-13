@@ -3322,6 +3322,27 @@ fun SettlementDetailBottomSheet(
                         )
                     }
                 }
+
+                Box {
+                    var showSettlementMenu by remember { mutableStateOf(false) }
+                    IconButton(onClick = { showSettlementMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = colors.inkPrimary)
+                    }
+                    DropdownMenu(
+                        expanded = showSettlementMenu,
+                        onDismissRequest = { showSettlementMenu = false },
+                        modifier = Modifier.background(colors.surfaceCard)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Delete Settlement", fontFamily = OutfitFamily, color = colors.alertRed) },
+                            onClick = {
+                                showSettlementMenu = false
+                                onDecline()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = colors.alertRed) }
+                        )
+                    }
+                }
             }
 
             HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)

@@ -515,3 +515,34 @@ OutlinedTextField at GroupDetailScreen.kt:L1154 had a hard Modifier.height(44.dp
 - ✅ Committed: `fix: v0.3.9.5 patch - search bar text clipping fix`
 - ✅ Pushed to `main` — commit `9c35fc5`
 - 5 files changed, 35 insertions(+), 3 deletions(-)
+
+## [2026-08-13 02:07] Release v0.3.9.6 Published
+
+### Summary
+Patch release resolving missing Edit & Delete options in expense detail bottom sheet cards across Group Expenses, Dashboard expense previews, and Direct 1-on-1 Splits.
+
+### Root Cause
+1. GroupDetailScreen.kt checked al isCreator = expense.createdBy == FirebaseManager.currentUserId. For all legacy expenses created before createdBy was tracked in Firestore, createdBy is "". "" == currentUserId returned alse, hiding the 3-dot management menu for all legacy group expenses.
+2. SplitExpensesScreen.kt (Direct 1-on-1 Splits) gated the options menu behind if (!isSettled) and only provided "Delete Split", omitting "Edit Split".
+3. HomeScreen.kt (GroupExpenseDetailBottomSheet) lacked a 3-dot management menu entirely on dashboard preview cards.
+
+### Changes Made
+- **[MODIFY]** `GroupDetailScreen.kt`: Updated permission check in `GroupExpenseDetailBottomSheet` to allow expense management if current user is creator, payer, or if `createdBy` is blank (legacy fallback).
+- **[MODIFY]** `SplitExpensesScreen.kt`: Removed `if (!isSettled)` menu guard in `DirectSplitDetailBottomSheet` and added leading icons for menu items.
+- **[MODIFY]** `HomeScreen.kt`: Added 3-dot options menu with Edit and Delete capabilities to `GroupExpenseDetailBottomSheet` on Dashboard cards.
+- **[MODIFY]** `app/build.gradle.kts`: Bumped `versionCode` 56 → 57, `versionName` `0.3.9.5` → `0.3.9.6`.
+- **[MODIFY]** `firebase.json`: Updated `Content-Disposition` download filename to `SplitSmith-v0.3.9.6-release.apk`.
+
+### Build Verification
+- **Compile Status**: `BUILD SUCCESSFUL` in 2m 32s
+- **Signed APK**: `SplitSmith-v0.3.9.6-release.apk`
+- **Signed AAB**: `SplitSmith-v0.3.9.6-release.aab`
+
+### Release Artifacts
+- **GitHub Release**: https://github.com/inronlbs/SplitSmith/releases/tag/v0.3.9.6
+- **Firebase Hosting CDN**: https://splitsmith.web.app (splitsmith.bin updated)
+
+### Git
+- ✅ Committed: `fix: v0.3.9.6 patch - resolve missing edit/delete options in expense detail cards`
+- ✅ Pushed to `main` — commit `4df32ab`
+- 7 files changed, 130 insertions(+), 31 deletions(-)
