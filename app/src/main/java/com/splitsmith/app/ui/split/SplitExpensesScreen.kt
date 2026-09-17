@@ -155,7 +155,7 @@ fun SplitExpensesScreen(
     }
 
     val filteredGroups = remember(groups, searchQuery) {
-        groups.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        groups.filter { !it.isExpenseTracker && it.name.contains(searchQuery, ignoreCase = true) }
     }
     
     val individualPeers = remember(directSplits, connectedUsers, contactNames, contactAvatars, contactUpis, currentUserId, searchQuery) {
@@ -1152,6 +1152,7 @@ fun DirectSplitDetailBottomSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateGroupBottomSheet(
+    isExpenseTracker: Boolean = false,
     onDismiss: () -> Unit,
     onGroupCreated: (groupId: String) -> Unit
 ) {
@@ -1241,7 +1242,7 @@ fun CreateGroupBottomSheet(
         ) {
             // Title
             Text(
-                text = "New Group",
+                text = if (isExpenseTracker) "New Expense Tracker Group" else "New Group",
                 fontFamily = OutfitFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = d.textTitleLarge,
@@ -1262,7 +1263,7 @@ fun CreateGroupBottomSheet(
                     modifier = Modifier.fillMaxWidth().heightIn(min = d.inputHeight),
                     shape = RoundedCornerShape(d.radiusSM),
                     placeholder = {
-                        Text("e.g. Goa Trip, Flat Expenses...", fontFamily = OutfitFamily, color = colors.inkMuted)
+                        Text(if (isExpenseTracker) "e.g. Company Expenses, Paris Trip..." else "e.g. Goa Trip, Flat Expenses...", fontFamily = OutfitFamily, color = colors.inkMuted)
                     },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -1298,20 +1299,21 @@ fun CreateGroupBottomSheet(
                         val isSelected = selectedIconName == iconName
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
-                                .let {
-                                    if (isSelected) {
-                                        it.border(2.dp, colors.inkPrimary, CircleShape).padding(2.dp)
-                                    } else {
-                                        it.alpha(0.5f)
-                                    }
-                                }
-                                .clickable { selectedIconName = iconName }
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) colors.inkPrimary else Color.Transparent,
+                                    shape = CircleShape
+                                )
+                                .padding(3.dp)
+                                .clickable { selectedIconName = iconName },
+                            contentAlignment = Alignment.Center
                         ) {
                             GroupIconView(
                                 iconName = iconName,
-                                size = 36.dp,
-                                modifier = Modifier.align(Alignment.Center)
+                                size = 42.dp,
+                                modifier = Modifier.alpha(if (isSelected) 1.0f else 0.6f)
                             )
                         }
                     }
@@ -1370,7 +1372,7 @@ fun CreateGroupBottomSheet(
                         ),
                         textStyle = androidx.compose.ui.text.TextStyle(
                             fontFamily = OutfitFamily,
-                            fontSize = d.textBodyLarge,
+                            fontSize = d.textBodyMedium,
                             color = colors.inkPrimary
                         )
                     )
@@ -1381,15 +1383,14 @@ fun CreateGroupBottomSheet(
                             isSearching = true
                             coroutineScope.launch {
                                 try {
-                                    val resolved = if (memberInput.contains("@")) {
-                                        FirebaseManager.searchUserByEmail(memberInput.trim())
-                                    } else {
-                                        FirebaseManager.searchUserByCode(memberInput.trim())
-                                    }
-                                    if (resolved != null) {
+                                    val resolved = FirebaseManager.searchUserByCode(memberInput.trim())
+                                        ?: FirebaseManager.searchUserByEmail(memberInput.trim())
+                                    if (resolved != null && resolved.uid.isNotEmpty()) {
+                                        FirebaseManager.addConnection(resolved.uid)
                                         if (addedMembers.none { it.uid == resolved.uid }) {
                                             addedMembers = addedMembers + resolved
                                             memberInput = ""
+                                            Toast.makeText(context, "Added ${resolved.displayName}!", Toast.LENGTH_SHORT).show()
                                         } else {
                                             Toast.makeText(context, "Already added", Toast.LENGTH_SHORT).show()
                                         }
@@ -1501,7 +1502,8 @@ fun CreateGroupBottomSheet(
                                 name = groupName.trim(),
                                 iconName = selectedIconName,
                                 type = selectedIconName,
-                                memberUids = addedMembers.map { it.uid }
+                                memberUids = addedMembers.map { it.uid },
+                                isExpenseTracker = isExpenseTracker
                             )
                             onGroupCreated(id)
                         } catch (e: Exception) {
@@ -1521,7 +1523,13 @@ fun CreateGroupBottomSheet(
                 if (isLoading) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colors.canvasChalk, strokeWidth = 2.dp)
                 } else {
-                    Text("Create Group", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelLarge, color = colors.canvasChalk)
+                    Text(
+                        text = if (isExpenseTracker) "Create Expense Tracker Group" else "Create Group",
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = d.textTitleMedium,
+                        color = colors.canvasChalk
+                    )
                 }
             }
         }

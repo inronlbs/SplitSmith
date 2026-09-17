@@ -51,7 +51,8 @@ data class Group(
     val adminId: String = "",
     val admins: Map<String, Boolean> = emptyMap(),
     val joinRequests: Map<String, Boolean> = emptyMap(),
-    val customCategories: List<String> = emptyList()
+    val customCategories: List<String> = emptyList(),
+    val isExpenseTracker: Boolean = false
 )
 
 @Keep

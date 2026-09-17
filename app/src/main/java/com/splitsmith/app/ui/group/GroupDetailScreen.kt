@@ -463,16 +463,27 @@ fun GroupDetailScreen(
                 val myUid = FirebaseManager.currentUserId
                 val currentUserSpend = remember(expenses, myUid) { expenses.sumOf { it.splits[myUid ?: ""] ?: 0.0 } }
 
+                val isTracker = currentGroup.isExpenseTracker
                 val myNetBalance = remember(netBalances) { netBalances[myUid] ?: 0.0 }
-                val netText = when {
-                    myNetBalance > 0.01  -> "You are owed \u20b9${myNetBalance.formatCurrency()}"
-                    myNetBalance < -0.01 -> "You owe \u20b9${(-myNetBalance).formatCurrency()}"
-                    else                 -> "Settled up"
+                val myPaidAmount = remember(expenses, myUid) { expenses.filter { it.paidBy == myUid }.sumOf { it.amount } }
+
+                val netText = if (isTracker) {
+                    "You spent: \u20b9${myPaidAmount.formatCurrency()}"
+                } else {
+                    when {
+                        myNetBalance > 0.01  -> "You are owed \u20b9${myNetBalance.formatCurrency()}"
+                        myNetBalance < -0.01 -> "You owe \u20b9${(-myNetBalance).formatCurrency()}"
+                        else                 -> "Settled up"
+                    }
                 }
-                val netColor = when {
-                    myNetBalance > 0.01  -> positiveGreen
-                    myNetBalance < -0.01 -> alertRed
-                    else                 -> inkMuted
+                val netColor = if (isTracker) {
+                    inkPrimary
+                } else {
+                    when {
+                        myNetBalance > 0.01  -> positiveGreen
+                        myNetBalance < -0.01 -> alertRed
+                        else                 -> inkMuted
+                    }
                 }
 
                 Column(
@@ -619,7 +630,8 @@ fun GroupDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(d.space8),
                         modifier = Modifier.weight(1f)
                     ) {
-                        listOf("Expenses", "Balances").forEachIndexed { index, label ->
+                        val tabLabels = if (currentGroup.isExpenseTracker) listOf("Expenses", "Breakdown") else listOf("Expenses", "Balances")
+                        tabLabels.forEachIndexed { index, label ->
                             val isActive = pagerState.currentPage == index
                             val bgColor by animateColorAsState(
                                 targetValue = if (isActive) accentIndigo else Color.Transparent,
@@ -675,6 +687,7 @@ fun GroupDetailScreen(
                             expenses = expenses,
                             userNames = userNamesMap,
                             groupId = groupId,
+                            isExpenseTracker = currentGroup.isExpenseTracker,
                             onNavigateToAddExpense = onNavigateToAddExpense,
                             onDeleteExpense = { expenseToDelete = it },
                             showSearchFilters = showSearchFilters,
@@ -684,20 +697,38 @@ fun GroupDetailScreen(
                             borderWhisper = borderWhisper,
                             alertRed = alertRed
                         )
-                        1 -> StyledBalancesTab(
-                            debts = debts,
-                            settlements = settlements,
-                            userNames = userNamesMap,
-                            memberProfilesMap = memberProfilesMap,
-                            groupId = groupId,
-                            d = d,
-                            inkPrimary = inkPrimary,
-                            inkMuted = inkMuted,
-                            borderWhisper = borderWhisper,
-                            alertRed = alertRed,
-                            accentIndigo = accentIndigo,
-                            onSettleClick = { debt -> selectedDebtForSettlement = debt }
-                        )
+                        1 -> {
+                            if (currentGroup.isExpenseTracker) {
+                                StyledMemberBreakdownTab(
+                                    expenses = expenses,
+                                    membersList = currentGroup.members.keys.toList(),
+                                    userNames = userNamesMap,
+                                    memberProfilesMap = memberProfilesMap,
+                                    groupBudgetLimit = groupBudgetLimit,
+                                    d = d,
+                                    inkPrimary = inkPrimary,
+                                    inkMuted = inkMuted,
+                                    borderWhisper = borderWhisper,
+                                    accentIndigo = accentIndigo
+                                )
+                            } else {
+                                StyledBalancesTab(
+                                    debts = debts,
+                                    settlements = settlements,
+                                    userNames = userNamesMap,
+                                    memberProfilesMap = memberProfilesMap,
+                                    memberUids = currentGroup.members.keys.toList(),
+                                    groupId = groupId,
+                                    d = d,
+                                    inkPrimary = inkPrimary,
+                                    inkMuted = inkMuted,
+                                    borderWhisper = borderWhisper,
+                                    alertRed = alertRed,
+                                    accentIndigo = accentIndigo,
+                                    onSettleClick = { debt -> selectedDebtForSettlement = debt }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1093,6 +1124,7 @@ private fun StyledExpensesTab(
     expenses: List<Expense>,
     userNames: Map<String, String>,
     groupId: String,
+    isExpenseTracker: Boolean = false,
     onNavigateToAddExpense: (groupId: String, expenseId: String?) -> Unit,
     onDeleteExpense: (Expense) -> Unit,
     showSearchFilters: Boolean,
@@ -1117,8 +1149,13 @@ private fun StyledExpensesTab(
         else listOf("All") + list
     }
 
-    val processedExpenses = remember(expenses, searchQuery, selectedCategory, selectedPayerFilter, currentUserId) {
+    val processedExpenses = remember(expenses, searchQuery, selectedCategory, selectedPayerFilter, currentUserId, isExpenseTracker) {
         expenses.filter { exp ->
+            val isInvolved = if (isExpenseTracker) true else (exp.paidBy == currentUserId ||
+                (exp.splits.containsKey(currentUserId) && (exp.splits[currentUserId] ?: 0.0) > 0.0) ||
+                exp.createdBy == currentUserId)
+            if (!isInvolved) return@filter false
+
             val trimmed = searchQuery.trim()
             val matchesSearch = exp.description.contains(trimmed, ignoreCase = true)
             val matchesCategory = selectedCategory == "All" || exp.category.equals(selectedCategory, ignoreCase = true)
@@ -1315,6 +1352,137 @@ private fun StyledExpensesTab(
     }
 }
 
+// ── Member Spend Breakdown Tab (for Expense Tracker Groups) ────
+@Composable
+private fun StyledMemberBreakdownTab(
+    expenses: List<Expense>,
+    membersList: List<String>,
+    userNames: Map<String, String>,
+    memberProfilesMap: Map<String, UserProfile>,
+    groupBudgetLimit: Double,
+    d: com.splitsmith.app.theme.Dimens,
+    inkPrimary: Color,
+    inkMuted: Color,
+    borderWhisper: Color,
+    accentIndigo: Color
+) {
+    val colors = LocalSplitColors.current
+    val totalGroupSpend = remember(expenses) { expenses.sumOf { it.amount } }
+    val memberSpendMap = remember(expenses, membersList) {
+        membersList.associateWith { uid ->
+            expenses.filter { it.paidBy == uid }.sumOf { it.amount }
+        }
+    }
+    val sortedMembers = remember(memberSpendMap, membersList) {
+        membersList.sortedByDescending { memberSpendMap[it] ?: 0.0 }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = d.space24, top = d.space16, end = d.space24, bottom = 120.dp),
+        verticalArrangement = Arrangement.spacedBy(d.space16)
+    ) {
+        // Summary Card
+        item {
+            Surface(
+                shape = RoundedCornerShape(d.radiusMD),
+                color = colors.surfaceCard,
+                border = BorderStroke(1.dp, borderWhisper),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(d.space16), verticalArrangement = Arrangement.spacedBy(d.space12)) {
+                    Text("SPEND SUMMARY", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Total Spent", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                            Text("₹${totalGroupSpend.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("Total Logged", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                            Text("${expenses.size} expenses", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
+                        }
+                    }
+
+                    if (groupBudgetLimit > 0.0) {
+                        HorizontalDivider(color = borderWhisper.copy(alpha = 0.5f))
+                        val progress = (totalGroupSpend / groupBudgetLimit).coerceIn(0.0, 1.0).toFloat()
+                        val remaining = groupBudgetLimit - totalGroupSpend
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Budget: ₹${groupBudgetLimit.formatCurrency()}", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted)
+                                Text(if (remaining >= 0) "₹${remaining.formatCurrency()} left" else "Over: ₹${(-remaining).formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontSize = d.textLabelSmall, color = if (remaining >= 0) inkPrimary else colors.alertRed, fontWeight = FontWeight.Bold)
+                            }
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(d.radiusFull)),
+                                color = if (remaining >= 0) accentIndigo else colors.alertRed,
+                                trackColor = borderWhisper
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section Title
+        item {
+            Text("SPENDING BY MEMBER", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
+        }
+
+        // Member List
+        items(sortedMembers) { uid ->
+            val profile = memberProfilesMap[uid]
+            val name = userNames[uid] ?: profile.getResolvedName("Member")
+            val spent = memberSpendMap[uid] ?: 0.0
+            val expenseCount = remember(expenses, uid) { expenses.count { it.paidBy == uid } }
+            val sharePct = if (totalGroupSpend > 0) ((spent / totalGroupSpend) * 100).toInt() else 0
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = d.space8)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    UserAvatar(
+                        avatarUrl = profile?.avatarUrl ?: "",
+                        displayName = name,
+                        size = d.avatarMd
+                    )
+                    Spacer(modifier = Modifier.width(d.space12))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(name, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
+                        Text("$expenseCount expenses · $sharePct% of total", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                    }
+                    Text(
+                        text = "₹${spent.formatCurrency()}",
+                        fontFamily = JetBrainsMonoFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = d.textMonoLarge,
+                        color = inkPrimary
+                    )
+                }
+                if (totalGroupSpend > 0) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        progress = { (spent / totalGroupSpend).coerceIn(0.0, 1.0).toFloat() },
+                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(d.radiusFull)),
+                        color = accentIndigo,
+                        trackColor = borderWhisper.copy(alpha = 0.5f)
+                    )
+                }
+                HorizontalDivider(color = borderWhisper, modifier = Modifier.padding(top = d.space12))
+            }
+        }
+    }
+}
+
 // ── Balances Tab ─────────────────────────────────────────────
 @Composable
 private fun StyledBalancesTab(
@@ -1322,6 +1490,7 @@ private fun StyledBalancesTab(
     settlements: List<Settlement>,
     userNames: Map<String, String>,
     memberProfilesMap: Map<String, UserProfile>,
+    memberUids: List<String>,
     groupId: String,
     d: com.splitsmith.app.theme.Dimens,
     inkPrimary: Color,
@@ -1335,7 +1504,6 @@ private fun StyledBalancesTab(
     val currentUserId = FirebaseManager.currentUserId
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
-    var showFullLedger by remember { mutableStateOf(false) }
     var selectedReceiptUrlForPreview by remember { mutableStateOf<String?>(null) }
     var targetSettlementForPreview by remember { mutableStateOf<Settlement?>(null) }
     var targetPendingSettlementForProof by remember { mutableStateOf<Settlement?>(null) }
@@ -1379,17 +1547,19 @@ private fun StyledBalancesTab(
         targetPendingSettlementForProof = null
     }
 
-    val displayDebts = remember(debts, showFullLedger, currentUserId) {
-        if (showFullLedger) debts else debts.filter { it.fromUser == currentUserId || it.toUser == currentUserId }
+    val otherMembers = remember(memberUids, currentUserId) {
+        memberUids.filter { it != currentUserId }
     }
 
     val pendingRequests = remember(settlements, currentUserId) {
         settlements.filter { it.status == "PENDING" && (it.toUser == currentUserId || it.fromUser == currentUserId) }
     }
-    val confirmedSettlements = remember(settlements) {
-        settlements.filter { it.status == "CONFIRMED" }
+    val mySettlements = remember(settlements, currentUserId) {
+        settlements.filter { it.fromUser == currentUserId || it.toUser == currentUserId }
     }
-    val allTransactions = remember(settlements) { settlements }
+    val myDebts = remember(debts, currentUserId) {
+        debts.filter { it.fromUser == currentUserId }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -1398,51 +1568,60 @@ private fun StyledBalancesTab(
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
 
-
             item {
                 Text("WHO OWES WHAT", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
                 Spacer(modifier = Modifier.height(d.space8))
             }
 
-            if (displayDebts.isEmpty()) {
+            if (otherMembers.isEmpty()) {
                 item {
                     Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
-                        Text(if (debts.isEmpty()) "All settled up!" else "You are all settled up!", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = inkMuted)
+                        Text("No other members in this group yet.", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = inkMuted)
                     }
                 }
             } else {
-                items(displayDebts) { debt ->
-                    val debtorName = userNames[debt.fromUser] ?: "Debtor"
-                    val creditorName = userNames[debt.toUser] ?: "Creditor"
-                    val isPayer = debt.fromUser == currentUserId
-                    val isCreditor = debt.toUser == currentUserId
-                    
-                    val matchingPendingRequest = pendingRequests.find { 
-                        (it.fromUser == debt.fromUser && it.toUser == debt.toUser)
+                items(otherMembers) { peerUid ->
+                    val peerProfile = memberProfilesMap[peerUid]
+                    val peerName = userNames[peerUid] ?: peerProfile.getResolvedName("Member")
+
+                    val iOweDebt = debts.find { it.fromUser == currentUserId && it.toUser == peerUid }
+                    val theyOweDebt = debts.find { it.fromUser == peerUid && it.toUser == currentUserId }
+
+                    val matchingPendingRequest = pendingRequests.find {
+                        (it.fromUser == currentUserId && it.toUser == peerUid) ||
+                        (it.fromUser == peerUid && it.toUser == currentUserId)
                     }
                     val isPending = matchingPendingRequest != null
+                    val isPayer = matchingPendingRequest?.fromUser == currentUserId
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = d.rowHeightLg)
-                            .clickable(enabled = isPending) {
-                                if (isPending && matchingPendingRequest != null) {
+                            .clickable {
+                                if (matchingPendingRequest != null) {
                                     selectedSettlementForDetail = matchingPendingRequest
+                                } else if (iOweDebt != null) {
+                                    onSettleClick(iOweDebt)
                                 }
                             }
                             .padding(vertical = d.space12),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         UserAvatar(
-                            avatarUrl = memberProfilesMap[debt.fromUser]?.avatarUrl ?: "",
-                            displayName = debtorName,
+                            avatarUrl = peerProfile?.avatarUrl ?: "",
+                            displayName = peerName,
                             size = d.avatarMd
                         )
                         Spacer(modifier = Modifier.width(d.space12))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(debtorName, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
-                            Text("owes $creditorName", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                            Text(peerName, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
+                            val statusSubtitle = when {
+                                iOweDebt != null -> "You owe $peerName"
+                                theyOweDebt != null -> "$peerName owes you"
+                                else -> "Settled up"
+                            }
+                            Text(statusSubtitle, fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
                             if (isPending) {
                                 Text(
                                     text = if (isPayer) "Waiting for Confirmation" else "Needs Approval",
@@ -1453,12 +1632,23 @@ private fun StyledBalancesTab(
                                 )
                             }
                         }
-                        val formattedDebtAmount = if (debt.amount % 1.0 == 0.0) debt.amount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", debt.amount)
-                        
-                        val amountColor = if (isCreditor) colors.positiveGreen else alertRed
-                        
+
+                        val (formattedAmount, amountColor) = when {
+                            iOweDebt != null -> {
+                                val amtStr = if (iOweDebt.amount % 1.0 == 0.0) iOweDebt.amount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", iOweDebt.amount)
+                                ("\u20b9$amtStr" to alertRed)
+                            }
+                            theyOweDebt != null -> {
+                                val amtStr = if (theyOweDebt.amount % 1.0 == 0.0) theyOweDebt.amount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", theyOweDebt.amount)
+                                ("\u20b9$amtStr" to colors.positiveGreen)
+                            }
+                            else -> {
+                                ("\u20b90" to inkMuted)
+                            }
+                        }
+
                         Text(
-                            text = "\u20b9$formattedDebtAmount",
+                            text = formattedAmount,
                             fontFamily = JetBrainsMonoFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = d.textMonoLarge,
@@ -1469,13 +1659,13 @@ private fun StyledBalancesTab(
                 }
             }
 
-            if (allTransactions.isNotEmpty()) {
+            if (mySettlements.isNotEmpty()) {
                 item {
                     Spacer(modifier = Modifier.height(d.space16))
                     Text("SETTLED TRANSACTIONS", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
                     Spacer(modifier = Modifier.height(d.space8))
                 }
-                items(allTransactions) { settlement ->
+                items(mySettlements) { settlement ->
                     val senderName = userNames[settlement.fromUser] ?: "Payer"
                     val receiverName = userNames[settlement.toUser] ?: "Receiver"
                     val isPending = settlement.status == "PENDING"
@@ -1516,8 +1706,9 @@ private fun StyledBalancesTab(
                         }
                         Spacer(modifier = Modifier.width(d.space12))
                         Column(modifier = Modifier.weight(1f)) {
+                            val transactionText = if (isPayer) "You paid $receiverName" else "$senderName paid you"
                             Text(
-                                "$senderName paid $receiverName",
+                                transactionText,
                                 fontFamily = OutfitFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = d.textTitleMedium,
@@ -1589,7 +1780,7 @@ private fun StyledBalancesTab(
         }
 
         // Sticky Settle Up button
-        if (debts.isNotEmpty()) {
+        if (myDebts.isNotEmpty()) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -1601,7 +1792,6 @@ private fun StyledBalancesTab(
             ) {
                 Button(
                     onClick = {
-                        val myDebts = debts.filter { it.fromUser == currentUserId }
                         if (myDebts.isNotEmpty()) {
                             showSettlePeerSelectionSheet = true
                         } else {
@@ -1613,11 +1803,6 @@ private fun StyledBalancesTab(
                     colors = ButtonDefaults.buttonColors(containerColor = inkPrimary)
                 ) {
                     Text("Settle Up", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge, color = colors.canvasChalk)
-                }
-                TextButton(
-                    onClick = { showFullLedger = !showFullLedger }
-                ) {
-                    Text(if (showFullLedger) "Hide full ledger" else "Show full ledger", fontFamily = OutfitFamily, fontSize = d.textLabelLarge, color = accentIndigo)
                 }
             }
         }

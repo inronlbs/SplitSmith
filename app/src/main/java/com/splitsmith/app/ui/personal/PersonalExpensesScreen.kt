@@ -26,9 +26,15 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Groups
+import com.splitsmith.app.data.Group
 import com.splitsmith.app.data.PersonalExpense
+import com.splitsmith.app.ui.components.GroupIconView
+import com.splitsmith.app.ui.split.CreateGroupBottomSheet
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +59,7 @@ fun PersonalExpensesScreen(
     showAddPersonalInitially: Boolean = false,
     initialSelectedExpenseId: String? = null,
     onNavigateToQuickSplit: () -> Unit,
+    onNavigateToGroup: (groupId: String) -> Unit = {},
     onBack: () -> Unit
 ) {
     val d = LocalDimens.current
@@ -60,6 +67,8 @@ fun PersonalExpensesScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    var selectedExpenseTab by rememberSaveable { mutableStateOf(0) }
+    var showCreateExpenseGroupSheet by remember { mutableStateOf(false) }
     var showAddPersonalSheet by remember { mutableStateOf(false) }
     var showAddCategoryDialog by remember { mutableStateOf(false) }
 
@@ -73,9 +82,13 @@ fun PersonalExpensesScreen(
     val personalExpensesState = personalExpensesFlow.collectAsState(initial = emptyList())
     val userProfileFlow = remember { FirebaseManager.observeUserProfile() }
     val userProfileState = userProfileFlow.collectAsState(initial = null)
+    val allGroupsFlow = remember { FirebaseManager.observeGroups() }
+    val allGroupsState = allGroupsFlow.collectAsState(initial = emptyList())
 
     val personalExpenses = personalExpensesState.value
     val profile = userProfileState.value
+    val allGroups = allGroupsState.value
+    val trackerGroups = remember(allGroups) { allGroups.filter { it.isExpenseTracker } }
 
     // Auto-open sheet if triggered from FAB Quick Actions
     LaunchedEffect(showAddPersonalInitially) {
@@ -167,7 +180,7 @@ fun PersonalExpensesScreen(
                 contentPadding = PaddingValues(horizontal = d.space24, vertical = d.space24),
                 verticalArrangement = Arrangement.spacedBy(d.space20)
             ) {
-                // Unified Header (No back button, matching Split Expenses / Dashboard)
+                // Unified Header with Segmented Switcher
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -182,170 +195,338 @@ fun PersonalExpensesScreen(
                             color = colors.inkPrimary,
                             letterSpacing = (-0.5).sp
                         )
-                        IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
-                            Icon(
-                                imageVector = if (isSearchVisible) Icons.Default.Close else Icons.Default.Search,
-                                contentDescription = "Toggle Search",
-                                tint = colors.inkPrimary
+                        if (selectedExpenseTab == 0) {
+                            IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
+                                Icon(
+                                    imageVector = if (isSearchVisible) Icons.Default.Close else Icons.Default.Search,
+                                    contentDescription = "Toggle Search",
+                                    tint = colors.inkPrimary
+                                )
+                            }
+                        } else {
+                            IconButton(onClick = { showCreateExpenseGroupSheet = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "New Expense Group",
+                                    tint = colors.inkPrimary
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(d.space8))
+
+                    // Top Segmented Switcher: Personal vs Expense Groups
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(d.space8),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf("Personal", "Expense Groups").forEachIndexed { index, label ->
+                            val isActive = selectedExpenseTab == index
+                            val bgColor by androidx.compose.animation.animateColorAsState(
+                                targetValue = if (isActive) colors.inkPrimary else Color.Transparent,
+                                label = "tabBg$index"
                             )
+                            val textColor by androidx.compose.animation.animateColorAsState(
+                                targetValue = if (isActive) colors.canvasChalk else colors.inkMuted,
+                                label = "tabText$index"
+                            )
+                            Surface(
+                                onClick = { selectedExpenseTab = index },
+                                shape = RoundedCornerShape(d.radiusFull),
+                                color = bgColor,
+                                border = if (!isActive) BorderStroke(1.dp, colors.borderWhisper) else null,
+                                modifier = Modifier.height(d.space32 + d.space4)
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                                    fontSize = d.textLabelLarge,
+                                    color = textColor,
+                                    modifier = Modifier.padding(horizontal = d.space16, vertical = d.space8)
+                                )
+                            }
                         }
                     }
                 }
-                // Budget tracker inline overview (no cards)
-                item {
-                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = d.space8)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Current Expenses for the Month", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
-                            val remaining = budgetLimit - monthlySpend
+
+                if (selectedExpenseTab == 0) {
+                    // ── PERSONAL TAB ──────────────────────────────────────────
+                    // Budget tracker inline overview (no cards)
+                    item {
+                        Column(modifier = Modifier.fillMaxWidth().padding(vertical = d.space8)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Current Expenses for the Month", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
+                                val remaining = budgetLimit - monthlySpend
+                                Text(
+                                    text = if (remaining >= 0) "₹${remaining.formatCurrency()} left" else "Overspent: ₹${(-remaining).formatCurrency()}",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textLabelSmall,
+                                    fontWeight = if (remaining < 0) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (remaining < 0) colors.alertRed else colors.inkMuted
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(d.space8))
                             Text(
-                                text = if (remaining >= 0) "₹${remaining.formatCurrency()} left" else "Overspent: ₹${(-remaining).formatCurrency()}",
-                                fontFamily = OutfitFamily,
-                                fontSize = d.textLabelSmall,
-                                fontWeight = if (remaining < 0) FontWeight.Bold else FontWeight.Normal,
-                                color = if (remaining < 0) colors.alertRed else colors.inkMuted
+                                text = "\u20b9${"%.2f".format(monthlySpend)}",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = d.textDisplayLarge,
+                                color = colors.inkPrimary
+                            )
+                            Spacer(modifier = Modifier.height(d.space12))
+
+                            val progress = (monthlySpend / budgetLimit).coerceIn(0.0, 1.0).toFloat()
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(d.radiusFull)),
+                                color = if (progress > 0.9f) colors.alertRed else colors.inkPrimary,
+                                trackColor = colors.borderWhisper
                             )
                         }
-                        Spacer(modifier = Modifier.height(d.space8))
-                        Text(
-                            text = "\u20b9${"%.2f".format(monthlySpend)}",
-                            fontFamily = JetBrainsMonoFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = d.textDisplayLarge,
-                            color = colors.inkPrimary
-                        )
-                        Spacer(modifier = Modifier.height(d.space12))
-
-                        val progress = (monthlySpend / budgetLimit).coerceIn(0.0, 1.0).toFloat()
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(d.radiusFull)),
-                            color = if (progress > 0.9f) colors.alertRed else colors.inkPrimary,
-                            trackColor = colors.borderWhisper
-                        )
-                    }
-                }
-
-                // Search & Filter controls (only shown when search is visible)
-                if (isSearchVisible) {
-                    item {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = d.inputHeight),
-                            shape = RoundedCornerShape(d.radiusSM),
-                            placeholder = { Text("Search personal expenses...", fontFamily = OutfitFamily, color = colors.inkMuted) },
-                            singleLine = true,
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = colors.inkMuted) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = colors.inkPrimary,
-                                unfocusedBorderColor = colors.borderWhisper,
-                                focusedTextColor = colors.inkPrimary,
-                                unfocusedTextColor = colors.inkPrimary,
-                                focusedContainerColor = colors.surfaceCard,
-                                unfocusedContainerColor = colors.surfaceCard
-                            ),
-                            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = colors.inkPrimary)
-                        )
                     }
 
-                    // Horizontal Category Chips row
-                    item {
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(d.space8),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            item {
-                                val isAllSelected = selectedCategoryFilter == "ALL"
-                                Surface(
-                                    onClick = { selectedCategoryFilter = "ALL" },
-                                    shape = RoundedCornerShape(d.radiusFull),
-                                    color = if (isAllSelected) colors.inkPrimary else colors.surfaceCard,
-                                    border = if (!isAllSelected) BorderStroke(1.dp, colors.borderWhisper) else null,
-                                    modifier = Modifier.height(34.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space12)) {
-                                        Text("All Categories", fontFamily = OutfitFamily, fontSize = d.textLabelLarge, color = if (isAllSelected) colors.canvasChalk else colors.inkMuted)
+                    // Search & Filter controls (only shown when search is visible)
+                    if (isSearchVisible) {
+                        item {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = d.inputHeight),
+                                shape = RoundedCornerShape(d.radiusSM),
+                                placeholder = { Text("Search personal expenses...", fontFamily = OutfitFamily, color = colors.inkMuted) },
+                                singleLine = true,
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = colors.inkMuted) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = colors.inkPrimary,
+                                    unfocusedBorderColor = colors.borderWhisper,
+                                    focusedTextColor = colors.inkPrimary,
+                                    unfocusedTextColor = colors.inkPrimary,
+                                    focusedContainerColor = colors.surfaceCard,
+                                    unfocusedContainerColor = colors.surfaceCard
+                                ),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = colors.inkPrimary)
+                            )
+                        }
+
+                        // Horizontal Category Chips row
+                        item {
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(d.space8),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                item {
+                                    val isAllSelected = selectedCategoryFilter == "ALL"
+                                    Surface(
+                                        onClick = { selectedCategoryFilter = "ALL" },
+                                        shape = RoundedCornerShape(d.radiusFull),
+                                        color = if (isAllSelected) colors.inkPrimary else colors.surfaceCard,
+                                        border = if (!isAllSelected) BorderStroke(1.dp, colors.borderWhisper) else null,
+                                        modifier = Modifier.height(34.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space12)) {
+                                            Text("All Categories", fontFamily = OutfitFamily, fontSize = d.textLabelLarge, color = if (isAllSelected) colors.canvasChalk else colors.inkMuted)
+                                        }
                                     }
                                 }
-                            }
-                            items(allCategories) { cat ->
-                                val isSelected = selectedCategoryFilter.uppercase() == cat.uppercase()
-                                Surface(
-                                    onClick = { selectedCategoryFilter = cat },
-                                    shape = RoundedCornerShape(d.radiusFull),
-                                    color = if (isSelected) colors.inkPrimary else colors.surfaceCard,
-                                    border = if (!isSelected) BorderStroke(1.dp, colors.borderWhisper) else null,
-                                    modifier = Modifier.height(34.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space12)) {
-                                        Text(cat, fontFamily = OutfitFamily, fontSize = d.textLabelLarge, color = if (isSelected) colors.canvasChalk else colors.inkMuted)
+                                items(allCategories) { cat ->
+                                    val isSelected = selectedCategoryFilter.uppercase() == cat.uppercase()
+                                    Surface(
+                                        onClick = { selectedCategoryFilter = cat },
+                                        shape = RoundedCornerShape(d.radiusFull),
+                                        color = if (isSelected) colors.inkPrimary else colors.surfaceCard,
+                                        border = if (!isSelected) BorderStroke(1.dp, colors.borderWhisper) else null,
+                                        modifier = Modifier.height(34.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space12)) {
+                                            Text(cat, fontFamily = OutfitFamily, fontSize = d.textLabelLarge, color = if (isSelected) colors.canvasChalk else colors.inkMuted)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                // Expense List items
-                if (filteredExpenses.isEmpty()) {
-                    item {
-                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = d.space32), contentAlignment = Alignment.Center) {
-                            Text("No expenses match filters.\nTap + to log one.", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkMuted, textAlign = TextAlign.Center)
+                    // Expense List items
+                    if (filteredExpenses.isEmpty()) {
+                        item {
+                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = d.space32), contentAlignment = Alignment.Center) {
+                                Text("No expenses match filters.\nTap + to log one.", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkMuted, textAlign = TextAlign.Center)
+                            }
+                        }
+                    } else {
+                        item {
+                            Text("SPENDING LOGS", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
+                        }
+
+                        items(filteredExpenses) { exp ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedExpenseDetail = exp }
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = d.space12),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(exp.description, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = colors.inkPrimary)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(d.space8)
+                                        ) {
+                                            val formatter = remember { java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()) }
+                                            val dateStr = formatter.format(java.util.Date(exp.date))
+                                            Text("${exp.category} · $dateStr", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
+                                            
+                                            // Detect if note has app name
+                                            val appTag = when {
+                                                exp.note.contains("PhonePe", ignoreCase = true) -> "via PhonePe"
+                                                exp.note.contains("Google Pay", ignoreCase = true) || exp.note.contains("G Pay", ignoreCase = true) -> "via Google Pay"
+                                                exp.note.contains("Paytm", ignoreCase = true) -> "via Paytm"
+                                                else -> ""
+                                            }
+                                            if (appTag.isNotEmpty()) {
+                                                Text("· $appTag", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
+                                            }
+                                        }
+                                    }
+                                    Text(
+                                        text = "₹${if (exp.amount % 1.0 == 0.0) exp.amount.toInt().toString() else String.format("%.2f", exp.amount)}",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = d.textMonoLarge,
+                                        color = colors.inkPrimary
+                                    )
+                                }
+                                HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+                            }
                         }
                     }
                 } else {
+                    // ── EXPENSE GROUPS TAB ────────────────────────────────────
                     item {
-                        Text("SPENDING LOGS", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
-                    }
-
-                    items(filteredExpenses) { exp ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { selectedExpenseDetail = exp }
+                        Surface(
+                            shape = RoundedCornerShape(d.radiusMD),
+                            color = colors.surfaceCard,
+                            border = BorderStroke(1.dp, colors.borderWhisper),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = d.space12),
-                                verticalAlignment = Alignment.CenterVertically
+                            Column(
+                                modifier = Modifier.padding(d.space16),
+                                verticalArrangement = Arrangement.spacedBy(d.space8)
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(exp.description, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = colors.inkPrimary)
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(d.space8)
-                                    ) {
-                                        val formatter = remember { java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()) }
-                                        val dateStr = formatter.format(java.util.Date(exp.date))
-                                        Text("${exp.category} · $dateStr", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
-                                        
-                                        // Detect if note has app name
-                                        val appTag = when {
-                                            exp.note.contains("PhonePe", ignoreCase = true) -> "via PhonePe"
-                                            exp.note.contains("Google Pay", ignoreCase = true) || exp.note.contains("G Pay", ignoreCase = true) -> "via Google Pay"
-                                            exp.note.contains("Paytm", ignoreCase = true) -> "via Paytm"
-                                            else -> ""
-                                        }
-                                        if (appTag.isNotEmpty()) {
-                                            Text("· $appTag", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
-                                        }
-                                    }
-                                }
+                                Text("COLLABORATIVE EXPENSE TRACKING", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
                                 Text(
-                                    text = "₹${if (exp.amount % 1.0 == 0.0) exp.amount.toInt().toString() else String.format("%.2f", exp.amount)}",
-                                    fontFamily = JetBrainsMonoFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = d.textMonoLarge,
+                                    "Track trip, company, or project expenses together without bill splitting or calculating debt balances.",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textBodyMedium,
                                     color = colors.inkPrimary
                                 )
+                                Spacer(modifier = Modifier.height(d.space4))
+                                Button(
+                                    onClick = { showCreateExpenseGroupSheet = true },
+                                    modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                                    shape = RoundedCornerShape(d.radiusMD),
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, tint = colors.canvasChalk, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("New Expense Group", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge, color = colors.canvasChalk)
+                                }
                             }
-                            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+                        }
+                    }
+
+                    if (trackerGroups.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 48.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(d.space12)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Groups,
+                                        contentDescription = null,
+                                        tint = colors.inkMuted.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(48.dp)
+                                    )
+                                    Text(
+                                        text = "No expense groups yet",
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = d.textTitleMedium,
+                                        color = colors.inkPrimary
+                                    )
+                                    Text(
+                                        text = "Create a company or trip group to track shared spend.",
+                                        fontFamily = OutfitFamily,
+                                        fontSize = d.textLabelMedium,
+                                        color = colors.inkMuted,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        item {
+                            Text("YOUR EXPENSE GROUPS (${trackerGroups.size})", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
+                        }
+
+                        items(trackerGroups) { group ->
+                            Surface(
+                                shape = RoundedCornerShape(d.radiusMD),
+                                color = colors.surfaceCard,
+                                border = BorderStroke(1.dp, colors.borderWhisper),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigateToGroup(group.id) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(d.space16),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    GroupIconView(
+                                        iconName = group.iconName,
+                                        size = d.avatarMd
+                                    )
+                                    Spacer(modifier = Modifier.width(d.space16))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = group.name,
+                                            fontFamily = OutfitFamily,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = d.textTitleMedium,
+                                            color = colors.inkPrimary
+                                        )
+                                        Text(
+                                            text = "${group.members.size} members · ${group.type}",
+                                            fontFamily = OutfitFamily,
+                                            fontSize = d.textLabelMedium,
+                                            color = colors.inkMuted
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "Open group",
+                                        tint = colors.inkMuted,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -956,8 +1137,20 @@ fun PersonalExpensesScreen(
                 }
             }
         }
+
+        if (showCreateExpenseGroupSheet) {
+            CreateGroupBottomSheet(
+                isExpenseTracker = true,
+                onDismiss = { showCreateExpenseGroupSheet = false },
+                onGroupCreated = { gid ->
+                    showCreateExpenseGroupSheet = false
+                    onNavigateToGroup(gid)
+                }
+            )
+        }
     }
 }
+
 
 
 

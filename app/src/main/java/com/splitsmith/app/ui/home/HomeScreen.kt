@@ -377,6 +377,7 @@ fun HomeScreen(
                         showAddPersonalInitially = showAddPersonalInitially,
                         initialSelectedExpenseId = targetPersonalExpenseId,
                         onNavigateToQuickSplit = onNavigateToQuickSplit,
+                        onNavigateToGroup = onNavigateToGroup,
                         onBack = handleScrollToPage0
                     )
                     3 -> ProfileSettingsView(
@@ -1001,17 +1002,27 @@ fun HomeDashboardView(
         }
         val groupExps = groupExpensesState.value.map { ge ->
             val exp = ge.expense
+            val isTrackerExpense = exp.splitMode == "NONE"
             val myShare = exp.splits[currentUserId] ?: 0.0
             val isPayer = exp.paidBy == currentUserId
-            val netAmount = if (isPayer) (exp.amount - myShare) else myShare
+            val netAmount = if (isTrackerExpense) {
+                exp.amount
+            } else {
+                if (isPayer) (exp.amount - myShare) else myShare
+            }
+            val subtitle = if (isTrackerExpense) {
+                "${ge.groupName} • ${if (isPayer) "You paid" else "Group expense"}"
+            } else {
+                "${ge.groupName} • ${if (isPayer) "You lent" else "You owe"}"
+            }
             RecentActivityItem(
                 id = exp.id,
                 title = if (exp.description.isNotEmpty()) exp.description else exp.category,
-                subtitle = "${ge.groupName} • ${if (isPayer) "You lent" else "You owe"}",
+                subtitle = subtitle,
                 amount = netAmount,
                 date = exp.date,
                 isPositive = isPayer,
-                isSettled = false,
+                isSettled = isTrackerExpense,
                 rawSplit = null,
                 rawGroupExpense = ge
             )

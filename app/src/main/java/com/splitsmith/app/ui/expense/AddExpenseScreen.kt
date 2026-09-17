@@ -253,63 +253,68 @@ fun AddExpenseScreen(
                             Toast.makeText(context, "Invalid input data", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
+                        val isTrackerGroup = currentGroup?.isExpenseTracker == true
+                        val effectiveSplitMode = if (isTrackerGroup) "NONE" else splitMode
                         val computedSplits = mutableMapOf<String, Double>()
-                        when (splitMode) {
-                            "EQUAL" -> {
-                                val count = selectedMembers.size
-                                if (count > 0) {
-                                    val baseShare = Math.floor((amountVal / count) * 100.0) / 100.0
+
+                        if (!isTrackerGroup && effectiveSplitMode != "NONE") {
+                            when (effectiveSplitMode) {
+                                "EQUAL" -> {
+                                    val count = selectedMembers.size
+                                    if (count > 0) {
+                                        val baseShare = Math.floor((amountVal / count) * 100.0) / 100.0
+                                        var totalAllocated = 0.0
+                                        selectedMembers.forEach { uid -> computedSplits[uid] = baseShare; totalAllocated += baseShare }
+                                        val remainder = Math.round((amountVal - totalAllocated) * 100.0) / 100.0
+                                        computedSplits[selectedPayerId] = (computedSplits[selectedPayerId] ?: 0.0) + remainder
+                                    }
+                                }
+                                "EXACT" -> {
+                                    var sum = 0.0
                                     var totalAllocated = 0.0
-                                    selectedMembers.forEach { uid -> computedSplits[uid] = baseShare; totalAllocated += baseShare }
+                                    selectedMembers.forEach { uid ->
+                                        val exactVal = customSplitInputs[uid]?.toDoubleOrNull() ?: 0.0
+                                        computedSplits[uid] = exactVal
+                                        sum += exactVal
+                                        totalAllocated += exactVal
+                                    }
+                                    if (Math.abs(sum - amountVal) > 0.05) {
+                                        Toast.makeText(context, "Exact shares must sum to \u20b9$amountVal (got \u20b9$sum)", Toast.LENGTH_LONG).show()
+                                        return@Button
+                                    }
                                     val remainder = Math.round((amountVal - totalAllocated) * 100.0) / 100.0
-                                    computedSplits[selectedPayerId] = (computedSplits[selectedPayerId] ?: 0.0) + remainder
+                                    if (Math.abs(remainder) in 0.01..0.09 && computedSplits.containsKey(selectedPayerId)) {
+                                        computedSplits[selectedPayerId] = Math.round(((computedSplits[selectedPayerId] ?: 0.0) + remainder) * 100.0) / 100.0
+                                    }
                                 }
-                            }
-                            "EXACT" -> {
-                                var sum = 0.0
-                                var totalAllocated = 0.0
-                                selectedMembers.forEach { uid ->
-                                    val exactVal = customSplitInputs[uid]?.toDoubleOrNull() ?: 0.0
-                                    computedSplits[uid] = exactVal
-                                    sum += exactVal
-                                    totalAllocated += exactVal
-                                }
-                                if (Math.abs(sum - amountVal) > 0.05) {
-                                    Toast.makeText(context, "Exact shares must sum to \u20b9$amountVal (got \u20b9$sum)", Toast.LENGTH_LONG).show()
-                                    return@Button
-                                }
-                                val remainder = Math.round((amountVal - totalAllocated) * 100.0) / 100.0
-                                if (Math.abs(remainder) in 0.01..0.09 && computedSplits.containsKey(selectedPayerId)) {
-                                    computedSplits[selectedPayerId] = Math.round(((computedSplits[selectedPayerId] ?: 0.0) + remainder) * 100.0) / 100.0
-                                }
-                            }
-                            "PERCENTAGE" -> {
-                                var percentSum = 0.0
-                                var totalAllocated = 0.0
-                                selectedMembers.forEach { uid ->
-                                    val pct = customSplitInputs[uid]?.toDoubleOrNull() ?: 0.0
-                                    percentSum += pct
-                                    val shareVal = Math.round((amountVal * (pct / 100.0)) * 100.0) / 100.0
-                                    computedSplits[uid] = shareVal
-                                    totalAllocated += shareVal
-                                }
-                                if (Math.abs(percentSum - 100.0) > 0.5) {
-                                    Toast.makeText(context, "Percentages must sum to 100% (got ${percentSum}%)", Toast.LENGTH_LONG).show()
-                                    return@Button
-                                }
-                                val remainder = Math.round((amountVal - totalAllocated) * 100.0) / 100.0
-                                if (Math.abs(remainder) in 0.01..0.09 && computedSplits.containsKey(selectedPayerId)) {
-                                    computedSplits[selectedPayerId] = Math.round(((computedSplits[selectedPayerId] ?: 0.0) + remainder) * 100.0) / 100.0
-                                }
-                            }
-                            else -> {
-                                val count = selectedMembers.size
-                                if (count > 0) {
-                                    val baseShare = Math.floor((amountVal / count) * 100.0) / 100.0
+                                "PERCENTAGE" -> {
+                                    var percentSum = 0.0
                                     var totalAllocated = 0.0
-                                    selectedMembers.forEach { uid -> computedSplits[uid] = baseShare; totalAllocated += baseShare }
+                                    selectedMembers.forEach { uid ->
+                                        val pct = customSplitInputs[uid]?.toDoubleOrNull() ?: 0.0
+                                        percentSum += pct
+                                        val shareVal = Math.round((amountVal * (pct / 100.0)) * 100.0) / 100.0
+                                        computedSplits[uid] = shareVal
+                                        totalAllocated += shareVal
+                                    }
+                                    if (Math.abs(percentSum - 100.0) > 0.5) {
+                                        Toast.makeText(context, "Percentages must sum to 100% (got ${percentSum}%)", Toast.LENGTH_LONG).show()
+                                        return@Button
+                                    }
                                     val remainder = Math.round((amountVal - totalAllocated) * 100.0) / 100.0
-                                    computedSplits[selectedPayerId] = (computedSplits[selectedPayerId] ?: 0.0) + remainder
+                                    if (Math.abs(remainder) in 0.01..0.09 && computedSplits.containsKey(selectedPayerId)) {
+                                        computedSplits[selectedPayerId] = Math.round(((computedSplits[selectedPayerId] ?: 0.0) + remainder) * 100.0) / 100.0
+                                    }
+                                }
+                                else -> {
+                                    val count = selectedMembers.size
+                                    if (count > 0) {
+                                        val baseShare = Math.floor((amountVal / count) * 100.0) / 100.0
+                                        var totalAllocated = 0.0
+                                        selectedMembers.forEach { uid -> computedSplits[uid] = baseShare; totalAllocated += baseShare }
+                                        val remainder = Math.round((amountVal - totalAllocated) * 100.0) / 100.0
+                                        computedSplits[selectedPayerId] = (computedSplits[selectedPayerId] ?: 0.0) + remainder
+                                    }
                                 }
                             }
                         }
@@ -702,77 +707,79 @@ fun AddExpenseScreen(
                     }
                 }
 
-                // ── Split With Selector ────────────────────────
-                item {
-                    Text("SPLIT WITH", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
-                    Spacer(modifier = Modifier.height(d.space8))
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(d.space8)
-                    ) {
-                        items(userNamesMap.entries.toList()) { (uid, name) ->
-                            val isSelected = uid in selectedMembers
-                            Surface(
-                                onClick = {
-                                    selectedMembers = if (isSelected) {
-                                        if (selectedMembers.size > 1) selectedMembers - uid else selectedMembers
-                                    } else {
-                                        selectedMembers + uid
-                                    }
-                                },
-                                shape = RoundedCornerShape(d.radiusFull),
-                                color = if (isSelected) colors.inkPrimary else colors.canvasChalk,
-                                border = if (!isSelected) BorderStroke(1.dp, colors.borderWhisper) else null
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(start = d.space4, end = d.space16, top = d.space4, bottom = d.space4),
-                                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                // ── Split With Selector (Hidden for Expense Tracker groups) ────────────
+                if (currentGroup?.isExpenseTracker != true) {
+                    item {
+                        Text("SPLIT WITH", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
+                        Spacer(modifier = Modifier.height(d.space8))
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(d.space8)
+                        ) {
+                            items(userNamesMap.entries.toList()) { (uid, name) ->
+                                val isSelected = uid in selectedMembers
+                                Surface(
+                                    onClick = {
+                                        selectedMembers = if (isSelected) {
+                                            if (selectedMembers.size > 1) selectedMembers - uid else selectedMembers
+                                        } else {
+                                            selectedMembers + uid
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(d.radiusFull),
+                                    color = if (isSelected) colors.inkPrimary else colors.canvasChalk,
+                                    border = if (!isSelected) BorderStroke(1.dp, colors.borderWhisper) else null
                                 ) {
-                                    UserAvatar(
-                                        avatarUrl = memberProfilesMap[uid]?.avatarUrl ?: "",
-                                        displayName = name,
-                                        size = d.avatarXs
-                                    )
-                                    Text(
-                                        text = name,
-                                        fontFamily = OutfitFamily,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                        fontSize = d.textLabelMedium,
-                                        color = if (isSelected) colors.canvasChalk else colors.inkMuted
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(start = d.space4, end = d.space16, top = d.space4, bottom = d.space4),
+                                        horizontalArrangement = Arrangement.spacedBy(d.space8)
+                                    ) {
+                                        UserAvatar(
+                                            avatarUrl = memberProfilesMap[uid]?.avatarUrl ?: "",
+                                            displayName = name,
+                                            size = d.avatarXs
+                                        )
+                                        Text(
+                                            text = name,
+                                            fontFamily = OutfitFamily,
+                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                            fontSize = d.textLabelMedium,
+                                            color = if (isSelected) colors.canvasChalk else colors.inkMuted
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
-                    Spacer(modifier = Modifier.height(d.space12))
+                        Spacer(modifier = Modifier.height(d.space12))
 
-                    // Split Mode Chips
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(d.space8)) {
-                        listOf("EQUAL", "EXACT", "PERCENTAGE").forEach { mode ->
-                            val isActive = splitMode == mode
-                            Surface(
-                                onClick = {
-                                    splitMode = mode
-                                    if (mode == "EQUAL") {
-                                        customSplitInputs = emptyMap()
-                                        explicitlyEditedUids = emptySet()
-                                    } else {
-                                        showAdvancedSplitSheet = true
-                                    }
-                                },
-                                shape = RoundedCornerShape(d.radiusFull),
-                                color = if (isActive) colors.inkPrimary else colors.canvasChalk,
-                                border = if (!isActive) BorderStroke(1.dp, colors.borderWhisper) else null
-                            ) {
-                                Text(
-                                    text = mode.lowercase().replaceFirstChar { it.uppercase() },
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                                    fontSize = d.textLabelSmall,
-                                    color = if (isActive) colors.canvasChalk else colors.inkMuted,
-                                    modifier = Modifier.padding(horizontal = d.space12, vertical = d.space8)
-                                )
+                        // Split Mode Chips
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(d.space8)) {
+                            listOf("EQUAL", "EXACT", "PERCENTAGE").forEach { mode ->
+                                val isActive = splitMode == mode
+                                Surface(
+                                    onClick = {
+                                        splitMode = mode
+                                        if (mode == "EQUAL") {
+                                            customSplitInputs = emptyMap()
+                                            explicitlyEditedUids = emptySet()
+                                        } else {
+                                            showAdvancedSplitSheet = true
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(d.radiusFull),
+                                    color = if (isActive) colors.inkPrimary else colors.canvasChalk,
+                                    border = if (!isActive) BorderStroke(1.dp, colors.borderWhisper) else null
+                                ) {
+                                    Text(
+                                        text = mode.lowercase().replaceFirstChar { it.uppercase() },
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                                        fontSize = d.textLabelSmall,
+                                        color = if (isActive) colors.canvasChalk else colors.inkMuted,
+                                        modifier = Modifier.padding(horizontal = d.space12, vertical = d.space8)
+                                    )
+                                }
                             }
                         }
                     }
