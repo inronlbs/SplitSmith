@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -88,7 +89,7 @@ fun GroupDetailScreen(
     onNavigateToReports: ((String) -> Unit)? = null
 ) {
     val d = LocalDimens.current
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
     var selectedDebtForSettlement by remember { mutableStateOf<Debt?>(null) }
     var selectedMemberForModal by remember { mutableStateOf<UserProfile?>(null) }
     var userNamesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -387,44 +388,62 @@ fun GroupDetailScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = d.space24),
+                        .padding(horizontal = d.space16, vertical = d.space4),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(d.space12),
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(d.space8),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = inkPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                         GroupIconView(
                             iconName = currentGroup.iconName,
-                            size = 44.dp
+                            size = 38.dp
                         )
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Column(
+                            modifier = Modifier.weight(1f, fill = false),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
                             Text(
                                 text = currentGroup.name,
                                 fontFamily = OutfitFamily,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = d.textHeadlineLarge,
+                                fontSize = d.textHeadlineMedium,
                                 color = inkPrimary,
-                                letterSpacing = (-0.5).sp
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "Code: ${groupId.take(6).uppercase()}",
+                                text = if (currentGroup.isExpenseTracker) "Expense Tracker · Code: ${groupId.take(6).uppercase()}" else "Split Group · Code: ${groupId.take(6).uppercase()}",
                                 fontFamily = JetBrainsMonoFamily,
                                 fontSize = d.textMonoSmall,
-                                color = inkMuted
+                                color = inkMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
                     IconButton(
                         onClick = { showSettingsSheet = true },
-                        modifier = Modifier.size(d.iconSizeMd + 8.dp)
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Group Settings",
-                            tint = inkMuted,
-                            modifier = Modifier.size(d.iconSizeMd)
+                            tint = inkPrimary,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
@@ -630,7 +649,7 @@ fun GroupDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(d.space8),
                         modifier = Modifier.weight(1f)
                     ) {
-                        val tabLabels = if (currentGroup.isExpenseTracker) listOf("Expenses", "Breakdown") else listOf("Expenses", "Balances")
+                        val tabLabels = if (currentGroup.isExpenseTracker) listOf("Expenses", "Breakdown", "Settings") else listOf("Expenses", "Balances", "Settings")
                         tabLabels.forEachIndexed { index, label ->
                             val isActive = pagerState.currentPage == index
                             val bgColor by animateColorAsState(
@@ -728,6 +747,20 @@ fun GroupDetailScreen(
                                     onSettleClick = { debt -> selectedDebtForSettlement = debt }
                                 )
                             }
+                        }
+                        2 -> {
+                            StyledSettingsTab(
+                                group = currentGroup,
+                                userNamesMap = userNamesMap,
+                                memberProfilesMap = memberProfilesMap,
+                                onBack = onBack,
+                                onNavigateToReports = { gId ->
+                                    onNavigateToReports?.invoke(gId)
+                                },
+                                onSelectMember = { profile ->
+                                    selectedMemberForModal = profile
+                                }
+                            )
                         }
                     }
                 }
@@ -2343,6 +2376,64 @@ private fun StyledSettingsTab(
                             contentDescription = "Edit Group Name",
                             tint = colors.inkPrimary,
                             modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(d.space8))
+                HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+            }
+        }
+
+        // Group Mode Section
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                Text(
+                    text = "GROUP TYPE / MODE",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.5.sp
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (group.isExpenseTracker) "Expense Tracker (No Splits)" else "Split Group (With Balances)",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = d.textTitleMedium,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            text = if (group.isExpenseTracker) "Collaborative spend tracking for trips, projects, company" else "Splits expenses among members & tracks who owes who",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelSmall,
+                            color = colors.inkMuted
+                        )
+                    }
+                    if (isGroupAdmin) {
+                        Switch(
+                            checked = group.isExpenseTracker,
+                            onCheckedChange = { isChecked ->
+                                coroutineScope.launch {
+                                    try {
+                                        FirebaseManager.updateGroupTrackerMode(group.id, isChecked)
+                                        Toast.makeText(context, if (isChecked) "Switched to Expense Tracker mode" else "Switched to Split Group mode", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Failed to update: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = colors.canvasChalk,
+                                checkedTrackColor = colors.inkPrimary,
+                                uncheckedThumbColor = colors.inkMuted,
+                                uncheckedTrackColor = colors.borderWhisper
+                            )
                         )
                     }
                 }

@@ -314,6 +314,10 @@ object FirebaseManager {
         db.collection("groups").document(groupId).update("admins.$targetUid", com.google.firebase.firestore.FieldValue.delete()).await()
     }
 
+    suspend fun updateGroupTrackerMode(groupId: String, isExpenseTracker: Boolean) {
+        db.collection("groups").document(groupId).update("isExpenseTracker", isExpenseTracker).await()
+    }
+
     suspend fun requestToJoinGroup(groupId: String) {
         val uid = currentUserId ?: throw RuntimeException("Not authenticated")
         val cleanId = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(groupId)

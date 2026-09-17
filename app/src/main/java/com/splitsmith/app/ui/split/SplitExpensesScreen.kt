@@ -1162,6 +1162,7 @@ fun CreateGroupBottomSheet(
     val coroutineScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var isTrackerMode by rememberSaveable(isExpenseTracker) { mutableStateOf(isExpenseTracker) }
     var groupName by remember { mutableStateOf("") }
     var selectedIconName by remember { mutableStateOf("Other") }
     var memberInput by remember { mutableStateOf("") }
@@ -1240,14 +1241,50 @@ fun CreateGroupBottomSheet(
                 .padding(horizontal = d.space24, vertical = d.space16),
             verticalArrangement = Arrangement.spacedBy(d.space20)
         ) {
-            // Title
-            Text(
-                text = if (isExpenseTracker) "New Expense Tracker Group" else "New Group",
-                fontFamily = OutfitFamily,
-                fontWeight = FontWeight.Bold,
-                fontSize = d.textTitleLarge,
-                color = colors.inkPrimary
-            )
+            // Title & Mode Selector
+            Column(verticalArrangement = Arrangement.spacedBy(d.space12)) {
+                Text(
+                    text = if (isTrackerMode) "New Expense Tracker Group" else "New Split Group",
+                    fontFamily = OutfitFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = d.textTitleLarge,
+                    color = colors.inkPrimary
+                )
+
+                // Segmented Toggle for Group Mode
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    listOf("Split Group" to false, "Expense Tracker" to true).forEach { (label, isTracker) ->
+                        val isSelected = isTrackerMode == isTracker
+                        Surface(
+                            onClick = { isTrackerMode = isTracker },
+                            shape = RoundedCornerShape(d.radiusFull),
+                            color = if (isSelected) colors.inkPrimary else colors.canvasChalk,
+                            border = BorderStroke(1.dp, if (isSelected) colors.inkPrimary else colors.borderWhisper),
+                            modifier = Modifier.weight(1f).height(d.space32 + d.space8)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                Text(
+                                    text = label,
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    fontSize = d.textLabelMedium,
+                                    color = if (isSelected) colors.canvasChalk else colors.inkMuted
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Text(
+                    text = if (isTrackerMode) "Shared spend tracking for trips, projects, & company (no split debts)." else "Splits expenses among members and calculates 'who owes whom' balances.",
+                    fontFamily = OutfitFamily,
+                    fontSize = d.textLabelSmall,
+                    color = colors.inkMuted
+                )
+            }
 
             // Group name field
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1263,7 +1300,7 @@ fun CreateGroupBottomSheet(
                     modifier = Modifier.fillMaxWidth().heightIn(min = d.inputHeight),
                     shape = RoundedCornerShape(d.radiusSM),
                     placeholder = {
-                        Text(if (isExpenseTracker) "e.g. Company Expenses, Paris Trip..." else "e.g. Goa Trip, Flat Expenses...", fontFamily = OutfitFamily, color = colors.inkMuted)
+                        Text(if (isTrackerMode) "e.g. Paris Trip, Company Spend..." else "e.g. Goa Trip, Flat Rent...", fontFamily = OutfitFamily, color = colors.inkMuted)
                     },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -1503,7 +1540,7 @@ fun CreateGroupBottomSheet(
                                 iconName = selectedIconName,
                                 type = selectedIconName,
                                 memberUids = addedMembers.map { it.uid },
-                                isExpenseTracker = isExpenseTracker
+                                isExpenseTracker = isTrackerMode
                             )
                             onGroupCreated(id)
                         } catch (e: Exception) {
@@ -1524,7 +1561,7 @@ fun CreateGroupBottomSheet(
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colors.canvasChalk, strokeWidth = 2.dp)
                 } else {
                     Text(
-                        text = if (isExpenseTracker) "Create Expense Tracker Group" else "Create Group",
+                        text = if (isTrackerMode) "Create Expense Tracker Group" else "Create Split Group",
                         fontFamily = OutfitFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = d.textTitleMedium,

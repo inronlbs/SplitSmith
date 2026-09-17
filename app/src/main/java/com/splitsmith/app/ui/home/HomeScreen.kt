@@ -114,6 +114,7 @@ fun HomeScreen(
     val d = LocalDimens.current
     val colors = LocalSplitColors.current
     var showCreateGroupSheet by remember { mutableStateOf(false) }
+    var createGroupIsTracker by remember { mutableStateOf(false) }
     var showJoinGroupSheet by remember { mutableStateOf(false) }
     var showQuickAddSheet by remember { mutableStateOf(false) }
     var showAddPersonalInitially by remember { mutableStateOf(false) }
@@ -397,6 +398,7 @@ fun HomeScreen(
 
             if (showCreateGroupSheet) {
                 com.splitsmith.app.ui.split.CreateGroupBottomSheet(
+                    isExpenseTracker = createGroupIsTracker,
                     onDismiss = { showCreateGroupSheet = false },
                     onGroupCreated = { groupId ->
                         showCreateGroupSheet = false
@@ -583,14 +585,26 @@ fun HomeScreen(
                             showQuickAddSheet = false
                             showSelectGroupForExpenseDialog = true
                         }
-                        // 4. Create Group
+                        // 4. Create Split Group
                         QuickActionRow(
-                            title = "Create New Group",
-                            subtitle = "Start a group for trips, flat, office…",
+                            title = "Create Split Group",
+                            subtitle = "Split bills & track 'who owes who' debts",
                             icon = Icons.Default.GroupAdd,
                             colors = colors, d = d
                         ) {
                             showQuickAddSheet = false
+                            createGroupIsTracker = false
+                            showCreateGroupSheet = true
+                        }
+                        // 5. Create Expense Tracker Group
+                        QuickActionRow(
+                            title = "Create Expense Tracker Group",
+                            subtitle = "Track trips, projects, company spend without debts",
+                            icon = Icons.Default.Groups,
+                            colors = colors, d = d
+                        ) {
+                            showQuickAddSheet = false
+                            createGroupIsTracker = true
                             showCreateGroupSheet = true
                         }
                     }

@@ -78,11 +78,12 @@ fun PersonalExpensesScreen(
     var editingExpense by remember { mutableStateOf<PersonalExpense?>(null) }
     var selectedExpenseDetail by remember { mutableStateOf<PersonalExpense?>(null) }
 
-    val personalExpensesFlow = remember { FirebaseManager.observePersonalExpenses() }
+    val currentUserId = FirebaseManager.currentUserId ?: ""
+    val personalExpensesFlow = remember(currentUserId) { FirebaseManager.observePersonalExpenses() }
     val personalExpensesState = personalExpensesFlow.collectAsState(initial = emptyList())
-    val userProfileFlow = remember { FirebaseManager.observeUserProfile() }
+    val userProfileFlow = remember(currentUserId) { FirebaseManager.observeUserProfile() }
     val userProfileState = userProfileFlow.collectAsState(initial = null)
-    val allGroupsFlow = remember { FirebaseManager.observeGroups() }
+    val allGroupsFlow = remember(currentUserId) { FirebaseManager.observeGroups() }
     val allGroupsState = allGroupsFlow.collectAsState(initial = emptyList())
 
     val personalExpenses = personalExpensesState.value
