@@ -1,3 +1,34 @@
+## [2026-11-05 15:18] WhatsApp-Style Search with On-Device Contact & Group Member Cache
+
+### Features & Fixes
+1. **On-Device Persistent Contact Cache (`LocalContactCache.kt`, `FirebaseManager.kt`, `MainActivity.kt`)**:
+   - Implemented `LocalContactCache` using Android `SharedPreferences` + `JSONObject` to persist known user profiles locally on device.
+   - Initialized at startup in `MainActivity.onCreate()` to populate memory instantly.
+   - Integrated with `FirebaseManager.getUserProfile()` and `getCachedUserProfile()` so searches run 100% on-device without triggering unnecessary Firestore network calls.
+2. **Mutual Group Members & Connected Users in Search (`SplitExpensesScreen.kt`)**:
+   - `LaunchedEffect(directSplits, groups, connectedUsers)` pre-caches all known member UIDs across all active user groups and connected contacts in the background.
+   - **Search Active (`searchQuery.isNotBlank()`)**: Queries across split peers, connected friends, and all mutual group members instantly on-device.
+   - **Main Feed Cleanliness (`searchQuery.isBlank()`)**: Follows the WhatsApp pattern where contacts and group members with 0 splits remain hidden from the main feed, keeping it uncluttered.
+3. **Contextual Search Item Rendering (`IndividualPeerListItem`)**:
+   - Differentiates search results:
+     - Peers with splits: Displays split count and balance badge (`+₹...`, `-₹...`, `"settled"`).
+     - Connected friends with 0 splits: Subtitle `"Connected friend"` with a navigation chevron (`KeyboardArrowRight`).
+     - Group members with 0 splits: Subtitle `"Group member"` with a navigation chevron (`KeyboardArrowRight`).
+   - Tapping opens `DirectSplitDetailScreen` to immediately start a split.
+
+### Files Modified
+- `[NEW]` [LocalContactCache.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/data/LocalContactCache.kt)
+- `[MODIFY]` [FirebaseManager.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/data/FirebaseManager.kt)
+- `[MODIFY]` [MainActivity.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/MainActivity.kt)
+- `[MODIFY]` [SplitExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/split/SplitExpensesScreen.kt)
+
+### Verification & Quality Gates
+- **Gradle Kotlin Compilation**: `./gradlew compileDebugKotlin` passed with code 0 (`BUILD SUCCESSFUL in 48s`).
+- **Unit Test Execution**: `./gradlew testDebugUnitTest` executed 27 tasks and passed with code 0 (`BUILD SUCCESSFUL in 24s`).
+- **Zero Emoji Audit**: Confirmed 0 emojis in git diff and all UI strings.
+
+---
+
 ## [2026-11-05 13:45] Two-Pillar Bill Import Pipeline (Split vs Expenses)
 
 ### Features & Fixes

@@ -22,6 +22,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Initialize persistent local contact cache
+        com.splitsmith.app.data.LocalContactCache.init(this)
+
         // Parse incoming intent if launching
         handleIncomingIntent(intent)
 

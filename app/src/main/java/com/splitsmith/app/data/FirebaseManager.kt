@@ -196,14 +196,18 @@ object FirebaseManager {
 
     private val profileCache = java.util.concurrent.ConcurrentHashMap<String, UserProfile>()
 
-    fun getCachedUserProfile(uid: String): UserProfile? = profileCache[uid]
+    fun getCachedUserProfile(uid: String): UserProfile? = profileCache[uid] ?: LocalContactCache.get(uid)
 
     suspend fun updateUpiId(upiId: String) {
         val uid = currentUserId ?: return
         try {
             db.collection("users").document(uid).set(mapOf("upiId" to upiId), com.google.firebase.firestore.SetOptions.merge()).await()
             db.collection("users").document(uid).collection("private").document("payment").set(mapOf("upiId" to upiId), com.google.firebase.firestore.SetOptions.merge())
-            profileCache[uid]?.let { profileCache[uid] = it.copy(upiId = upiId) }
+            profileCache[uid]?.let {
+                val updated = it.copy(upiId = upiId)
+                profileCache[uid] = updated
+                LocalContactCache.put(updated)
+            }
         } catch (e: Exception) {
             db.collection("users").document(uid).set(mapOf("upiId" to upiId), com.google.firebase.firestore.SetOptions.merge())
         }
@@ -213,7 +217,11 @@ object FirebaseManager {
         val uid = currentUserId ?: return
         try {
             db.collection("users").document(uid).set(mapOf("avatarUrl" to avatarUrl), com.google.firebase.firestore.SetOptions.merge()).await()
-            profileCache[uid]?.let { profileCache[uid] = it.copy(avatarUrl = avatarUrl) }
+            profileCache[uid]?.let {
+                val updated = it.copy(avatarUrl = avatarUrl)
+                profileCache[uid] = updated
+                LocalContactCache.put(updated)
+            }
         } catch (e: Exception) {
             db.collection("users").document(uid).set(mapOf("avatarUrl" to avatarUrl), com.google.firebase.firestore.SetOptions.merge())
         }
@@ -250,9 +258,10 @@ object FirebaseManager {
 
     suspend fun getUserProfile(uid: String): UserProfile? {
         if (uid.isBlank()) return null
-        if (profileCache.containsKey(uid)) {
-            val cached = profileCache[uid]
-            if (cached != null && cached.displayName.isNotBlank()) return cached
+        val memCached = profileCache[uid] ?: LocalContactCache.get(uid)
+        if (memCached != null && memCached.displayName.isNotBlank()) {
+            profileCache[uid] = memCached
+            return memCached
         }
         return try {
             val snapshot = db.collection("users").document(uid).get().await()
@@ -260,6 +269,7 @@ object FirebaseManager {
                 val profile = snapshot.toUserProfileWithUid()
                 if (profile != null) {
                     profileCache[uid] = profile
+                    LocalContactCache.put(profile)
                 }
                 profile
             } else null

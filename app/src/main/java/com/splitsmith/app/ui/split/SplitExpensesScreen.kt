@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
@@ -1722,12 +1723,15 @@ fun CreateGroupBottomSheet(
 @Composable
 fun IndividualPeerListItem(
     peerGroup: IndividualPeerGroup,
+    isConnected: Boolean = false,
     colors: com.splitsmith.app.theme.SplitColors,
     d: com.splitsmith.app.theme.Dimens,
     onClick: () -> Unit
 ) {
     val net = peerGroup.netBalance
+    val hasSplits = peerGroup.splits.isNotEmpty()
     val balanceText = when {
+        !hasSplits -> ""
         net > 0 -> "+\u20b9${net.formatCurrency()}"
         net < 0 -> "-\u20b9${(-net).formatCurrency()}"
         else -> "settled"
@@ -1736,6 +1740,11 @@ fun IndividualPeerListItem(
         net > 0 -> colors.inkPrimary
         net < 0 -> colors.alertRed
         else -> colors.inkMuted
+    }
+    val subtitleText = when {
+        hasSplits -> "${peerGroup.splits.size} split${if (peerGroup.splits.size == 1) "" else "s"}"
+        isConnected -> "Connected friend"
+        else -> "Group member"
     }
 
     Column(
@@ -1758,19 +1767,28 @@ fun IndividualPeerListItem(
                     color = colors.inkPrimary
                 )
                 Text(
-                    text = "${peerGroup.splits.size} split${if (peerGroup.splits.size == 1) "" else "s"}",
+                    text = subtitleText,
                     fontFamily = OutfitFamily,
                     fontSize = d.textLabelMedium,
                     color = colors.inkMuted
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = balanceText,
-                    fontFamily = JetBrainsMonoFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = d.textBodyLarge,
-                    color = balanceColor
+            if (hasSplits) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = balanceText,
+                        fontFamily = JetBrainsMonoFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = d.textBodyLarge,
+                        color = balanceColor
+                    )
+                }
+            } else {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "Start Split",
+                    tint = colors.inkMuted,
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
