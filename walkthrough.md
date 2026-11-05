@@ -679,3 +679,38 @@ Patch release resolving missing Edit & Delete options in expense detail bottom s
 ### Verification & Testing
 - `compileDebugKotlin`: SUCCESSFUL (50s)
 - `testDebugUnitTest`: SUCCESSFUL (37s, 27 tasks)
+
+
+## [2026-11-05 13:13] Release v0.4.0.0 Published
+
+### Release Summary
+- **Version Code**: 61
+- **Version Name**: 0.4.0.0
+- **Release Title**: v0.4.0.0 Feature Update - Minimal Split & Expenses Architecture
+- **Git Commit**: `d2ac309` on `main` branch
+- **GitHub Release**: [v0.4.0.0](https://github.com/inronlbs/SplitSmith/releases/tag/v0.4.0.0)
+- **Firebase Hosting CDN**: [https://splitsmith.web.app](https://splitsmith.web.app) (binary: `splitsmith.bin`, metadata: `version.json`)
+
+### Key Features & Architectural Upgrades in v0.4.0.0
+1. **Reimagined Split Hub**:
+   - Single unified WhatsApp-style feed combining Split Groups and 1-on-1 Split Friends.
+   - Minimal filter pills (`All`, `Groups`, `Friends`) with real-time query search across groups and contacts.
+   - Minimal standardized rows with JetBrains Mono net balance polarity (`+₹X`, `-₹Y`, `settled`).
+2. **Unified Expense Tracking Hub**:
+   - Pinned Personal Solo Tracker as the special primary tracker at the top with live budget progress bar.
+   - Dedicated Shared Expense Groups section (`SHARED EXPENSE GROUPS`) for non-debt shared tracking.
+   - Full Personal Log view with search, categories, and receipt attachment viewer.
+3. **Full-Screen Member Picker & Clearance RBAC**:
+   - Bottom-expanding full-screen participant sheet with live search, WhatsApp-style staged chips, and batch invites.
+   - Member removal RBAC clearance with destructive confirmation dialog for group owners and admins.
+4. **Robust Update Mechanism**:
+   - Tier 1: High-speed Firebase Hosting CDN metadata check (`https://splitsmith.web.app/version.json`) with zero rate limits.
+   - Tier 2: Automatic fallback to GitHub Releases API.
+   - Package installer permission helper detecting `canRequestPackageInstalls()` on Android 8.0+.
+5. **Zero Emojis & Monochrome Design**:
+   - Verified 100% monochrome design system adherence and strictly zero emojis across all code, strings, and dialogs.
+
+### Binary Assets
+- **AAB**: `SplitSmith-v0.4.0.0-release.aab` (43.7 MB)
+- **APK**: `SplitSmith-v0.4.0.0-release.apk` (70.3 MB)
+- **CDN**: `splitsmith.bin` (70.3 MB) deployed to Firebase Hosting
