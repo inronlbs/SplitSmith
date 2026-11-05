@@ -1,3 +1,25 @@
+## [2026-11-05 21:28] Direct Tab Navigation for Split & Expenses from Home
+
+### Features & Fixes
+1. **Direct Split Tab Navigation (`HomeScreen.kt`, `SplitExpensesScreen.kt`)**:
+   - Wired `[Split Bill]` quick action button on the Home dashboard directly to `onNavigateToSplitsTab` (Page 1) instead of pushing `QuickSplitScreen`.
+   - Guaranteed the "All" filter pill is reset (`resetToAllTrigger`) when jumping from Home, ensuring both 1-on-1 direct split contacts and split groups are immediately visible.
+2. **Direct Expenses Hub Navigation (`HomeScreen.kt`, `PersonalExpensesScreen.kt`)**:
+   - Replaced forced personal entry (`showAddPersonalInitially = true`) with clean overview navigation to Page 2.
+   - Added `resetToOverviewTrigger` in `PersonalExpensesScreen` to guarantee `showingPersonalLedger = false` when navigating from Home, ensuring users land directly on the top-level Expenses Hub displaying both Preset #1 Personal Expenses and all Shared Expense Groups.
+
+### Files Modified
+- `[MODIFY]` [HomeScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/home/HomeScreen.kt)
+- `[MODIFY]` [SplitExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/split/SplitExpensesScreen.kt)
+- `[MODIFY]` [PersonalExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/personal/PersonalExpensesScreen.kt)
+
+### Verification & Quality Gates
+- **Gradle Kotlin Compilation**: `./gradlew compileDebugKotlin` passed with code 0 (`BUILD SUCCESSFUL in 1m 27s`).
+- **Unit Test Execution**: `./gradlew testDebugUnitTest` executed 27 tasks and passed with code 0 (`BUILD SUCCESSFUL in 1m 1s`).
+- **Zero Emoji Compliance**: 0 emojis across all code, tests, and commit messages.
+
+---
+
 ## [2026-11-05 19:00] Release v0.4.1.0 Published
 
 ### Features & Highlights

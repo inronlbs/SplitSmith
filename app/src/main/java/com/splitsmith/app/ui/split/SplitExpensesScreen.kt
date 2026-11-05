@@ -97,6 +97,7 @@ fun SplitExpensesScreen(
     onNavigateToGroup: (groupId: String) -> Unit,
     onNavigateToQuickSplit: () -> Unit,
     onNavigateToDirectSplit: (peerUid: String) -> Unit = {},
+    resetToAllTrigger: Int = 0,
     onBack: () -> Unit
 ) {
     val d = LocalDimens.current
@@ -112,6 +113,13 @@ fun SplitExpensesScreen(
     var selectedPeerGroupForDetail by remember { mutableStateOf<IndividualPeerGroup?>(null) }
 
     val currentUserId = FirebaseManager.currentUserId ?: ""
+
+    LaunchedEffect(resetToAllTrigger) {
+        if (resetToAllTrigger > 0) {
+            selectedFilter = 0
+            savedSplitFilter = 0
+        }
+    }
 
     // Use collectAsState with remember(currentUserId) to ensure flows re-subscribe properly when user changes
     val groupsFlow = remember(currentUserId) { FirebaseManager.observeGroups() }

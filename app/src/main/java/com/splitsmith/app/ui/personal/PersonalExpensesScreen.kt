@@ -60,6 +60,7 @@ fun PersonalExpensesScreen(
     initialSelectedExpenseId: String? = null,
     onNavigateToQuickSplit: () -> Unit,
     onNavigateToGroup: (groupId: String) -> Unit = {},
+    resetToOverviewTrigger: Int = 0,
     onBack: () -> Unit
 ) {
     val d = LocalDimens.current
@@ -100,6 +101,12 @@ fun PersonalExpensesScreen(
         if (showAddPersonalInitially) {
             showingPersonalLedger = true
             showAddPersonalSheet = true
+        }
+    }
+
+    LaunchedEffect(resetToOverviewTrigger) {
+        if (resetToOverviewTrigger > 0) {
+            showingPersonalLedger = false
         }
     }
 

@@ -131,6 +131,8 @@ fun HomeScreen(
     var showJoinGroupSheet by remember { mutableStateOf(false) }
     var showQuickAddSheet by remember { mutableStateOf(false) }
     var showAddPersonalInitially by remember { mutableStateOf(false) }
+    var splitResetTrigger by remember { mutableIntStateOf(0) }
+    var expenseResetTrigger by remember { mutableIntStateOf(0) }
     var showSplitActionsSheet by remember { mutableStateOf(false) }
     var showSelectGroupForExpenseDialog by remember { mutableStateOf(false) }
 
@@ -377,10 +379,14 @@ fun HomeScreen(
                         onNavigateToQuickSplit = onNavigateToQuickSplit,
                         onScanBill = { showScannerOptionsSheet = true },
                         onNavigateToExpenses = {
-                            showAddPersonalInitially = true
+                            showAddPersonalInitially = false
+                            expenseResetTrigger++
                             coroutineScope.launch { pagerState.animateScrollToPage(2) }
                         },
-                        onNavigateToSplitsTab = handleScrollToPage1,
+                        onNavigateToSplitsTab = {
+                            splitResetTrigger++
+                            handleScrollToPage1()
+                        },
                         onSplitClick = { selectedSplitForDetail = it },
                         onPersonalClick = { selectedPersonalForDetail = it },
                         onGroupExpenseClick = { selectedGroupExpenseForDetail = it },
@@ -408,6 +414,7 @@ fun HomeScreen(
                         onNavigateToGroup = onNavigateToGroup,
                         onNavigateToQuickSplit = onNavigateToQuickSplit,
                         onNavigateToDirectSplit = onNavigateToDirectSplit,
+                        resetToAllTrigger = splitResetTrigger,
                         onBack = handleScrollToPage0
                     )
                     2 -> PersonalExpensesScreen(
@@ -415,6 +422,7 @@ fun HomeScreen(
                         initialSelectedExpenseId = targetPersonalExpenseId,
                         onNavigateToQuickSplit = onNavigateToQuickSplit,
                         onNavigateToGroup = onNavigateToGroup,
+                        resetToOverviewTrigger = expenseResetTrigger,
                         onBack = handleScrollToPage0
                     )
                     3 -> ProfileSettingsView(
@@ -1486,7 +1494,7 @@ fun HomeDashboardView(
 
                     // Action 2: Split Bill (Outlined)
                     Surface(
-                        onClick = onNavigateToQuickSplit,
+                        onClick = onNavigateToSplitsTab,
                         shape = RoundedCornerShape(d.radiusMD),
                         color = colors.surfaceCard,
                         border = BorderStroke(1.dp, colors.borderWhisper),
