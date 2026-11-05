@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -56,6 +57,9 @@ import coil.compose.AsyncImage
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import com.splitsmith.app.ui.components.UserAvatar
+import com.splitsmith.app.ui.components.GroupIconView
 import com.splitsmith.app.data.FirebaseManager
 import com.splitsmith.app.theme.JetBrainsMonoFamily
 import com.splitsmith.app.theme.LocalDimens
@@ -118,8 +122,10 @@ fun SlipImportScreen(
     var ocrBlocks by remember { mutableStateOf<List<OcrBlock>>(emptyList()) }
     var selectedOcrText by remember { mutableStateOf<String?>(null) }
 
-    var showGroupSelector by remember { mutableStateOf(false) }
+    var showSplitDestinationSheet by remember { mutableStateOf(false) }
+    var showExpenseDestinationSheet by remember { mutableStateOf(false) }
     val groupsState = FirebaseManager.observeGroups().collectAsState(initial = emptyList())
+    val connectionsState = remember { FirebaseManager.observeConnections() }.collectAsState(initial = emptyList())
     
     val personalExpenses = FirebaseManager.observePersonalExpenses().collectAsState(initial = emptyList()).value
     val directSplits = FirebaseManager.observeDirectSplits().collectAsState(initial = emptyList()).value
@@ -1083,64 +1089,24 @@ fun SlipImportScreen(
             }
 
             // Action Options Row
-            Text("WHAT WOULD YOU LIKE TO DO?", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.2.sp)
+            Text(
+                "WHAT WOULD YOU LIKE TO DO?",
+                fontFamily = OutfitFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = d.textLabelSmall,
+                color = colors.inkMuted,
+                letterSpacing = 1.2.sp
+            )
 
-            // Button 1: Save as Personal Expense
+            // Button 1: Split Bill
             Button(
                 onClick = {
-                    if (duplicateStatus?.isExactMatch == true) {
-                        Toast.makeText(context, "Exact duplicate found. Cannot log again.", Toast.LENGTH_LONG).show()
-                        return@Button
-                    }
                     val amt = amountStr.toDoubleOrNull()
                     if (amt == null || amt <= 0.0) {
                         Toast.makeText(context, "Please enter a valid amount", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
-                    coroutineScope.launch {
-                        try {
-                            val entryTitle = remarks.ifEmpty { suggestSmartTitle(receiverName, selectedCategory) }
-                            val personalNote = buildString {
-                                if (receiverName.isNotEmpty()) append("Paid to $receiverName. ")
-                                if (sourcePaymentApp.isNotEmpty()) append("Via $sourcePaymentApp. ")
-                                if (transactionId.isNotEmpty()) append("Txn ID: $transactionId")
-                            }.trim()
-
-                            // Save attachments according to cloud backup preference
-                            val finalReceiptUrls = mutableListOf<String>()
-                            if (selectedAttachmentUris.isNotEmpty()) {
-                                val currentUserId = FirebaseManager.currentUserId ?: "anon"
-                                selectedAttachmentUris.forEach { uri ->
-                                    val finalUrl = if (isCloudBackupEnabled) {
-                                        val result = com.splitsmith.app.data.CloudinaryManager.uploadReceipt(context, uri, currentUserId, "personal")
-                                        result.getOrNull() ?: run {
-                                            val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "personal")
-                                            (localSavedUri ?: uri).toString()
-                                        }
-                                    } else {
-                                        val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "personal")
-                                        (localSavedUri ?: uri).toString()
-                                    }
-                                    finalReceiptUrls.add(finalUrl)
-                                }
-                            }
-
-                            // Save to Firebase
-                            FirebaseManager.addPersonalExpense(
-                                description = entryTitle,
-                                amount = amt,
-                                category = selectedCategory,
-                                note = personalNote,
-                                date = parsedDateMillis ?: System.currentTimeMillis(),
-                                receiptUrls = finalReceiptUrls
-                            )
-
-                            Toast.makeText(context, "Logged as Personal Expense!", Toast.LENGTH_SHORT).show()
-                            onBack()
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Error saving: ${e.message}", Toast.LENGTH_LONG).show()
-                        }
-                    }
+                    showSplitDestinationSheet = true
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1155,12 +1121,12 @@ fun SlipImportScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(d.space8)
                 ) {
-                    Icon(imageVector = Icons.Default.Person, contentDescription = "Personal")
-                    Text("Log as Personal Expense", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
+                    Icon(imageVector = Icons.Default.Share, contentDescription = "Split Bill")
+                    Text("Split Bill", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
                 }
             }
 
-            // Button 2: Split with Someone (Quick/Direct split)
+            // Button 2: Log Expense
             OutlinedButton(
                 onClick = {
                     val amt = amountStr.toDoubleOrNull()
@@ -1168,13 +1134,7 @@ fun SlipImportScreen(
                         Toast.makeText(context, "Please enter a valid amount", Toast.LENGTH_SHORT).show()
                         return@OutlinedButton
                     }
-                    val entryTitle = remarks.ifEmpty { suggestSmartTitle(receiverName, selectedCategory) }
-                    FirebaseManager.pendingExpenseAmount = amountStr
-                    FirebaseManager.pendingExpenseDesc = if (receiverName.isNotEmpty()) "$entryTitle ($receiverName)" else entryTitle
-                    FirebaseManager.pendingExpenseCategory = selectedCategory
-                    FirebaseManager.pendingExpenseDate = parsedDateMillis
-                    FirebaseManager.pendingExpenseAttachmentUri = selectedAttachmentUris.firstOrNull()
-                    onNavigateToQuickSplit()
+                    showExpenseDestinationSheet = true
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1187,34 +1147,8 @@ fun SlipImportScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(d.space8)
                 ) {
-                    Icon(imageVector = Icons.Default.Share, contentDescription = "Split", tint = colors.inkPrimary)
-                    Text("Split with Someone Directly", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
-                }
-            }
-
-            // Button 3: Add to Shared Group
-            OutlinedButton(
-                onClick = {
-                    val amt = amountStr.toDoubleOrNull()
-                    if (amt == null || amt <= 0.0) {
-                        Toast.makeText(context, "Please enter a valid amount", Toast.LENGTH_SHORT).show()
-                        return@OutlinedButton
-                    }
-                    showGroupSelector = true
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(d.buttonHeight),
-                border = BorderStroke(1.dp, colors.borderWhisper),
-                shape = RoundedCornerShape(d.radiusMD),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.inkPrimary)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(d.space8)
-                ) {
-                    Icon(imageVector = Icons.Default.Groups, contentDescription = "Groups", tint = colors.inkPrimary)
-                    Text("Split inside Shared Group", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
+                    Icon(imageVector = Icons.Default.AccountBalanceWallet, contentDescription = "Log Expense", tint = colors.inkPrimary)
+                    Text("Log Expense", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
                 }
             }
 
@@ -1222,10 +1156,12 @@ fun SlipImportScreen(
         }
     }
 
-    if (showGroupSelector) {
-        val activeGroups = groupsState.value
+    if (showSplitDestinationSheet) {
+        val splitGroups = groupsState.value.filter { !it.isTracker }
+        val connections = connectionsState.value
+
         ModalBottomSheet(
-            onDismissRequest = { showGroupSelector = false },
+            onDismissRequest = { showSplitDestinationSheet = false },
             containerColor = colors.surfaceCard,
             dragHandle = { BottomSheetDefaults.DragHandle(color = colors.borderWhisper) }
         ) {
@@ -1237,36 +1173,58 @@ fun SlipImportScreen(
                 verticalArrangement = Arrangement.spacedBy(d.space12)
             ) {
                 Text(
-                    text = "Select Group",
+                    text = "Split Bill",
                     fontFamily = OutfitFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = d.textTitleLarge,
-                    color = colors.inkPrimary,
-                    modifier = Modifier.padding(bottom = d.space8)
+                    color = colors.inkPrimary
                 )
-                if (activeGroups.isEmpty()) {
-                    Text(
-                        "No active groups yet. Create one to add expenses.",
-                        fontFamily = OutfitFamily,
-                        fontSize = d.textBodyLarge,
-                        color = colors.inkMuted,
-                        modifier = Modifier.padding(vertical = d.space24)
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp),
-                        verticalArrangement = Arrangement.spacedBy(d.space8)
-                    ) {
-                        items(activeGroups) { group ->
+                Text(
+                    text = "Choose a group or friend to split this bill with",
+                    fontFamily = OutfitFamily,
+                    fontSize = d.textBodyMedium,
+                    color = colors.inkMuted
+                )
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                    verticalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    item {
+                        Text(
+                            text = "SPLIT GROUPS",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textLabelSmall,
+                            color = colors.inkMuted,
+                            letterSpacing = 1.2.sp,
+                            modifier = Modifier.padding(top = d.space8, bottom = d.space4)
+                        )
+                    }
+
+                    if (splitGroups.isEmpty()) {
+                        item {
+                            Text(
+                                text = "No split groups yet",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelMedium,
+                                color = colors.inkMuted,
+                                modifier = Modifier.padding(vertical = d.space4, horizontal = d.space8)
+                            )
+                        }
+                    } else {
+                        items(splitGroups) { group ->
                             Surface(
                                 onClick = {
-                                    showGroupSelector = false
+                                    showSplitDestinationSheet = false
                                     val entryTitle = remarks.ifEmpty { suggestSmartTitle(receiverName, selectedCategory) }
                                     FirebaseManager.pendingExpenseAmount = amountStr
                                     FirebaseManager.pendingExpenseDesc = if (receiverName.isNotEmpty()) "$entryTitle ($receiverName)" else entryTitle
                                     FirebaseManager.pendingExpenseCategory = selectedCategory
                                     FirebaseManager.pendingExpenseDate = parsedDateMillis
-                                    FirebaseManager.pendingExpenseAttachmentUri = imageUri
+                                    FirebaseManager.pendingExpenseAttachmentUri = selectedAttachmentUris.firstOrNull() ?: imageUri
                                     onNavigateToAddExpense(group.id, null)
                                 },
                                 shape = RoundedCornerShape(d.radiusSM),
@@ -1283,23 +1241,406 @@ fun SlipImportScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(d.space12)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Groups,
-                                            contentDescription = "Group",
-                                            tint = colors.inkPrimary,
-                                            modifier = Modifier.size(24.dp)
+                                        GroupIconView(
+                                            iconName = group.iconName,
+                                            size = 28.dp
                                         )
+                                        Column {
+                                            Text(
+                                                text = group.name,
+                                                fontFamily = OutfitFamily,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = d.textBodyLarge,
+                                                color = colors.inkPrimary
+                                            )
+                                            Text(
+                                                text = "${group.members.size} members",
+                                                fontFamily = OutfitFamily,
+                                                fontSize = d.textLabelMedium,
+                                                color = colors.inkMuted
+                                            )
+                                        }
+                                    }
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "Select",
+                                        tint = colors.inkMuted,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Text(
+                            text = "1-ON-1 FRIENDS",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textLabelSmall,
+                            color = colors.inkMuted,
+                            letterSpacing = 1.2.sp,
+                            modifier = Modifier.padding(top = d.space12, bottom = d.space4)
+                        )
+                    }
+
+                    if (connections.isEmpty()) {
+                        item {
+                            Text(
+                                text = "No connected friends yet",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelMedium,
+                                color = colors.inkMuted,
+                                modifier = Modifier.padding(vertical = d.space4, horizontal = d.space8)
+                            )
+                        }
+                    } else {
+                        items(connections) { contact ->
+                            Surface(
+                                onClick = {
+                                    showSplitDestinationSheet = false
+                                    val entryTitle = remarks.ifEmpty { suggestSmartTitle(receiverName, selectedCategory) }
+                                    FirebaseManager.pendingExpenseAmount = amountStr
+                                    FirebaseManager.pendingExpenseDesc = if (receiverName.isNotEmpty()) "$entryTitle ($receiverName)" else entryTitle
+                                    FirebaseManager.pendingExpenseCategory = selectedCategory
+                                    FirebaseManager.pendingExpenseDate = parsedDateMillis
+                                    FirebaseManager.pendingExpenseAttachmentUri = selectedAttachmentUris.firstOrNull() ?: imageUri
+                                    FirebaseManager.pendingQuickSplitUser = contact
+                                    onNavigateToQuickSplit()
+                                },
+                                shape = RoundedCornerShape(d.radiusSM),
+                                color = colors.canvasChalk,
+                                border = BorderStroke(1.dp, colors.borderWhisper),
+                                modifier = Modifier.fillMaxWidth().height(d.rowHeightSm)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = d.space16),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(d.space12)
+                                    ) {
+                                        UserAvatar(
+                                            avatarUrl = contact.avatarUrl,
+                                            displayName = contact.getResolvedName(),
+                                            size = 28.dp
+                                        )
+                                        Column {
+                                            Text(
+                                                text = contact.getResolvedName(),
+                                                fontFamily = OutfitFamily,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = d.textBodyLarge,
+                                                color = colors.inkPrimary
+                                            )
+                                            if (contact.email.isNotBlank()) {
+                                                Text(
+                                                    text = contact.email,
+                                                    fontFamily = OutfitFamily,
+                                                    fontSize = d.textLabelMedium,
+                                                    color = colors.inkMuted
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "Select",
+                                        tint = colors.inkMuted,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(d.space4))
+                        Surface(
+                            onClick = {
+                                showSplitDestinationSheet = false
+                                val entryTitle = remarks.ifEmpty { suggestSmartTitle(receiverName, selectedCategory) }
+                                FirebaseManager.pendingExpenseAmount = amountStr
+                                FirebaseManager.pendingExpenseDesc = if (receiverName.isNotEmpty()) "$entryTitle ($receiverName)" else entryTitle
+                                FirebaseManager.pendingExpenseCategory = selectedCategory
+                                FirebaseManager.pendingExpenseDate = parsedDateMillis
+                                FirebaseManager.pendingExpenseAttachmentUri = selectedAttachmentUris.firstOrNull() ?: imageUri
+                                FirebaseManager.pendingQuickSplitUser = null
+                                onNavigateToQuickSplit()
+                            },
+                            shape = RoundedCornerShape(d.radiusSM),
+                            color = colors.canvasChalk,
+                            border = BorderStroke(1.dp, colors.borderWhisper),
+                            modifier = Modifier.fillMaxWidth().height(d.rowHeightSm)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = d.space16),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(d.space12)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Share,
+                                        contentDescription = "Quick Split",
+                                        tint = colors.inkPrimary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Text(
+                                        text = "Split with new / other contact",
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = d.textBodyLarge,
+                                        color = colors.inkPrimary
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = "Go",
+                                    tint = colors.inkMuted,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showExpenseDestinationSheet) {
+        val expenseTrackerGroups = groupsState.value.filter { it.isTracker }
+
+        ModalBottomSheet(
+            onDismissRequest = { showExpenseDestinationSheet = false },
+            containerColor = colors.surfaceCard,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = colors.borderWhisper) }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = d.space24, vertical = d.space16),
+                verticalArrangement = Arrangement.spacedBy(d.space12)
+            ) {
+                Text(
+                    text = "Log Expense",
+                    fontFamily = OutfitFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = d.textTitleLarge,
+                    color = colors.inkPrimary
+                )
+                Text(
+                    text = "Choose where to track this expense",
+                    fontFamily = OutfitFamily,
+                    fontSize = d.textBodyMedium,
+                    color = colors.inkMuted
+                )
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                    verticalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    item {
+                        Text(
+                            text = "PERSONAL",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textLabelSmall,
+                            color = colors.inkMuted,
+                            letterSpacing = 1.2.sp,
+                            modifier = Modifier.padding(top = d.space8, bottom = d.space4)
+                        )
+                    }
+
+                    item {
+                        Surface(
+                            onClick = {
+                                if (duplicateStatus?.isExactMatch == true) {
+                                    Toast.makeText(context, "Exact duplicate found. Cannot log again.", Toast.LENGTH_LONG).show()
+                                    return@Surface
+                                }
+                                val amt = amountStr.toDoubleOrNull()
+                                if (amt == null || amt <= 0.0) {
+                                    Toast.makeText(context, "Please enter a valid amount", Toast.LENGTH_SHORT).show()
+                                    return@Surface
+                                }
+                                showExpenseDestinationSheet = false
+                                coroutineScope.launch {
+                                    try {
+                                        val entryTitle = remarks.ifEmpty { suggestSmartTitle(receiverName, selectedCategory) }
+                                        val personalNote = buildString {
+                                            if (receiverName.isNotEmpty()) append("Paid to $receiverName. ")
+                                            if (sourcePaymentApp.isNotEmpty()) append("Via $sourcePaymentApp. ")
+                                            if (transactionId.isNotEmpty()) append("Txn ID: $transactionId")
+                                        }.trim()
+
+                                        val finalReceiptUrls = mutableListOf<String>()
+                                        if (selectedAttachmentUris.isNotEmpty()) {
+                                            val currentUserId = FirebaseManager.currentUserId ?: "anon"
+                                            selectedAttachmentUris.forEach { uri ->
+                                                val finalUrl = if (isCloudBackupEnabled) {
+                                                    val result = com.splitsmith.app.data.CloudinaryManager.uploadReceipt(context, uri, currentUserId, "personal")
+                                                    result.getOrNull() ?: run {
+                                                        val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "personal")
+                                                        (localSavedUri ?: uri).toString()
+                                                    }
+                                                } else {
+                                                    val localSavedUri = com.splitsmith.app.data.LocalStorageManager.saveAttachmentLocally(context, uri, "personal")
+                                                    (localSavedUri ?: uri).toString()
+                                                }
+                                                finalReceiptUrls.add(finalUrl)
+                                            }
+                                        }
+
+                                        FirebaseManager.addPersonalExpense(
+                                            description = entryTitle,
+                                            amount = amt,
+                                            category = selectedCategory,
+                                            note = personalNote,
+                                            date = parsedDateMillis ?: System.currentTimeMillis(),
+                                            receiptUrls = finalReceiptUrls
+                                        )
+
+                                        Toast.makeText(context, "Logged as Personal Expense", Toast.LENGTH_SHORT).show()
+                                        onBack()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error saving: ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(d.radiusSM),
+                            color = colors.canvasChalk,
+                            border = BorderStroke(1.dp, colors.borderWhisper),
+                            modifier = Modifier.fillMaxWidth().height(d.rowHeightSm)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = d.space16),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(d.space12)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = colors.borderWhisper,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.AccountBalanceWallet,
+                                                contentDescription = "Personal",
+                                                tint = colors.inkPrimary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                    Column {
                                         Text(
-                                            text = group.name,
+                                            text = "Personal Expenses",
                                             fontFamily = OutfitFamily,
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = d.textBodyLarge,
                                             color = colors.inkPrimary
                                         )
+                                        Text(
+                                            text = "1 participant (You)",
+                                            fontFamily = OutfitFamily,
+                                            fontSize = d.textLabelMedium,
+                                            color = colors.inkMuted
+                                        )
+                                    }
+                                }
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = "Select",
+                                    tint = colors.inkMuted,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    item {
+                        Text(
+                            text = "SHARED EXPENSE GROUPS",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textLabelSmall,
+                            color = colors.inkMuted,
+                            letterSpacing = 1.2.sp,
+                            modifier = Modifier.padding(top = d.space12, bottom = d.space4)
+                        )
+                    }
+
+                    if (expenseTrackerGroups.isEmpty()) {
+                        item {
+                            Text(
+                                text = "No shared expense groups yet",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelMedium,
+                                color = colors.inkMuted,
+                                modifier = Modifier.padding(vertical = d.space4, horizontal = d.space8)
+                            )
+                        }
+                    } else {
+                        items(expenseTrackerGroups) { group ->
+                            Surface(
+                                onClick = {
+                                    showExpenseDestinationSheet = false
+                                    val entryTitle = remarks.ifEmpty { suggestSmartTitle(receiverName, selectedCategory) }
+                                    FirebaseManager.pendingExpenseAmount = amountStr
+                                    FirebaseManager.pendingExpenseDesc = if (receiverName.isNotEmpty()) "$entryTitle ($receiverName)" else entryTitle
+                                    FirebaseManager.pendingExpenseCategory = selectedCategory
+                                    FirebaseManager.pendingExpenseDate = parsedDateMillis
+                                    FirebaseManager.pendingExpenseAttachmentUri = selectedAttachmentUris.firstOrNull() ?: imageUri
+                                    onNavigateToAddExpense(group.id, null)
+                                },
+                                shape = RoundedCornerShape(d.radiusSM),
+                                color = colors.canvasChalk,
+                                border = BorderStroke(1.dp, colors.borderWhisper),
+                                modifier = Modifier.fillMaxWidth().height(d.rowHeightSm)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = d.space16),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(d.space12)
+                                    ) {
+                                        GroupIconView(
+                                            iconName = group.iconName,
+                                            size = 28.dp
+                                        )
+                                        Column {
+                                            Text(
+                                                text = group.name,
+                                                fontFamily = OutfitFamily,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = d.textBodyLarge,
+                                                color = colors.inkPrimary
+                                            )
+                                            Text(
+                                                text = "${group.members.size} members",
+                                                fontFamily = OutfitFamily,
+                                                fontSize = d.textLabelMedium,
+                                                color = colors.inkMuted
+                                            )
+                                        }
                                     }
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                        contentDescription = "Go",
+                                        contentDescription = "Select",
                                         tint = colors.inkMuted,
                                         modifier = Modifier.size(20.dp)
                                     )

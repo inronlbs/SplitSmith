@@ -1,3 +1,27 @@
+## [2026-11-05 13:45] Two-Pillar Bill Import Pipeline (Split vs Expenses)
+
+### Features & Fixes
+1. **Two-Pillar Destination Pipeline (`SlipImportScreen.kt`)**:
+   - Replaced the previous 3 disparate buttons with 2 clear, organized destination pillars:
+     - **"Split Bill"** (filled primary button, `inkPrimary`): Opens a dedicated modal sheet showing all Split Groups (`!group.isTracker`) and 1-on-1 Connected Friends, with one-tap entry staging into `AddExpenseScreen` or `QuickSplitScreen`. Also includes a direct "Split with new / other contact" option.
+     - **"Log Expense"** (outlined button, `borderWhisper`): Opens a dedicated modal sheet displaying the preset "Personal Expenses" tracker (1 participant - You) at the top, followed by all collaborative "Shared Expense Groups" (`group.isTracker`).
+2. **Zero Duplicate Logging & Instant Staging**:
+   - Integrated duplicate detection checks before logging personal expenses directly from the sheet.
+   - Preserves scanned receipt attachments (including cloud vs local storage selection) when routing to personal expenses or staging for group / quick split.
+3. **Monochrome Design Coherence & Zero Emojis**:
+   - Uses `GroupIconView` and `UserAvatar` with standard monochrome design tokens (`canvasChalk`, `inkPrimary`, `surfaceCard`, `borderWhisper`, `OutfitFamily`, `textLabelMedium`).
+   - Zero emojis across code, labels, and toasts.
+
+### Files Modified
+- `[MODIFY]` [SlipImportScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/slip/SlipImportScreen.kt)
+
+### Verification & Quality Gates
+- **Gradle Kotlin Compilation**: `./gradlew compileDebugKotlin` exited with code 0 (`BUILD SUCCESSFUL in 33s`).
+- **Unit Test Execution**: `./gradlew testDebugUnitTest` executed 27 tasks and passed with code 0 (`BUILD SUCCESSFUL in 21s`).
+- **Zero Emoji Audit**: Confirmed 0 emojis in git diff.
+
+---
+
 ## [2026-11-04 17:45] Group Mode Immutability & Clean Expense Tab Separation
 
 ### Features & Fixes
