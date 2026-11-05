@@ -1,3 +1,34 @@
+## [2026-11-05 22:30] Release v0.4.2.0 Published
+
+### Features & Highlights
+1. **Group Profile Picture Upload Option & Display (`GroupDetailScreen.kt`, `SplitExpensesScreen.kt`, `GroupIconView.kt`)**:
+   - Added `imageUrl` to `Group` data model with zero-loss backward compatibility.
+   - On-device downscaling to 180x180 WebP (quality 75, ~4-6 KB Base64) for instantaneous zero-latency rendering and offline persistence.
+   - WhatsApp-style photo picker in group creation bottom sheet.
+   - Adaptive fallback to category/preset icons when no photo is uploaded.
+2. **Strict Admin-Only RBAC**:
+   - Group photo editing, camera overlay, change button, and photo removal are strictly restricted to group creators (`adminId`) and designated admins (`admins[uid] == true`).
+   - Non-admin members receive an elegant read-only avatar display with explicit permission cues.
+3. **Direct Hub Navigation (`HomeScreen.kt`)**:
+   - Wired `[Split Bill]` on the Home dashboard directly to the Split tab (Tab 1), immediately showing both 1-on-1 split contacts and expense groups.
+   - Wired `[Log Expense]` on the Home dashboard directly to the Expenses Hub (Tab 2), showing both Personal Expenses and Shared Expense Groups.
+
+### Deployed Artifacts & Links
+- **Version**: `versionCode = 63`, `versionName = "0.4.2.0"`
+- **GitHub Release**: [v0.4.2.0](https://github.com/inronlbs/SplitSmith/releases/tag/v0.4.2.0)
+  - `SplitSmith-v0.4.2.0-release.apk` (70.39 MB, signed)
+  - `SplitSmith-v0.4.2.0-release.aab` (43.77 MB, signed)
+- **Firebase Hosting Website CDN**: [https://splitsmith.web.app](https://splitsmith.web.app)
+  - Direct Binary: `https://splitsmith.web.app/splitsmith.bin`
+  - In-App Updater Metadata: `https://splitsmith.web.app/version.json`
+
+### Verification & Quality Gates
+- **Gradle Release Compilation**: `./gradlew assembleRelease bundleRelease` passed with code 0 (`BUILD SUCCESSFUL in 4m 13s`).
+- **Unit Test Execution**: `./gradlew testDebugUnitTest` executed 27 tasks and passed with code 0.
+- **Zero Emoji Compliance**: 0 emojis across all code, release notes, and commit messages.
+
+---
+
 ## [2026-11-05 22:20] Group Profile Picture Upload Option (Admin Only RBAC)
 
 ### Features & Fixes
