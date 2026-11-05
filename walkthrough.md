@@ -1,3 +1,41 @@
+## [2026-11-05 16:35] Home Screen Overhaul: Financial Command Center
+
+### Features & Fixes
+1. **Brand Header & Dynamic Greeting (`HomeScreen.kt`)**:
+   - Clean top app bar with `SplitSmith` brand typography, pending settlement notification bell indicator, QR scanner launcher, and profile modal trigger.
+   - Dynamic time-based greeting (*"Good morning / afternoon / evening, [FirstName]"*) placed directly above the hero card with the subtitle *"Here is your financial overview"*.
+2. **Unified Net Position Hero Card**:
+   - Prominent net position figure (`+₹...` / `-₹...`) in JetBrains Mono 28sp with clear status badge (*"Owed to you"* / *"You owe"* / *"Settled"*).
+   - Real-time sub-row breaking down total unsettled `Receivable: ₹...` and `Payable: ₹...`.
+   - Monthly budget bar with smooth animated progress and daily allowance pacing (*"Daily allowance: ₹.../day for next X days"*).
+3. **Option A Quick Actions Strip**:
+   - 3 prominent thumb-friendly buttons:
+     - `[Scan Bill]` (solid `inkPrimary`): Triggers receipt scanner options bottom sheet.
+     - `[Split Bill]` (outlined `borderWhisper`): Launches quick 1-on-1 split workflow.
+     - `[Log Expense]` (outlined `borderWhisper`): Jumps directly to Personal Expense tracker with add sheet opened.
+4. **Action Required Banner (Conditional)**:
+   - Appears dynamically when direct settlements require current user confirmation with instant `Confirm` and `Decline` actions wired to `FirebaseManager`.
+5. **Spending Insights (Options B + C Blended)**:
+   - Inline 2-pill toggle:
+     - **7-Day Trend**: Minimal linear vertical bars for Mon-Sun showing daily spend, current day highlighted with active dot, subtle dashed budget benchmark line without cluttering text or average badges.
+     - **Categories**: Multi-category segmented proportion bar + Top 3 categories with exact amounts and percentages.
+6. **Curated Latest Transactions (3 Items Only)**:
+   - Replaced crowded 12-item raw list with 3 curated rows featuring clear origin badges (`[SPLIT]`, `[SOLO]`, `[GROUP]`).
+   - Dual footer links: `[All Splits →]` and `[All Expenses →]` for seamless navigation to the respective detailed tabs.
+7. **Monochrome Design Coherence & Zero Emojis**:
+   - Pure typography and monochrome design tokens (`canvasChalk`, `inkPrimary`, `surfaceCard`, `borderWhisper`, `alertRed`, `OutfitFamily`, `JetBrainsMonoFamily`).
+   - Strict 0-emoji compliance.
+
+### Files Modified
+- `[MODIFY]` [HomeScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/home/HomeScreen.kt)
+
+### Verification & Quality Gates
+- **Gradle Kotlin Compilation**: `./gradlew compileDebugKotlin` passed with code 0 (`BUILD SUCCESSFUL in 49s`).
+- **Unit Test Execution**: `./gradlew testDebugUnitTest` executed 27 tasks and passed with code 0 (`BUILD SUCCESSFUL in 40s`).
+- **Zero Emoji Audit**: Passed strict automated audit with 0 emojis across git diff.
+
+---
+
 ## [2026-11-05 15:18] WhatsApp-Style Search with On-Device Contact & Group Member Cache
 
 ### Features & Fixes

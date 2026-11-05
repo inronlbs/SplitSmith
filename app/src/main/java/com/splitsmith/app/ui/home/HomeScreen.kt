@@ -48,6 +48,9 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.AccountBalanceWallet
@@ -363,6 +366,12 @@ fun HomeScreen(
                         onCreateGroup = handleCreateGroupClick,
                         onNavigateToQRCode = onNavigateToQRCode,
                         onNavigateToQuickSplit = onNavigateToQuickSplit,
+                        onScanBill = { showScannerOptionsSheet = true },
+                        onNavigateToExpenses = {
+                            showAddPersonalInitially = true
+                            coroutineScope.launch { pagerState.animateScrollToPage(2) }
+                        },
+                        onNavigateToSplitsTab = handleScrollToPage1,
                         onSplitClick = { selectedSplitForDetail = it },
                         onPersonalClick = { selectedPersonalForDetail = it },
                         onGroupExpenseClick = { selectedGroupExpenseForDetail = it },
@@ -839,6 +848,9 @@ fun HomeDashboardView(
     onCreateGroup: () -> Unit,
     onNavigateToQRCode: () -> Unit,
     onNavigateToQuickSplit: () -> Unit = {},
+    onScanBill: () -> Unit = {},
+    onNavigateToExpenses: () -> Unit = {},
+    onNavigateToSplitsTab: () -> Unit = {},
     onSplitClick: (DirectSplit) -> Unit = {},
     onPersonalClick: (com.splitsmith.app.data.PersonalExpense) -> Unit = {},
     onGroupExpenseClick: (com.splitsmith.app.data.GroupExpenseWithContext) -> Unit = {},
@@ -849,6 +861,7 @@ fun HomeDashboardView(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isUploadingAvatar by remember { mutableStateOf(false) }
+    var activeInsightTab by remember { mutableIntStateOf(0) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
@@ -907,7 +920,6 @@ fun HomeDashboardView(
                             }
                         }
                         is com.splitsmith.app.util.ParsedQrPayload.Unknown -> {
-                            // Try group first, then fallback to user
                             val group = FirebaseManager.getGroupOnce(rawCode)
                             if (group != null) {
                                 val uid = FirebaseManager.currentUserId
@@ -949,7 +961,13 @@ fun HomeDashboardView(
         }.timeInMillis
     }
 
-    // Observe expenses, direct splits, and group expenses for real-time budget tracking on dashboard
+    // Days in month and remaining days
+    val calendar = remember { java.util.Calendar.getInstance() }
+    val daysInMonth = remember { calendar.getActualMaximum(java.util.Calendar.DAY_OF_MONTH) }
+    val currentDayOfMonth = remember { calendar.get(java.util.Calendar.DAY_OF_MONTH) }
+    val daysRemaining = remember { (daysInMonth - currentDayOfMonth + 1).coerceAtLeast(1) }
+
+    // Observe expenses, direct splits, and group expenses for real-time dashboard calculations
     val personalExpensesFlow = remember { FirebaseManager.observePersonalExpenses() }
     val personalExpensesState = personalExpensesFlow.collectAsState(initial = emptyList())
     val directSplitsFlow = remember { FirebaseManager.observeDirectSplits() }
@@ -970,24 +988,98 @@ fun HomeDashboardView(
     }
     val budgetLimit = (userProfile?.budget?.limit ?: 15000.0).let { if (it <= 0) 15000.0 else it }
     val budgetProgress = if (budgetLimit > 0) (totalPersonalSpent / budgetLimit).coerceIn(0.0, 1.0) else 0.0
-
-    // Consolidated Shared Net Balance: Direct 1-on-1 Splits + Group Net Balances
-    val totalDirectOwed = remember(directSplitsState.value, groupExpensesState.value, currentUserId) {
-        val directNet = directSplitsState.value.filter { it.status == "PENDING" }.sumOf {
-            if (it.paidBy == currentUserId) it.myShare else -it.myShare
-        }
-        val groupNet = groupExpensesState.value.sumOf { ge ->
-            val exp = ge.expense
-            val myShare = exp.splits[currentUserId] ?: 0.0
-            if (exp.paidBy == currentUserId) {
-                exp.amount - myShare
-            } else {
-                -myShare
-            }
-        }
-        directNet + groupNet
+    val remainingBudget = budgetLimit - totalPersonalSpent
+    val dailyAllowance = remember(remainingBudget, daysRemaining) {
+        if (remainingBudget > 0) remainingBudget / daysRemaining else 0.0
     }
 
+    // Consolidated Receivable & Payable
+    val totalDirectReceivable = remember(directSplitsState.value, groupExpensesState.value, currentUserId) {
+        val directRec = directSplitsState.value.filter { it.status == "PENDING" && it.paidBy == currentUserId }.sumOf { it.myShare }
+        val groupRec = groupExpensesState.value.filter { it.expense.paidBy == currentUserId && it.expense.splitMode != "NONE" }.sumOf {
+            it.expense.amount - (it.expense.splits[currentUserId] ?: 0.0)
+        }
+        directRec + groupRec
+    }
+
+    val totalDirectPayable = remember(directSplitsState.value, groupExpensesState.value, currentUserId) {
+        val directPay = directSplitsState.value.filter { it.status == "PENDING" && it.paidBy != currentUserId }.sumOf { it.myShare }
+        val groupPay = groupExpensesState.value.filter { it.expense.paidBy != currentUserId && it.expense.splitMode != "NONE" }.sumOf {
+            it.expense.splits[currentUserId] ?: 0.0
+        }
+        directPay + groupPay
+    }
+
+    val netPosition = totalDirectReceivable - totalDirectPayable
+
+    // Pending Settlement Confirmation requiring current user's approval
+    val pendingSettlementApproval = remember(directSplitsState.value, currentUserId) {
+        directSplitsState.value.firstOrNull { it.status == "WAITING_APPROVAL" && it.paidBy == currentUserId }
+    }
+
+    // 7-day spend array for the current week (Monday to Sunday)
+    val currentWeekDaySpends = remember(personalExpensesState.value, directSplitsState.value, groupExpensesState.value, currentUserId) {
+        val cal = java.util.Calendar.getInstance().apply {
+            firstDayOfWeek = java.util.Calendar.MONDAY
+            set(java.util.Calendar.DAY_OF_WEEK, java.util.Calendar.MONDAY)
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val mondayStart = cal.timeInMillis
+        val dayMillis = 24L * 60 * 60 * 1000
+        val spends = DoubleArray(7) { 0.0 }
+
+        personalExpensesState.value.forEach { exp ->
+            val diff = exp.date - mondayStart
+            if (diff >= 0 && diff < 7 * dayMillis) {
+                val dayIdx = (diff / dayMillis).toInt().coerceIn(0, 6)
+                spends[dayIdx] += exp.amount
+            }
+        }
+        directSplitsState.value.forEach { split ->
+            val diff = split.date - mondayStart
+            if (diff >= 0 && diff < 7 * dayMillis) {
+                val dayIdx = (diff / dayMillis).toInt().coerceIn(0, 6)
+                spends[dayIdx] += split.myShare
+            }
+        }
+        groupExpensesState.value.forEach { ge ->
+            val diff = ge.expense.date - mondayStart
+            if (diff >= 0 && diff < 7 * dayMillis) {
+                val dayIdx = (diff / dayMillis).toInt().coerceIn(0, 6)
+                spends[dayIdx] += (ge.expense.splits[currentUserId] ?: 0.0)
+            }
+        }
+        spends
+    }
+
+    val currentDayOfWeekIdx = remember {
+        val c = java.util.Calendar.getInstance()
+        val dow = c.get(java.util.Calendar.DAY_OF_WEEK)
+        if (dow == java.util.Calendar.SUNDAY) 6 else dow - 2
+    }
+
+    // Category breakdown for current month
+    val categoryBreakdown = remember(personalExpensesState.value, directSplitsState.value, groupExpensesState.value, currentMonthStart, currentUserId) {
+        val map = mutableMapOf<String, Double>()
+        personalExpensesState.value.filter { it.date >= currentMonthStart }.forEach { pe ->
+            val cat = pe.category.ifBlank { "Other" }
+            map[cat] = (map[cat] ?: 0.0) + pe.amount
+        }
+        directSplitsState.value.filter { it.date >= currentMonthStart }.forEach { ds ->
+            val cat = ds.category.ifBlank { "Splits" }
+            map[cat] = (map[cat] ?: 0.0) + ds.myShare
+        }
+        groupExpensesState.value.filter { it.expense.date >= currentMonthStart }.forEach { ge ->
+            val cat = ge.expense.category.ifBlank { "Group" }
+            map[cat] = (map[cat] ?: 0.0) + (ge.expense.splits[currentUserId] ?: 0.0)
+        }
+        map.toList().sortedByDescending { it.second }
+    }
+
+    // All combined recent activities sorted chronologically
     val combinedRecentActivities = remember(directSplitsState.value, personalExpensesState.value, groupExpensesState.value, currentUserId) {
         val splits = directSplitsState.value.map { split ->
             RecentActivityItem(
@@ -1041,425 +1133,1190 @@ fun HomeDashboardView(
                 rawGroupExpense = ge
             )
         }
-        (splits + personal + groupExps).sortedByDescending { it.date }.take(12)
+        (splits + personal + groupExps).sortedByDescending { it.date }
+    }
+
+    val curatedActivities = remember(combinedRecentActivities) { combinedRecentActivities.take(3) }
+    val weekTotalSpend = remember(currentWeekDaySpends) { currentWeekDaySpends.sum() }
+    val maxSpend = remember(currentWeekDaySpends) {
+        (currentWeekDaySpends.maxOrNull() ?: 1.0).coerceAtLeast(100.0)
+    }
+    val dailyBudgetBenchmark = remember(budgetLimit, daysInMonth) {
+        if (budgetLimit > 0) budgetLimit / daysInMonth else 500.0
+    }
+    val greetingTime = remember {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        when {
+            hour < 12 -> "Good morning"
+            hour < 17 -> "Good afternoon"
+            else -> "Good evening"
+        }
     }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding(),
-        contentPadding = PaddingValues(horizontal = d.space24, vertical = d.space24),
-        verticalArrangement = Arrangement.spacedBy(d.space24)
+        contentPadding = PaddingValues(start = d.space24, top = d.space24, end = d.space24, bottom = 100.dp),
+        verticalArrangement = Arrangement.spacedBy(d.space20)
     ) {
+        // ── 1. App Bar / Header ──────────────────────────────────────
         item {
-            // App Bar / Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "SplitSmith",
-                        fontFamily = OutfitFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = d.textHeadlineLarge,
-                        color = colors.inkPrimary,
-                        letterSpacing = (-0.5).sp
-                    )
-                }
+                Text(
+                    text = "SplitSmith",
+                    fontFamily = OutfitFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = d.textHeadlineLarge,
+                    color = colors.inkPrimary,
+                    letterSpacing = (-0.5).sp
+                )
 
-                var showProfileDialog by remember { mutableStateOf(false) }
-
-                if (showProfileDialog && userProfile != null) {
-                    AlertDialog(
-                        onDismissRequest = { showProfileDialog = false },
-                        containerColor = colors.surfaceCard,
-                        shape = RoundedCornerShape(d.radiusLG),
-                        title = {
-                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    "Profile",
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = d.textTitleLarge,
-                                    color = colors.inkPrimary
-                                )
-                            }
-                        },
-                        text = {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(d.space16)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(80.dp)
-                                        .clip(CircleShape)
-                                        .clickable(enabled = !isUploadingAvatar) {
-                                            photoPickerLauncher.launch("image/*")
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    UserAvatar(
-                                        avatarUrl = userProfile.avatarUrl,
-                                        displayName = userProfile.displayName,
-                                        size = 80.dp
-                                    )
-                                    if (isUploadingAvatar) {
-                                        Box(
-                                            modifier = Modifier
-                                                .matchParentSize()
-                                                .background(Color.Black.copy(alpha = 0.4f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            CircularProgressIndicator(
-                                                color = Color.White,
-                                                modifier = Modifier.size(24.dp),
-                                                strokeWidth = 2.dp
-                                            )
-                                        }
-                                    }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    // Alert Bell with Notification Dot
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(colors.surfaceCard)
+                            .border(BorderStroke(1.dp, colors.borderWhisper), CircleShape)
+                            .clickable {
+                                if (pendingSettlementApproval != null) {
+                                    Toast.makeText(
+                                        context,
+                                        "Pending settlement: ₹${pendingSettlementApproval.myShare.formatCurrency()}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    Toast.makeText(context, "No pending notifications", Toast.LENGTH_SHORT).show()
                                 }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = "Notifications",
+                            tint = colors.inkPrimary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        if (pendingSettlementApproval != null) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 5.dp, end = 5.dp)
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.alertRed)
+                            )
+                        }
+                    }
 
-                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    // QR Scanner Icon Button
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(colors.surfaceCard)
+                            .border(BorderStroke(1.dp, colors.borderWhisper), CircleShape)
+                            .clickable {
+                                val options = com.journeyapps.barcodescanner.ScanOptions()
+                                options.setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
+                                options.setPrompt("Scan a SplitSmith Group or User QR Code")
+                                options.setCameraId(0)
+                                options.setBeepEnabled(false)
+                                options.setBarcodeImageEnabled(true)
+                                options.setOrientationLocked(true)
+                                qrScanLauncher.launch(options)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.QrCodeScanner,
+                            contentDescription = "Scan QR",
+                            tint = colors.inkPrimary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+
+                    // Profile Avatar Indicator
+                    var showProfileDialog by remember { mutableStateOf(false) }
+
+                    if (showProfileDialog && userProfile != null) {
+                        AlertDialog(
+                            onDismissRequest = { showProfileDialog = false },
+                            containerColor = colors.surfaceCard,
+                            shape = RoundedCornerShape(d.radiusLG),
+                            title = {
+                                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                                     Text(
-                                        text = userProfile.displayName,
+                                        "Profile",
                                         fontFamily = OutfitFamily,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = d.textTitleMedium,
+                                        fontSize = d.textTitleLarge,
                                         color = colors.inkPrimary
                                     )
-                                    Text(
-                                        text = userProfile.email,
-                                        fontFamily = OutfitFamily,
-                                        fontSize = d.textLabelMedium,
-                                        color = colors.inkMuted
-                                    )
                                 }
-
-                                Spacer(modifier = Modifier.height(d.space4))
-
-                                Row(
+                            },
+                            text = {
+                                Column(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(d.space16)
                                 ) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            showProfileDialog = false
-                                            val options = com.journeyapps.barcodescanner.ScanOptions()
-                                            options.setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
-                                            options.setPrompt("Scan a SplitSmith Group QR Code to Join")
-                                            options.setCameraId(0)
-                                            options.setBeepEnabled(false)
-                                            options.setBarcodeImageEnabled(true)
-                                            options.setOrientationLocked(true)
-                                            qrScanLauncher.launch(options)
-                                        },
-                                        shape = RoundedCornerShape(d.radiusMD),
-                                        border = BorderStroke(1.dp, colors.borderWhisper),
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.inkPrimary),
-                                        modifier = Modifier.weight(1f).height(d.buttonHeight)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(80.dp)
+                                            .clip(CircleShape)
+                                            .clickable(enabled = !isUploadingAvatar) {
+                                                photoPickerLauncher.launch("image/*")
+                                            },
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(imageVector = Icons.Default.QrCodeScanner, contentDescription = "Scan QR", modifier = Modifier.size(18.dp))
-                                            Text("Scan QR", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold)
+                                        UserAvatar(
+                                            avatarUrl = userProfile.avatarUrl,
+                                            displayName = userProfile.displayName,
+                                            size = 80.dp
+                                        )
+                                        if (isUploadingAvatar) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .matchParentSize()
+                                                    .background(Color.Black.copy(alpha = 0.4f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                CircularProgressIndicator(
+                                                    color = Color.White,
+                                                    modifier = Modifier.size(24.dp),
+                                                    strokeWidth = 2.dp
+                                                )
+                                            }
                                         }
                                     }
 
-                                    Spacer(modifier = Modifier.width(d.space12))
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(
+                                            text = userProfile.displayName,
+                                            fontFamily = OutfitFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = d.textTitleMedium,
+                                            color = colors.inkPrimary
+                                        )
+                                        Text(
+                                            text = userProfile.email,
+                                            fontFamily = OutfitFamily,
+                                            fontSize = d.textLabelMedium,
+                                            color = colors.inkMuted
+                                        )
+                                    }
 
-                                    Button(
-                                        onClick = {
-                                            showProfileDialog = false
-                                            onNavigateToQRCode()
-                                        },
-                                        shape = RoundedCornerShape(d.radiusMD),
-                                        colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
-                                        modifier = Modifier.weight(1f).height(d.buttonHeight)
+                                    Spacer(modifier = Modifier.height(d.space4))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        OutlinedButton(
+                                            onClick = {
+                                                showProfileDialog = false
+                                                val options = com.journeyapps.barcodescanner.ScanOptions()
+                                                options.setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
+                                                options.setPrompt("Scan a SplitSmith Group QR Code to Join")
+                                                options.setCameraId(0)
+                                                options.setBeepEnabled(false)
+                                                options.setBarcodeImageEnabled(true)
+                                                options.setOrientationLocked(true)
+                                                qrScanLauncher.launch(options)
+                                            },
+                                            shape = RoundedCornerShape(d.radiusMD),
+                                            border = BorderStroke(1.dp, colors.borderWhisper),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.inkPrimary),
+                                            modifier = Modifier.weight(1f).height(d.buttonHeight)
                                         ) {
-                                            Icon(imageVector = Icons.Default.QrCode, contentDescription = "Show QR", modifier = Modifier.size(18.dp), tint = colors.canvasChalk)
-                                            Text("Show QR", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.canvasChalk)
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(imageVector = Icons.Default.QrCodeScanner, contentDescription = "Scan QR", modifier = Modifier.size(18.dp))
+                                                Text("Scan QR", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold)
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.width(d.space12))
+
+                                        Button(
+                                            onClick = {
+                                                showProfileDialog = false
+                                                onNavigateToQRCode()
+                                            },
+                                            shape = RoundedCornerShape(d.radiusMD),
+                                            colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
+                                            modifier = Modifier.weight(1f).height(d.buttonHeight)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(imageVector = Icons.Default.QrCode, contentDescription = "Show QR", modifier = Modifier.size(18.dp), tint = colors.canvasChalk)
+                                                Text("Show QR", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.canvasChalk)
+                                            }
                                         }
                                     }
-                                }
 
-                                TextButton(
-                                    onClick = { showProfileDialog = false },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Close", fontFamily = OutfitFamily, color = colors.inkMuted, fontWeight = FontWeight.Medium)
+                                    TextButton(
+                                        onClick = { showProfileDialog = false },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Close", fontFamily = OutfitFamily, color = colors.inkMuted, fontWeight = FontWeight.Medium)
+                                    }
                                 }
-                            }
-                        },
-                        confirmButton = {},
-                        dismissButton = null
-                    )
-                }
-
-                // Profile Avatar Indicator — with subtle grey ring border
-                Box(
-                    modifier = Modifier
-                        .size(d.avatarMd + 4.dp)
-                        .clip(CircleShape)
-                        .background(colors.inkMuted)
-                        .clickable { showProfileDialog = true },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (userProfile != null) {
-                        UserAvatar(
-                            avatarUrl = userProfile.avatarUrl,
-                            displayName = userProfile.displayName,
-                            size = d.avatarMd
+                            },
+                            confirmButton = {},
+                            dismissButton = null
                         )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .border(BorderStroke(1.dp, colors.borderWhisper), CircleShape)
+                            .clickable { showProfileDialog = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (userProfile != null) {
+                            UserAvatar(
+                                avatarUrl = userProfile.avatarUrl,
+                                displayName = userProfile.displayName,
+                                size = 36.dp
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // ── Summary strip (no cards — pure typography) ────────────────
+        // ── 2. Greeting Headline (Directly above Net Position Hero) ──
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(d.radiusLG))
-                    .background(colors.surfaceCard)
-                    .padding(horizontal = d.space20, vertical = d.space16),
-                verticalArrangement = Arrangement.spacedBy(d.space16)
+                    .padding(top = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                // Net balance row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            text = "NET BALANCE",
-                            fontFamily = OutfitFamily,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.inkMuted,
-                            letterSpacing = 1.5.sp
-                        )
-                        Text(
-                            text = if (totalDirectOwed >= 0) "₹${totalDirectOwed.formatCurrency()}"
-                                   else "-₹${(-totalDirectOwed).formatCurrency()}",
-                            fontFamily = JetBrainsMonoFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 28.sp,
-                            color = if (totalDirectOwed >= 0) colors.inkPrimary else colors.alertRed
-                        )
-                    }
-                    // Status badge
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(
-                                if (totalDirectOwed >= 0) colors.inkPrimary.copy(alpha = 0.08f)
-                                else colors.alertRed.copy(alpha = 0.12f)
-                            )
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = if (totalDirectOwed == 0.0) "Settled" else if (totalDirectOwed > 0) "Owed to you" else "You owe",
-                            fontFamily = OutfitFamily,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 12.sp,
-                            color = if (totalDirectOwed >= 0) colors.inkPrimary else colors.alertRed
-                        )
+                val greetingTime = remember {
+                    val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                    when {
+                        hour < 12 -> "Good morning"
+                        hour < 17 -> "Good afternoon"
+                        else -> "Good evening"
                     }
                 }
-
-                HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
-
-                // Budget row with inline progress bar
-                val animatedProgress by animateFloatAsState(
-                    targetValue = budgetProgress.toFloat(),
-                    animationSpec = tween(durationMillis = 900),
-                    label = "budgetBar"
+                val firstName = userProfile?.displayName?.trim()?.split(" ")?.firstOrNull()?.ifEmpty { "there" } ?: "there"
+                Text(
+                    text = "$greetingTime, $firstName",
+                    fontFamily = OutfitFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 21.sp,
+                    color = colors.inkPrimary,
+                    letterSpacing = (-0.3).sp
                 )
-                val barColor = when {
-                    budgetProgress < 0.70 -> colors.inkPrimary
-                    budgetProgress < 0.90 -> Color(0xFFE8A838)  // subtle warm amber
-                    else -> Color(0xFFE05252)  // muted red
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "MONTHLY BUDGET",
-                            fontFamily = OutfitFamily,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.inkMuted,
-                            letterSpacing = 1.5.sp
-                        )
-                        val remainingBudget = budgetLimit - totalPersonalSpent
-                        Text(
-                            text = if (remainingBudget >= 0) "₹${remainingBudget.formatCurrency()} left" else "Overspent: ₹${(-remainingBudget).formatCurrency()}",
-                            fontFamily = OutfitFamily,
-                            fontSize = 11.sp,
-                            fontWeight = if (remainingBudget < 0) FontWeight.Bold else FontWeight.Normal,
-                            color = if (remainingBudget < 0) colors.alertRed else colors.inkMuted
-                        )
-                    }
-                    // Slim progress bar
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(colors.borderWhisper)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(animatedProgress)
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(barColor)
-                        )
-                    }
-                }
+                Text(
+                    text = "Here is your financial overview",
+                    fontFamily = OutfitFamily,
+                    fontSize = 12.sp,
+                    color = colors.inkMuted
+                )
             }
         }
 
-        // ── Recent Activity ───────────────────────────────────────────
+        // ── 3. Unified Net Position Hero Card ─────────────────────────
         item {
-            Text(
-                text = "RECENT ACTIVITY",
-                fontFamily = OutfitFamily,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.inkMuted,
-                letterSpacing = 1.5.sp
-            )
-        }
-
-        if (combinedRecentActivities.isEmpty()) {
-            item {
-                Row(
+            Card(
+                shape = RoundedCornerShape(d.radiusLG),
+                colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                border = BorderStroke(1.dp, colors.borderWhisper),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = d.space8),
-                    horizontalArrangement = Arrangement.spacedBy(d.space12),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(d.space16),
+                    verticalArrangement = Arrangement.spacedBy(d.space16)
                 ) {
-                    Text("✓", fontSize = 18.sp, color = colors.inkPrimary)
-                    Column {
+                    // Net Position headline & badge
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "NET POSITION",
+                                fontFamily = OutfitFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.inkMuted,
+                                letterSpacing = 1.2.sp
+                            )
+                            val netText = if (netPosition >= 0) "+₹${netPosition.formatCurrency()}" else "-₹${(-netPosition).formatCurrency()}"
+                            Text(
+                                text = netText,
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 28.sp,
+                                color = if (netPosition >= 0) colors.inkPrimary else colors.alertRed
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(
+                                    if (netPosition >= 0) colors.inkPrimary.copy(alpha = 0.08f)
+                                    else colors.alertRed.copy(alpha = 0.12f)
+                                )
+                                .border(
+                                    BorderStroke(0.5.dp, colors.borderWhisper),
+                                    RoundedCornerShape(999.dp)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = if (netPosition == 0.0) "Settled" else if (netPosition > 0) "Owed to you" else "You owe",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.sp,
+                                color = if (netPosition >= 0) colors.inkPrimary else colors.alertRed
+                            )
+                        }
+                    }
+
+                    // Receivable vs Payable Sub-row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(d.space8)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Receivable:",
+                                fontFamily = OutfitFamily,
+                                fontSize = 11.sp,
+                                color = colors.inkMuted
+                            )
+                            Text(
+                                text = "₹${totalDirectReceivable.formatCurrency()}",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = colors.inkPrimary
+                            )
+                        }
+
+                        Text(text = "•", fontSize = 11.sp, color = colors.borderWhisper)
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Payable:",
+                                fontFamily = OutfitFamily,
+                                fontSize = 11.sp,
+                                color = colors.inkMuted
+                            )
+                            Text(
+                                text = "₹${totalDirectPayable.formatCurrency()}",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = colors.alertRed
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+                    // Monthly Budget with progress & daily pacing
+                    val animatedProgress by animateFloatAsState(
+                        targetValue = budgetProgress.toFloat(),
+                        animationSpec = tween(durationMillis = 800),
+                        label = "budgetBar"
+                    )
+                    val barColor = when {
+                        budgetProgress < 0.70 -> colors.inkPrimary
+                        budgetProgress < 0.90 -> Color(0xFFE8A838)
+                        else -> Color(0xFFE05252)
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "MONTHLY BUDGET",
+                                fontFamily = OutfitFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.inkMuted,
+                                letterSpacing = 1.2.sp
+                            )
+
+                            if (remainingBudget >= 0) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = "₹${remainingBudget.formatCurrency()} left",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        color = colors.inkPrimary
+                                    )
+                                    Text(
+                                        text = "of ₹${budgetLimit.formatCurrency()}",
+                                        fontFamily = OutfitFamily,
+                                        fontSize = 11.sp,
+                                        color = colors.inkMuted
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = "Overspent: ₹${(-remainingBudget).formatCurrency()}",
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = colors.alertRed
+                                )
+                            }
+                        }
+
+                        // Slim progress bar
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(colors.borderWhisper)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(animatedProgress)
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(barColor)
+                            )
+                        }
+
                         Text(
-                            text = "No recent activity",
+                            text = "Daily allowance: ₹${dailyAllowance.toInt()}/day for next $daysRemaining days",
                             fontFamily = OutfitFamily,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = d.textBodyLarge,
-                            color = colors.inkPrimary
-                        )
-                        Text(
-                            text = "Tap + to create a split or log an expense",
-                            fontFamily = OutfitFamily,
-                            fontSize = d.textLabelSmall,
+                            fontSize = 10.sp,
                             color = colors.inkMuted
                         )
-                        Spacer(modifier = Modifier.height(d.space12))
-                        Row(horizontalArrangement = Arrangement.spacedBy(d.space8)) {
-                            Surface(
-                                onClick = { onNavigateToQuickSplit() },
-                                shape = RoundedCornerShape(d.radiusFull),
-                                color = colors.inkPrimary,
-                                modifier = Modifier.height(32.dp)
+                    }
+                }
+            }
+        }
+
+        // ── 4. Option A Quick Actions Strip ──────────────────────────
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                Text(
+                    text = "QUICK ACTIONS",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.2.sp
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    // Action 1: Scan Bill (Primary Solid)
+                    Surface(
+                        onClick = onScanBill,
+                        shape = RoundedCornerShape(d.radiusMD),
+                        color = colors.inkPrimary,
+                        modifier = Modifier.weight(1f).height(68.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoCamera,
+                                contentDescription = "Scan Bill",
+                                tint = colors.canvasChalk,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Scan Bill",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = colors.canvasChalk
+                            )
+                        }
+                    }
+
+                    // Action 2: Split Bill (Outlined)
+                    Surface(
+                        onClick = onNavigateToQuickSplit,
+                        shape = RoundedCornerShape(d.radiusMD),
+                        color = colors.surfaceCard,
+                        border = BorderStroke(1.dp, colors.borderWhisper),
+                        modifier = Modifier.weight(1f).height(68.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Split Bill",
+                                tint = colors.inkPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Split Bill",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.sp,
+                                color = colors.inkPrimary
+                            )
+                        }
+                    }
+
+                    // Action 3: Log Expense (Outlined)
+                    Surface(
+                        onClick = onNavigateToExpenses,
+                        shape = RoundedCornerShape(d.radiusMD),
+                        color = colors.surfaceCard,
+                        border = BorderStroke(1.dp, colors.borderWhisper),
+                        modifier = Modifier.weight(1f).height(68.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountBalanceWallet,
+                                contentDescription = "Log Expense",
+                                tint = colors.inkPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Log Expense",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.sp,
+                                color = colors.inkPrimary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 5. Action Required Banner (Conditional) ───────────────────
+        if (pendingSettlementApproval != null) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(d.radiusMD),
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                    border = BorderStroke(1.dp, colors.alertRed.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = d.space16, vertical = d.space12),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f).padding(end = d.space8),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(d.space12)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.alertRed)
+                            )
+                            Column {
+                                Text(
+                                    text = "Settlement Confirmation",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = colors.inkPrimary
+                                )
+                                Text(
+                                    text = "Friend marked ₹${pendingSettlementApproval.myShare.formatCurrency()} as settled with you",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = 10.sp,
+                                    color = colors.inkMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(d.space8),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        try {
+                                            FirebaseManager.confirmDirectSplitSettlement(pendingSettlementApproval.id)
+                                            Toast.makeText(context, "Settlement confirmed!", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
+                                shape = RoundedCornerShape(d.radiusSM),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(28.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space12)) {
-                                    Text("+ Quick Split", fontFamily = OutfitFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                                Text("Confirm", fontFamily = OutfitFamily, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        try {
+                                            FirebaseManager.declineDirectSplitSettlement(pendingSettlementApproval.id)
+                                            Toast.makeText(context, "Settlement declined", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(d.radiusSM),
+                                border = BorderStroke(0.5.dp, colors.borderWhisper),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("Decline", fontFamily = OutfitFamily, fontSize = 10.sp, fontWeight = FontWeight.Normal, color = colors.inkMuted)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 6. Spending Insights Card (Options B + C Blended) ─────────
+        item {
+            Card(
+                shape = RoundedCornerShape(d.radiusLG),
+                colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                border = BorderStroke(1.dp, colors.borderWhisper),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(d.space16),
+                    verticalArrangement = Arrangement.spacedBy(d.space12)
+                ) {
+                    // Header Row with Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "SPENDING INSIGHTS",
+                            fontFamily = OutfitFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.inkMuted,
+                            letterSpacing = 1.2.sp
+                        )
+
+                        // 2-Pill Switcher
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(d.radiusMD))
+                                .background(colors.canvasChalk)
+                                .border(BorderStroke(0.5.dp, colors.borderWhisper), RoundedCornerShape(d.radiusMD))
+                                .padding(2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(d.radiusSM))
+                                    .background(if (activeInsightTab == 0) colors.inkPrimary else Color.Transparent)
+                                    .clickable { activeInsightTab = 0 }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "7-Day Trend",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = if (activeInsightTab == 0) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 10.sp,
+                                    color = if (activeInsightTab == 0) colors.canvasChalk else colors.inkMuted
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(d.radiusSM))
+                                    .background(if (activeInsightTab == 1) colors.inkPrimary else Color.Transparent)
+                                    .clickable { activeInsightTab = 1 }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Categories",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = if (activeInsightTab == 1) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 10.sp,
+                                    color = if (activeInsightTab == 1) colors.canvasChalk else colors.inkMuted
+                                )
+                            }
+                        }
+                    }
+
+                    if (activeInsightTab == 0) {
+                        // VIEW 1: 7-DAY TREND
+                        Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Bottom
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "₹${weekTotalSpend.formatCurrency()}",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 20.sp,
+                                        color = colors.inkPrimary
+                                    )
+                                    Text(
+                                        text = "Total spent this week",
+                                        fontFamily = OutfitFamily,
+                                        fontSize = 10.sp,
+                                        color = colors.inkMuted
+                                    )
                                 }
                             }
-                            Surface(
-                                onClick = { onCreateGroup() },
-                                shape = RoundedCornerShape(d.radiusFull),
-                                color = colors.surfaceCard,
-                                border = BorderStroke(1.dp, colors.borderWhisper),
-                                modifier = Modifier.height(32.dp)
+
+                            // Minimalist Linear Bar Graph
+                            val dayLetters = listOf("M", "T", "W", "T", "F", "S", "S")
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(84.dp)
+                                    .padding(vertical = 4.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space12)) {
-                                    Text("+ New Group", fontFamily = OutfitFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.inkPrimary)
+                                // Subtle dashed benchmark line across chart (minimalist, no text overlay)
+                                val benchmarkFraction = (dailyBudgetBenchmark / maxSpend).toFloat().coerceIn(0.2f, 0.85f)
+                                Canvas(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(64.dp)
+                                ) {
+                                    val y = size.height * (1f - benchmarkFraction)
+                                    drawLine(
+                                        color = colors.borderWhisper.copy(alpha = 0.5f),
+                                        start = androidx.compose.ui.geometry.Offset(0f, y),
+                                        end = androidx.compose.ui.geometry.Offset(size.width, y),
+                                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f),
+                                        strokeWidth = 1.dp.toPx()
+                                    )
+                                }
+
+                                // 7 Vertical Linear Pillars
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = d.space8),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.Bottom
+                                ) {
+                                    currentWeekDaySpends.forEachIndexed { idx, spend ->
+                                        val isToday = idx == currentDayOfWeekIdx
+                                        val heightFraction = (spend / maxSpend).toFloat().coerceIn(if (spend > 0) 0.12f else 0.05f, 1f)
+                                        val barColor = when {
+                                            spend > dailyBudgetBenchmark * 1.25 -> colors.alertRed
+                                            isToday -> colors.inkPrimary
+                                            else -> colors.inkMuted.copy(alpha = 0.7f)
+                                        }
+
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            // Pillar container
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(6.dp)
+                                                    .height(56.dp)
+                                                    .clip(RoundedCornerShape(999.dp))
+                                                    .background(colors.borderWhisper.copy(alpha = 0.35f)),
+                                                contentAlignment = Alignment.BottomCenter
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .fillMaxHeight(heightFraction)
+                                                        .clip(RoundedCornerShape(999.dp))
+                                                        .background(barColor)
+                                                )
+                                            }
+
+                                            // Day Letter + Active Dot
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Text(
+                                                    text = dayLetters[idx],
+                                                    fontFamily = OutfitFamily,
+                                                    fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
+                                                    fontSize = 9.sp,
+                                                    color = if (isToday) colors.inkPrimary else colors.inkMuted
+                                                )
+                                                if (isToday) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(3.dp)
+                                                            .clip(CircleShape)
+                                                            .background(colors.inkPrimary)
+                                                    )
+                                                } else {
+                                                    Spacer(modifier = Modifier.height(3.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // VIEW 2: CATEGORIES BREAKDOWN
+                        Column(verticalArrangement = Arrangement.spacedBy(d.space12)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Bottom
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "₹${totalPersonalSpent.formatCurrency()}",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 20.sp,
+                                        color = colors.inkPrimary
+                                    )
+                                    Text(
+                                        text = "Total outflow this month",
+                                        fontFamily = OutfitFamily,
+                                        fontSize = 10.sp,
+                                        color = colors.inkMuted
+                                    )
+                                }
+
+                                Text(
+                                    text = "${categoryBreakdown.size} CATEGORIES",
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 10.sp,
+                                    color = colors.inkMuted
+                                )
+                            }
+
+                            // Segmented proportion bar
+                            if (categoryBreakdown.isEmpty() || totalPersonalSpent <= 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(colors.borderWhisper)
+                                )
+                            } else {
+                                val segmentColors = listOf(
+                                    colors.inkPrimary,
+                                    colors.inkMuted,
+                                    colors.inkMuted.copy(alpha = 0.5f),
+                                    colors.borderWhisper
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(colors.borderWhisper)
+                                ) {
+                                    val topSegments = categoryBreakdown.take(4)
+                                    topSegments.forEachIndexed { index, pair ->
+                                        val weight = (pair.second / totalPersonalSpent).toFloat().coerceIn(0.02f, 1f)
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(weight)
+                                                .fillMaxHeight()
+                                                .background(segmentColors.getOrElse(index) { colors.borderWhisper })
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Top 3 Category Breakdown rows
+                            val topThree = categoryBreakdown.take(3)
+                            val dotColors = listOf(
+                                colors.inkPrimary,
+                                colors.inkMuted,
+                                colors.inkMuted.copy(alpha = 0.6f)
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                                topThree.forEachIndexed { index, (catName, catAmount) ->
+                                    val pct = if (totalPersonalSpent > 0) ((catAmount / totalPersonalSpent) * 100).toInt() else 0
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(d.space8)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .clip(CircleShape)
+                                                    .background(dotColors.getOrElse(index) { colors.inkMuted })
+                                            )
+                                            Text(
+                                                text = catName,
+                                                fontFamily = OutfitFamily,
+                                                fontWeight = FontWeight.Medium,
+                                                fontSize = 12.sp,
+                                                color = colors.inkPrimary
+                                            )
+                                        }
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(d.space12)
+                                        ) {
+                                            Text(
+                                                text = "$pct%",
+                                                fontFamily = OutfitFamily,
+                                                fontSize = 10.sp,
+                                                color = colors.inkMuted
+                                            )
+                                            Text(
+                                                text = "₹${catAmount.formatCurrency()}",
+                                                fontFamily = JetBrainsMonoFamily,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = colors.inkPrimary
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
-                HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
             }
-        } else {
-            items(combinedRecentActivities) { item ->
-                Column {
-                    Row(
+        }
+
+        // ── 7. Curated Recent Activity (3 Items Only) ─────────────────
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "LATEST TRANSACTIONS",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.2.sp
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "All Splits →",
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 10.sp,
+                        color = colors.inkMuted,
+                        modifier = Modifier.clickable { onNavigateToSplitsTab() }
+                    )
+                    Text(text = "•", fontSize = 10.sp, color = colors.borderWhisper)
+                    Text(
+                        text = "All Expenses →",
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 10.sp,
+                        color = colors.inkMuted,
+                        modifier = Modifier.clickable { onNavigateToExpenses() }
+                    )
+                }
+            }
+        }
+
+        if (curatedActivities.isEmpty()) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(d.radiusLG),
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                    border = BorderStroke(1.dp, colors.borderWhisper),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                if (item.rawSplit != null) onSplitClick(item.rawSplit)
-                                else if (item.rawPersonal != null) onPersonalClick(item.rawPersonal)
-                                else if (item.rawGroupExpense != null) onGroupExpenseClick(item.rawGroupExpense)
-                            }
-                            .padding(vertical = d.space12),
-                        horizontalArrangement = Arrangement.spacedBy(d.space12),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(vertical = d.space24),
+                        contentAlignment = Alignment.Center
                     ) {
-                        // Direction indicator dot
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (item.isSettled) colors.inkMuted
-                                    else if (item.isPositive) colors.inkPrimary
-                                    else colors.alertRed
-                                )
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = item.title,
-                                fontFamily = OutfitFamily,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = d.textBodyLarge,
-                                color = colors.inkPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = item.subtitle,
-                                fontFamily = OutfitFamily,
-                                fontSize = d.textLabelSmall,
-                                color = colors.inkMuted
-                            )
-                        }
                         Text(
-                            text = "₹${if (item.amount % 1.0 == 0.0) item.amount.toInt().toString() else String.format("%.2f", item.amount)}",
-                            fontFamily = JetBrainsMonoFamily,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = d.textBodyLarge,
-                            color = if (item.isSettled) colors.inkMuted else if (item.isPositive) colors.inkPrimary else colors.alertRed
+                            text = "No recent transactions",
+                            fontFamily = OutfitFamily,
+                            fontSize = 12.sp,
+                            color = colors.inkMuted
                         )
                     }
-                    HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+                }
+            }
+        } else {
+            item {
+                Card(
+                    shape = RoundedCornerShape(d.radiusLG),
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                    border = BorderStroke(1.dp, colors.borderWhisper),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        curatedActivities.forEachIndexed { index, item ->
+                            val (badgeText, badgeBg, badgeFg) = when {
+                                item.rawSplit != null -> Triple("SPLIT", colors.inkPrimary.copy(alpha = 0.08f), colors.inkPrimary)
+                                item.rawPersonal != null -> Triple("SOLO", colors.canvasChalk, colors.inkMuted)
+                                else -> Triple("GROUP", colors.inkPrimary.copy(alpha = 0.08f), colors.inkPrimary)
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (item.rawSplit != null) onSplitClick(item.rawSplit)
+                                        else if (item.rawPersonal != null) onPersonalClick(item.rawPersonal)
+                                        else if (item.rawGroupExpense != null) onGroupExpenseClick(item.rawGroupExpense)
+                                    }
+                                    .padding(horizontal = d.space16, vertical = d.space12),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f).padding(end = d.space8),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(badgeBg)
+                                            .border(BorderStroke(0.5.dp, colors.borderWhisper), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = badgeText,
+                                            fontFamily = JetBrainsMonoFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 9.sp,
+                                            color = badgeFg
+                                        )
+                                    }
+
+                                    Column {
+                                        Text(
+                                            text = item.title,
+                                            fontFamily = OutfitFamily,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 12.sp,
+                                            color = colors.inkPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = item.subtitle,
+                                            fontFamily = OutfitFamily,
+                                            fontSize = 10.sp,
+                                            color = colors.inkMuted,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    val amountPrefix = if (item.rawPersonal != null) "" else if (item.isPositive) "+" else "-"
+                                    val amountColor = if (item.rawPersonal != null) colors.inkMuted else if (item.isPositive) colors.inkPrimary else colors.alertRed
+                                    Text(
+                                        text = "${amountPrefix}₹${item.amount.formatCurrency()}",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = amountColor
+                                    )
+                                    Text(
+                                        text = if (item.rawPersonal != null) "Logged" else if (item.isPositive) "You lent" else "You owe",
+                                        fontFamily = OutfitFamily,
+                                        fontSize = 9.sp,
+                                        color = colors.inkMuted
+                                    )
+                                }
+                            }
+
+                            if (index < curatedActivities.lastIndex) {
+                                HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
-
-
-
 // ─── 4. PROFILE VIEW (Style B) ───────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
