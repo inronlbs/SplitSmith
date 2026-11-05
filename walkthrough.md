@@ -714,3 +714,30 @@ Patch release resolving missing Edit & Delete options in expense detail bottom s
 - **AAB**: `SplitSmith-v0.4.0.0-release.aab` (43.7 MB)
 - **APK**: `SplitSmith-v0.4.0.0-release.apk` (70.3 MB)
 - **CDN**: `splitsmith.bin` (70.3 MB) deployed to Firebase Hosting
+
+
+## [2026-11-05 13:28] Removed Redundant Settings Tab & Unified Preset Personal Group
+
+### Changes Implemented
+1. **Group Detail Streamlining (`GroupDetailScreen.kt`)**:
+   - Removed redundant "Settings" tab from the horizontal swipe pager.
+   - Pager reduced from 3 pages to 2 pages (`pageCount = { 2 }`):
+     - Split Groups: `Expenses` and `Balances`.
+     - Tracker Groups: `Expenses` and `Breakdown`.
+   - Dedicated Settings bottom sheet remains fully accessible via the top-bar gear icon (`Icons.Default.Settings`) and tapping the group header.
+
+2. **Preset Personal Group in Expenses Tab (`PersonalExpensesScreen.kt`)**:
+   - Removed the top segmented pill switcher (`[ All Trackers | Personal Log ]`).
+   - Unified the Expenses tab into a single, clean list of Expense Tracker Groups.
+   - Pinned **Preset "Personal" Group** as the first item:
+     - Avatar: User's profile avatar.
+     - Title: "Personal" with a subtle monochrome "Preset" badge.
+     - Caption: "1 participant (You) · ₹X this month".
+     - Tapping opens the detailed personal ledger view.
+   - Integrated `BackHandler` and a top back button inside the personal ledger view to smoothly return to the groups list.
+   - Maintained all shared non-split tracker groups directly below it under `SHARED EXPENSE GROUPS`.
+
+### Verification & Testing
+- `compileDebugKotlin`: SUCCESSFUL (28s)
+- `testDebugUnitTest`: SUCCESSFUL (22s, 27 tasks passed)
+- Zero emojis verified across codebase diff.

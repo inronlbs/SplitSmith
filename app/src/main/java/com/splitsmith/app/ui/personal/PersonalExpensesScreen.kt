@@ -67,7 +67,11 @@ fun PersonalExpensesScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var selectedExpenseTab by rememberSaveable { mutableStateOf(0) }
+    var showingPersonalLedger by rememberSaveable { mutableStateOf(false) }
+
+    androidx.activity.compose.BackHandler(enabled = showingPersonalLedger) {
+        showingPersonalLedger = false
+    }
     var showCreateExpenseGroupSheet by remember { mutableStateOf(false) }
     var showAddPersonalSheet by remember { mutableStateOf(false) }
     var showAddCategoryDialog by remember { mutableStateOf(false) }
@@ -94,6 +98,7 @@ fun PersonalExpensesScreen(
     // Auto-open sheet if triggered from FAB Quick Actions
     LaunchedEffect(showAddPersonalInitially) {
         if (showAddPersonalInitially) {
+            showingPersonalLedger = true
             showAddPersonalSheet = true
         }
     }
@@ -104,6 +109,7 @@ fun PersonalExpensesScreen(
         if (!initialSelectedExpenseId.isNullOrEmpty() && initialSelectedExpenseId != handledInitialId && personalExpenses.isNotEmpty()) {
             val target = personalExpenses.firstOrNull { it.id == initialSelectedExpenseId }
             if (target != null) {
+                showingPersonalLedger = true
                 selectedExpenseDetail = target
                 handledInitialId = initialSelectedExpenseId
             }
@@ -181,251 +187,111 @@ fun PersonalExpensesScreen(
                 contentPadding = PaddingValues(horizontal = d.space24, vertical = d.space24),
                 verticalArrangement = Arrangement.spacedBy(d.space20)
             ) {
-                // Unified Header with Segmented Switcher
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Expenses",
-                            fontFamily = OutfitFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = d.textHeadlineLarge,
-                            color = colors.inkPrimary,
-                            letterSpacing = (-0.5).sp
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (selectedExpenseTab == 1) {
-                                IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
-                                    Icon(
-                                        imageVector = if (isSearchVisible) Icons.Default.Close else Icons.Default.Search,
-                                        contentDescription = "Toggle Search",
-                                        tint = colors.inkPrimary
-                                    )
-                                }
-                            }
-                            IconButton(onClick = { showAddPersonalSheet = true }) {
+                if (!showingPersonalLedger) {
+                    // ── HEADER: EXPENSE GROUPS LIST ───────────────────────────
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Expenses",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = d.textHeadlineLarge,
+                                color = colors.inkPrimary,
+                                letterSpacing = (-0.5).sp
+                            )
+                            IconButton(onClick = { showCreateExpenseGroupSheet = true }) {
                                 Icon(
                                     imageVector = Icons.Default.Add,
-                                    contentDescription = "Add Expense",
+                                    contentDescription = "New Expense Group",
                                     tint = colors.inkPrimary
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(d.space8))
-
-                    // Top Segmented Switcher: Personal vs Expense Groups
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(d.space8),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        listOf("All Trackers", "Personal Log").forEachIndexed { index, label ->
-                            val isActive = selectedExpenseTab == index
-                            val bgColor by androidx.compose.animation.animateColorAsState(
-                                targetValue = if (isActive) colors.inkPrimary else Color.Transparent,
-                                label = "tabBg$index"
-                            )
-                            val textColor by androidx.compose.animation.animateColorAsState(
-                                targetValue = if (isActive) colors.canvasChalk else colors.inkMuted,
-                                label = "tabText$index"
-                            )
-                            Surface(
-                                onClick = { selectedExpenseTab = index },
-                                shape = RoundedCornerShape(d.radiusFull),
-                                color = bgColor,
-                                border = if (!isActive) BorderStroke(1.dp, colors.borderWhisper) else null,
-                                modifier = Modifier.height(d.space32 + d.space4)
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                                    fontSize = d.textLabelLarge,
-                                    color = textColor,
-                                    modifier = Modifier.padding(horizontal = d.space16, vertical = d.space8)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (selectedExpenseTab == 0) {
-                    // TAB 0: ALL TRACKERS (Personal as Special Primary + Shared Expense Groups)
+                    // ── PRESET GROUP #1: PERSONAL EXPENSES ────────────────────
                     item {
                         Surface(
-                            shape = RoundedCornerShape(d.radiusLG),
+                            shape = RoundedCornerShape(d.radiusMD),
                             color = colors.surfaceCard,
                             border = BorderStroke(1.dp, colors.borderWhisper),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { selectedExpenseTab = 1 }
+                                .clickable { showingPersonalLedger = true }
                         ) {
-                            Column(
+                            Row(
                                 modifier = Modifier.padding(d.space16),
-                                verticalArrangement = Arrangement.spacedBy(d.space12)
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                com.splitsmith.app.ui.components.UserAvatar(
+                                    avatarUrl = profile?.avatarUrl ?: "",
+                                    displayName = profile?.displayName ?: "Personal",
+                                    size = d.avatarMd
+                                )
+                                Spacer(modifier = Modifier.width(d.space16))
+                                Column(modifier = Modifier.weight(1f)) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(d.space12)
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        com.splitsmith.app.ui.components.UserAvatar(
-                                            avatarUrl = profile?.avatarUrl ?: "",
-                                            displayName = profile?.displayName ?: "Personal",
-                                            size = d.avatarMd
+                                        Text(
+                                            text = "Personal",
+                                            fontFamily = OutfitFamily,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = d.textTitleMedium,
+                                            color = colors.inkPrimary
                                         )
-                                        Column {
-                                            Text(
-                                                text = "Personal (You)",
-                                                fontFamily = OutfitFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = d.textTitleMedium,
-                                                color = colors.inkPrimary
-                                            )
-                                            Text(
-                                                text = "Special Solo Tracker",
-                                                fontFamily = OutfitFamily,
-                                                fontSize = d.textLabelSmall,
-                                                color = colors.inkMuted
-                                            )
+                                        Surface(
+                                            shape = RoundedCornerShape(d.radiusFull),
+                                            color = colors.inkPrimary.copy(alpha = 0.08f),
+                                            modifier = Modifier.height(18.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp)) {
+                                                Text(
+                                                    text = "Preset",
+                                                    fontFamily = OutfitFamily,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    fontSize = 9.sp,
+                                                    color = colors.inkPrimary
+                                                )
+                                            }
                                         }
                                     }
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Text(
-                                            text = "View Log",
-                                            fontFamily = OutfitFamily,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = d.textLabelMedium,
-                                            color = colors.inkPrimary
-                                        )
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                            contentDescription = "View Log",
-                                            tint = colors.inkPrimary,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
+                                    Text(
+                                        text = "1 participant (You) \u00b7 \u20b9${monthlySpend.formatCurrency()} this month",
+                                        fontFamily = OutfitFamily,
+                                        fontSize = d.textLabelMedium,
+                                        color = colors.inkMuted
+                                    )
                                 }
-
-                                HorizontalDivider(color = colors.borderWhisper.copy(alpha = 0.5f), thickness = 0.5.dp)
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text(
-                                            text = "SPENT THIS MONTH",
-                                            fontFamily = OutfitFamily,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = colors.inkMuted,
-                                            letterSpacing = 1.sp
-                                        )
-                                        Text(
-                                            text = "\u20b9${monthlySpend.formatCurrency()}",
-                                            fontFamily = JetBrainsMonoFamily,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 22.sp,
-                                            color = colors.inkPrimary
-                                        )
-                                    }
-                                    val remaining = budgetLimit - monthlySpend
-                                    Column(horizontalAlignment = Alignment.End) {
-                                        Text(
-                                            text = "MONTHLY BUDGET",
-                                            fontFamily = OutfitFamily,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = colors.inkMuted,
-                                            letterSpacing = 1.sp
-                                        )
-                                        Text(
-                                            text = if (remaining >= 0) "\u20b9${remaining.formatCurrency()} left" else "Overspent \u20b9${(-remaining).formatCurrency()}",
-                                            fontFamily = OutfitFamily,
-                                            fontSize = d.textLabelMedium,
-                                            fontWeight = if (remaining < 0) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (remaining < 0) colors.alertRed else colors.inkMuted
-                                        )
-                                    }
-                                }
-
-                                val progress = (monthlySpend / budgetLimit).coerceIn(0.0, 1.0).toFloat()
-                                LinearProgressIndicator(
-                                    progress = { progress },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(4.dp)
-                                        .clip(RoundedCornerShape(d.radiusFull)),
-                                    color = if (progress > 0.9f) colors.alertRed else colors.inkPrimary,
-                                    trackColor = colors.borderWhisper
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = "Open personal expenses",
+                                    tint = colors.inkMuted,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
                     }
 
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = d.space8),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                    // ── SHARED EXPENSE GROUPS ─────────────────────────────────
+                    if (trackerGroups.isNotEmpty()) {
+                        item {
                             Text(
                                 text = "SHARED EXPENSE GROUPS (${trackerGroups.size})",
                                 fontFamily = OutfitFamily,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = colors.inkMuted,
-                                letterSpacing = 1.5.sp
+                                letterSpacing = 1.5.sp,
+                                modifier = Modifier.padding(top = d.space8)
                             )
-                            TextButton(onClick = { showCreateExpenseGroupSheet = true }) {
-                                Text("+ New Group", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelMedium, color = colors.inkPrimary)
-                            }
                         }
-                    }
 
-                    if (trackerGroups.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = d.space24),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(d.space8)
-                                ) {
-                                    Text(
-                                        text = "No shared expense groups yet",
-                                        fontFamily = OutfitFamily,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = d.textTitleMedium,
-                                        color = colors.inkPrimary
-                                    )
-                                    Text(
-                                        text = "Create a group to track shared spend without split debts.",
-                                        fontFamily = OutfitFamily,
-                                        fontSize = d.textLabelMedium,
-                                        color = colors.inkMuted,
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-                            }
-                        }
-                    } else {
                         items(trackerGroups) { group ->
                             Surface(
                                 shape = RoundedCornerShape(d.radiusMD),
@@ -453,7 +319,7 @@ fun PersonalExpensesScreen(
                                             color = colors.inkPrimary
                                         )
                                         Text(
-                                            text = "${group.members.size} members",
+                                            text = "${group.members.size} participants",
                                             fontFamily = OutfitFamily,
                                             fontSize = d.textLabelMedium,
                                             color = colors.inkMuted
@@ -470,7 +336,52 @@ fun PersonalExpensesScreen(
                         }
                     }
                 } else {
-                    // TAB 1: PERSONAL LOG (Complete Ledger View)
+                    // ── PERSONAL EXPENSES LEDGER VIEW ─────────────────────────
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(d.space8)
+                            ) {
+                                IconButton(onClick = { showingPersonalLedger = false }) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Back to groups",
+                                        tint = colors.inkPrimary
+                                    )
+                                }
+                                Text(
+                                    text = "Personal",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = d.textHeadlineLarge,
+                                    color = colors.inkPrimary,
+                                    letterSpacing = (-0.5).sp
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
+                                    Icon(
+                                        imageVector = if (isSearchVisible) Icons.Default.Close else Icons.Default.Search,
+                                        contentDescription = "Toggle Search",
+                                        tint = colors.inkPrimary
+                                    )
+                                }
+                                IconButton(onClick = { showAddPersonalSheet = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Add Personal Expense",
+                                        tint = colors.inkPrimary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     item {
                         Column(modifier = Modifier.fillMaxWidth().padding(vertical = d.space8)) {
                             Row(

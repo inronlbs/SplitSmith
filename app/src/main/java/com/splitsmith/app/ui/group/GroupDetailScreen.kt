@@ -93,7 +93,7 @@ fun GroupDetailScreen(
     onNavigateToReports: ((String) -> Unit)? = null
 ) {
     val d = LocalDimens.current
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     var selectedDebtForSettlement by remember { mutableStateOf<Debt?>(null) }
     var selectedMemberForModal by remember { mutableStateOf<UserProfile?>(null) }
     var userNamesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -653,7 +653,7 @@ fun GroupDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(d.space8),
                         modifier = Modifier.weight(1f)
                     ) {
-                        val tabLabels = if (currentGroup.isExpenseTracker) listOf("Expenses", "Breakdown", "Settings") else listOf("Expenses", "Balances", "Settings")
+                        val tabLabels = if (currentGroup.isExpenseTracker) listOf("Expenses", "Breakdown") else listOf("Expenses", "Balances")
                         tabLabels.forEachIndexed { index, label ->
                             val isActive = pagerState.currentPage == index
                             val bgColor by animateColorAsState(
@@ -752,20 +752,7 @@ fun GroupDetailScreen(
                                 )
                             }
                         }
-                        2 -> {
-                            StyledSettingsTab(
-                                group = currentGroup,
-                                userNamesMap = userNamesMap,
-                                memberProfilesMap = memberProfilesMap,
-                                onBack = onBack,
-                                onNavigateToReports = { gId ->
-                                    onNavigateToReports?.invoke(gId)
-                                },
-                                onSelectMember = { profile ->
-                                    selectedMemberForModal = profile
-                                }
-                            )
-                        }
+
                     }
                 }
             }
