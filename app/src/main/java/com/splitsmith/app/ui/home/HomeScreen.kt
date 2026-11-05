@@ -65,6 +65,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.splitsmith.app.data.DirectSplit
 import com.splitsmith.app.data.Group
 import com.splitsmith.app.data.UserProfile
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.splitsmith.app.ui.personal.PersonalExpensesScreen
 import com.splitsmith.app.ui.split.SplitExpensesScreen
 import com.splitsmith.app.ui.split.DirectSplitDetailBottomSheet
@@ -116,6 +118,8 @@ fun HomeScreen(
 ) {
     val d = LocalDimens.current
     val colors = LocalSplitColors.current
+    val homeViewModel: HomeViewModel = viewModel()
+    val homeDashboardState by homeViewModel.uiState.collectAsStateWithLifecycle()
     var showCreateGroupSheet by remember { mutableStateOf(false) }
     var createGroupIsTracker by remember { mutableStateOf(false) }
     var showJoinGroupSheet by remember { mutableStateOf(false) }
@@ -359,8 +363,7 @@ fun HomeScreen(
             ) { page ->
                 when (page) {
                     0 -> HomeDashboardView(
-                        groups = groupsState.value,
-                        userProfile = userProfileState.value,
+                        state = homeDashboardState,
                         onNavigateToGroup = onNavigateToGroup,
                         onSeeAllGroups = handleScrollToPage1,
                         onCreateGroup = handleCreateGroupClick,
@@ -375,7 +378,25 @@ fun HomeScreen(
                         onSplitClick = { selectedSplitForDetail = it },
                         onPersonalClick = { selectedPersonalForDetail = it },
                         onGroupExpenseClick = { selectedGroupExpenseForDetail = it },
-                        onConnectUser = { connectedUserPopup = it }
+                        onConnectUser = { connectedUserPopup = it },
+                        onConfirmSettlement = { splitId ->
+                            homeViewModel.confirmSettlement(splitId) { success, error ->
+                                if (success) Toast.makeText(context, "Settlement confirmed!", Toast.LENGTH_SHORT).show()
+                                else Toast.makeText(context, "Error: $error", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onDeclineSettlement = { splitId ->
+                            homeViewModel.declineSettlement(splitId) { success, error ->
+                                if (success) Toast.makeText(context, "Settlement declined", Toast.LENGTH_SHORT).show()
+                                else Toast.makeText(context, "Error: $error", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onUploadAvatar = { uri ->
+                            homeViewModel.uploadAvatar(context, uri) { success, error ->
+                                if (success) Toast.makeText(context, "Avatar updated successfully!", Toast.LENGTH_SHORT).show()
+                                else Toast.makeText(context, "Upload failed: $error", Toast.LENGTH_LONG).show()
+                            }
+                        }
                     )
                     1 -> SplitExpensesScreen(
                         onNavigateToGroup = onNavigateToGroup,
@@ -841,8 +862,7 @@ data class RecentActivityItem(
 // ─── 1. HOME DASHBOARD ───────────────────────────────────────
 @Composable
 fun HomeDashboardView(
-    groups: List<Group>,
-    userProfile: com.splitsmith.app.data.UserProfile?,
+    state: HomeDashboardUiState,
     onNavigateToGroup: (groupId: String) -> Unit,
     onSeeAllGroups: () -> Unit,
     onCreateGroup: () -> Unit,
@@ -854,35 +874,22 @@ fun HomeDashboardView(
     onSplitClick: (DirectSplit) -> Unit = {},
     onPersonalClick: (com.splitsmith.app.data.PersonalExpense) -> Unit = {},
     onGroupExpenseClick: (com.splitsmith.app.data.GroupExpenseWithContext) -> Unit = {},
-    onConnectUser: (UserProfile) -> Unit = {}
+    onConnectUser: (UserProfile) -> Unit = {},
+    onConfirmSettlement: (splitId: String) -> Unit = {},
+    onDeclineSettlement: (splitId: String) -> Unit = {},
+    onUploadAvatar: (android.net.Uri) -> Unit = {}
 ) {
     val d = LocalDimens.current
     val colors = LocalSplitColors.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    var isUploadingAvatar by remember { mutableStateOf(false) }
     var activeInsightTab by remember { mutableIntStateOf(0) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
     ) { uri: android.net.Uri? ->
         if (uri != null) {
-            isUploadingAvatar = true
-            coroutineScope.launch {
-                try {
-                    val base64 = uriToBase64(context, uri)
-                    if (base64 != null) {
-                        FirebaseManager.updateAvatarUrl(base64)
-                        Toast.makeText(context, "Avatar updated successfully!", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "Failed to process image", Toast.LENGTH_SHORT).show()
-                    }
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Upload failed: ${e.message}", Toast.LENGTH_LONG).show()
-                } finally {
-                    isUploadingAvatar = false
-                }
-            }
+            onUploadAvatar(uri)
         }
     }
 
@@ -948,202 +955,6 @@ fun HomeDashboardView(
         }
     }
 
-    val currentUserId = FirebaseManager.currentUserId ?: ""
-
-    // Current month start timestamp for strict calendar-month budget tracking
-    val currentMonthStart = remember {
-        java.util.Calendar.getInstance().apply {
-            set(java.util.Calendar.DAY_OF_MONTH, 1)
-            set(java.util.Calendar.HOUR_OF_DAY, 0)
-            set(java.util.Calendar.MINUTE, 0)
-            set(java.util.Calendar.SECOND, 0)
-            set(java.util.Calendar.MILLISECOND, 0)
-        }.timeInMillis
-    }
-
-    // Days in month and remaining days
-    val calendar = remember { java.util.Calendar.getInstance() }
-    val daysInMonth = remember { calendar.getActualMaximum(java.util.Calendar.DAY_OF_MONTH) }
-    val currentDayOfMonth = remember { calendar.get(java.util.Calendar.DAY_OF_MONTH) }
-    val daysRemaining = remember { (daysInMonth - currentDayOfMonth + 1).coerceAtLeast(1) }
-
-    // Observe expenses, direct splits, and group expenses for real-time dashboard calculations
-    val personalExpensesFlow = remember { FirebaseManager.observePersonalExpenses() }
-    val personalExpensesState = personalExpensesFlow.collectAsState(initial = emptyList())
-    val directSplitsFlow = remember { FirebaseManager.observeDirectSplits() }
-    val directSplitsState = directSplitsFlow.collectAsState(initial = emptyList())
-    val groupExpensesFlow = remember { FirebaseManager.observeAllUserGroupExpenses() }
-    val groupExpensesState = groupExpensesFlow.collectAsState(initial = emptyList())
-
-    // Comprehensive Total Monthly Outflow: Solo Personal Spend + Direct Splits Share + Group Expense Share for current month
-    val totalPersonalSpent = remember(personalExpensesState.value, directSplitsState.value, groupExpensesState.value, currentMonthStart, currentUserId) {
-        val soloMonthly = personalExpensesState.value.filter { it.date >= currentMonthStart }.sumOf { it.amount }
-        val directMonthly = directSplitsState.value.filter { it.date >= currentMonthStart }.sumOf { ds ->
-            ds.myShare
-        }
-        val groupMonthly = groupExpensesState.value.filter { it.expense.date >= currentMonthStart }.sumOf { ge ->
-            ge.expense.splits[currentUserId] ?: 0.0
-        }
-        soloMonthly + directMonthly + groupMonthly
-    }
-    val budgetLimit = (userProfile?.budget?.limit ?: 15000.0).let { if (it <= 0) 15000.0 else it }
-    val budgetProgress = if (budgetLimit > 0) (totalPersonalSpent / budgetLimit).coerceIn(0.0, 1.0) else 0.0
-    val remainingBudget = budgetLimit - totalPersonalSpent
-    val dailyAllowance = remember(remainingBudget, daysRemaining) {
-        if (remainingBudget > 0) remainingBudget / daysRemaining else 0.0
-    }
-
-    // Consolidated Receivable & Payable
-    val totalDirectReceivable = remember(directSplitsState.value, groupExpensesState.value, currentUserId) {
-        val directRec = directSplitsState.value.filter { it.status == "PENDING" && it.paidBy == currentUserId }.sumOf { it.myShare }
-        val groupRec = groupExpensesState.value.filter { it.expense.paidBy == currentUserId && it.expense.splitMode != "NONE" }.sumOf {
-            it.expense.amount - (it.expense.splits[currentUserId] ?: 0.0)
-        }
-        directRec + groupRec
-    }
-
-    val totalDirectPayable = remember(directSplitsState.value, groupExpensesState.value, currentUserId) {
-        val directPay = directSplitsState.value.filter { it.status == "PENDING" && it.paidBy != currentUserId }.sumOf { it.myShare }
-        val groupPay = groupExpensesState.value.filter { it.expense.paidBy != currentUserId && it.expense.splitMode != "NONE" }.sumOf {
-            it.expense.splits[currentUserId] ?: 0.0
-        }
-        directPay + groupPay
-    }
-
-    val netPosition = totalDirectReceivable - totalDirectPayable
-
-    // Pending Settlement Confirmation requiring current user's approval
-    val pendingSettlementApproval = remember(directSplitsState.value, currentUserId) {
-        directSplitsState.value.firstOrNull { it.status == "WAITING_APPROVAL" && it.paidBy == currentUserId }
-    }
-
-    // 7-day spend array for the current week (Monday to Sunday)
-    val currentWeekDaySpends = remember(personalExpensesState.value, directSplitsState.value, groupExpensesState.value, currentUserId) {
-        val cal = java.util.Calendar.getInstance().apply {
-            firstDayOfWeek = java.util.Calendar.MONDAY
-            set(java.util.Calendar.DAY_OF_WEEK, java.util.Calendar.MONDAY)
-            set(java.util.Calendar.HOUR_OF_DAY, 0)
-            set(java.util.Calendar.MINUTE, 0)
-            set(java.util.Calendar.SECOND, 0)
-            set(java.util.Calendar.MILLISECOND, 0)
-        }
-        val mondayStart = cal.timeInMillis
-        val dayMillis = 24L * 60 * 60 * 1000
-        val spends = DoubleArray(7) { 0.0 }
-
-        personalExpensesState.value.forEach { exp ->
-            val diff = exp.date - mondayStart
-            if (diff >= 0 && diff < 7 * dayMillis) {
-                val dayIdx = (diff / dayMillis).toInt().coerceIn(0, 6)
-                spends[dayIdx] += exp.amount
-            }
-        }
-        directSplitsState.value.forEach { split ->
-            val diff = split.date - mondayStart
-            if (diff >= 0 && diff < 7 * dayMillis) {
-                val dayIdx = (diff / dayMillis).toInt().coerceIn(0, 6)
-                spends[dayIdx] += split.myShare
-            }
-        }
-        groupExpensesState.value.forEach { ge ->
-            val diff = ge.expense.date - mondayStart
-            if (diff >= 0 && diff < 7 * dayMillis) {
-                val dayIdx = (diff / dayMillis).toInt().coerceIn(0, 6)
-                spends[dayIdx] += (ge.expense.splits[currentUserId] ?: 0.0)
-            }
-        }
-        spends
-    }
-
-    val currentDayOfWeekIdx = remember {
-        val c = java.util.Calendar.getInstance()
-        val dow = c.get(java.util.Calendar.DAY_OF_WEEK)
-        if (dow == java.util.Calendar.SUNDAY) 6 else dow - 2
-    }
-
-    // Category breakdown for current month
-    val categoryBreakdown = remember(personalExpensesState.value, directSplitsState.value, groupExpensesState.value, currentMonthStart, currentUserId) {
-        val map = mutableMapOf<String, Double>()
-        personalExpensesState.value.filter { it.date >= currentMonthStart }.forEach { pe ->
-            val cat = pe.category.ifBlank { "Other" }
-            map[cat] = (map[cat] ?: 0.0) + pe.amount
-        }
-        directSplitsState.value.filter { it.date >= currentMonthStart }.forEach { ds ->
-            val cat = ds.category.ifBlank { "Splits" }
-            map[cat] = (map[cat] ?: 0.0) + ds.myShare
-        }
-        groupExpensesState.value.filter { it.expense.date >= currentMonthStart }.forEach { ge ->
-            val cat = ge.expense.category.ifBlank { "Group" }
-            map[cat] = (map[cat] ?: 0.0) + (ge.expense.splits[currentUserId] ?: 0.0)
-        }
-        map.toList().sortedByDescending { it.second }
-    }
-
-    // All combined recent activities sorted chronologically
-    val combinedRecentActivities = remember(directSplitsState.value, personalExpensesState.value, groupExpensesState.value, currentUserId) {
-        val splits = directSplitsState.value.map { split ->
-            RecentActivityItem(
-                id = split.id,
-                title = if (split.description.isNotEmpty()) split.description else "Split",
-                subtitle = if (split.status == "SETTLED") "Settled" else if (split.status == "WAITING_APPROVAL") "Approval Pending" else if (split.paidBy == currentUserId) "You paid" else "You owe",
-                amount = split.myShare,
-                date = split.date,
-                isPositive = split.paidBy == currentUserId,
-                isSettled = split.status == "SETTLED",
-                rawSplit = split
-            )
-        }
-        val personal = personalExpensesState.value.map { pe ->
-            RecentActivityItem(
-                id = pe.id,
-                title = if (pe.description.isNotEmpty()) pe.description else pe.category,
-                subtitle = "Personal Expense • ${pe.category}",
-                amount = pe.amount,
-                date = pe.date,
-                isPositive = false,
-                isSettled = true,
-                rawSplit = null,
-                rawPersonal = pe
-            )
-        }
-        val groupExps = groupExpensesState.value.map { ge ->
-            val exp = ge.expense
-            val isTrackerExpense = exp.splitMode == "NONE"
-            val myShare = exp.splits[currentUserId] ?: 0.0
-            val isPayer = exp.paidBy == currentUserId
-            val netAmount = if (isTrackerExpense) {
-                exp.amount
-            } else {
-                if (isPayer) (exp.amount - myShare) else myShare
-            }
-            val subtitle = if (isTrackerExpense) {
-                "${ge.groupName} • ${if (isPayer) "You paid" else "Group expense"}"
-            } else {
-                "${ge.groupName} • ${if (isPayer) "You lent" else "You owe"}"
-            }
-            RecentActivityItem(
-                id = exp.id,
-                title = if (exp.description.isNotEmpty()) exp.description else exp.category,
-                subtitle = subtitle,
-                amount = netAmount,
-                date = exp.date,
-                isPositive = isPayer,
-                isSettled = isTrackerExpense,
-                rawSplit = null,
-                rawGroupExpense = ge
-            )
-        }
-        (splits + personal + groupExps).sortedByDescending { it.date }
-    }
-
-    val curatedActivities = remember(combinedRecentActivities) { combinedRecentActivities.take(3) }
-    val weekTotalSpend = remember(currentWeekDaySpends) { currentWeekDaySpends.sum() }
-    val maxSpend = remember(currentWeekDaySpends) {
-        (currentWeekDaySpends.maxOrNull() ?: 1.0).coerceAtLeast(100.0)
-    }
-    val dailyBudgetBenchmark = remember(budgetLimit, daysInMonth) {
-        if (budgetLimit > 0) budgetLimit / daysInMonth else 500.0
-    }
     val greetingTime = remember {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         when {
@@ -1188,10 +999,10 @@ fun HomeDashboardView(
                             .background(colors.surfaceCard)
                             .border(BorderStroke(1.dp, colors.borderWhisper), CircleShape)
                             .clickable {
-                                if (pendingSettlementApproval != null) {
+                                if (state.pendingSettlementApproval != null) {
                                     Toast.makeText(
                                         context,
-                                        "Pending settlement: ₹${pendingSettlementApproval.myShare.formatCurrency()}",
+                                        "Pending settlement: ₹${state.pendingSettlementApproval.myShare.formatCurrency()}",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 } else {
@@ -1206,7 +1017,7 @@ fun HomeDashboardView(
                             tint = colors.inkPrimary,
                             modifier = Modifier.size(17.dp)
                         )
-                        if (pendingSettlementApproval != null) {
+                        if (state.pendingSettlementApproval != null) {
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
@@ -1248,7 +1059,7 @@ fun HomeDashboardView(
                     // Profile Avatar Indicator
                     var showProfileDialog by remember { mutableStateOf(false) }
 
-                    if (showProfileDialog && userProfile != null) {
+                    if (showProfileDialog && state.userProfile != null) {
                         AlertDialog(
                             onDismissRequest = { showProfileDialog = false },
                             containerColor = colors.surfaceCard,
@@ -1274,17 +1085,17 @@ fun HomeDashboardView(
                                         modifier = Modifier
                                             .size(80.dp)
                                             .clip(CircleShape)
-                                            .clickable(enabled = !isUploadingAvatar) {
+                                            .clickable(enabled = !state.isUploadingAvatar) {
                                                 photoPickerLauncher.launch("image/*")
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
                                         UserAvatar(
-                                            avatarUrl = userProfile.avatarUrl,
-                                            displayName = userProfile.displayName,
+                                            avatarUrl = state.userProfile.avatarUrl,
+                                            displayName = state.userProfile.displayName,
                                             size = 80.dp
                                         )
-                                        if (isUploadingAvatar) {
+                                        if (state.isUploadingAvatar) {
                                             Box(
                                                 modifier = Modifier
                                                     .matchParentSize()
@@ -1302,14 +1113,14 @@ fun HomeDashboardView(
 
                                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         Text(
-                                            text = userProfile.displayName,
+                                            text = state.userProfile.displayName,
                                             fontFamily = OutfitFamily,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = d.textTitleMedium,
                                             color = colors.inkPrimary
                                         )
                                         Text(
-                                            text = userProfile.email,
+                                            text = state.userProfile.email,
                                             fontFamily = OutfitFamily,
                                             fontSize = d.textLabelMedium,
                                             color = colors.inkMuted
@@ -1391,10 +1202,10 @@ fun HomeDashboardView(
                             .clickable { showProfileDialog = true },
                         contentAlignment = Alignment.Center
                     ) {
-                        if (userProfile != null) {
+                        if (state.userProfile != null) {
                             UserAvatar(
-                                avatarUrl = userProfile.avatarUrl,
-                                displayName = userProfile.displayName,
+                                avatarUrl = state.userProfile.avatarUrl,
+                                displayName = state.userProfile.displayName,
                                 size = 36.dp
                             )
                         }
@@ -1411,15 +1222,7 @@ fun HomeDashboardView(
                     .padding(top = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                val greetingTime = remember {
-                    val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-                    when {
-                        hour < 12 -> "Good morning"
-                        hour < 17 -> "Good afternoon"
-                        else -> "Good evening"
-                    }
-                }
-                val firstName = userProfile?.displayName?.trim()?.split(" ")?.firstOrNull()?.ifEmpty { "there" } ?: "there"
+                val firstName = state.userProfile?.displayName?.trim()?.split(" ")?.firstOrNull()?.ifEmpty { "there" } ?: "there"
                 Text(
                     text = "$greetingTime, $firstName",
                     fontFamily = OutfitFamily,
@@ -1466,13 +1269,13 @@ fun HomeDashboardView(
                                 color = colors.inkMuted,
                                 letterSpacing = 1.2.sp
                             )
-                            val netText = if (netPosition >= 0) "+₹${netPosition.formatCurrency()}" else "-₹${(-netPosition).formatCurrency()}"
+                            val netText = if (state.netPosition >= 0) "+₹${state.netPosition.formatCurrency()}" else "-₹${(-state.netPosition).formatCurrency()}"
                             Text(
                                 text = netText,
                                 fontFamily = JetBrainsMonoFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 28.sp,
-                                color = if (netPosition >= 0) colors.inkPrimary else colors.alertRed
+                                color = if (state.netPosition >= 0) colors.inkPrimary else colors.alertRed
                             )
                         }
 
@@ -1480,7 +1283,7 @@ fun HomeDashboardView(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(
-                                    if (netPosition >= 0) colors.inkPrimary.copy(alpha = 0.08f)
+                                    if (state.netPosition >= 0) colors.inkPrimary.copy(alpha = 0.08f)
                                     else colors.alertRed.copy(alpha = 0.12f)
                                 )
                                 .border(
@@ -1490,11 +1293,11 @@ fun HomeDashboardView(
                                 .padding(horizontal = 12.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = if (netPosition == 0.0) "Settled" else if (netPosition > 0) "Owed to you" else "You owe",
+                                text = if (state.netPosition == 0.0) "Settled" else if (state.netPosition > 0) "Owed to you" else "You owe",
                                 fontFamily = OutfitFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 11.sp,
-                                color = if (netPosition >= 0) colors.inkPrimary else colors.alertRed
+                                color = if (state.netPosition >= 0) colors.inkPrimary else colors.alertRed
                             )
                         }
                     }
@@ -1516,7 +1319,7 @@ fun HomeDashboardView(
                                 color = colors.inkMuted
                             )
                             Text(
-                                text = "₹${totalDirectReceivable.formatCurrency()}",
+                                text = "₹${state.totalDirectReceivable.formatCurrency()}",
                                 fontFamily = JetBrainsMonoFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
@@ -1537,7 +1340,7 @@ fun HomeDashboardView(
                                 color = colors.inkMuted
                             )
                             Text(
-                                text = "₹${totalDirectPayable.formatCurrency()}",
+                                text = "₹${state.totalDirectPayable.formatCurrency()}",
                                 fontFamily = JetBrainsMonoFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
@@ -1550,13 +1353,13 @@ fun HomeDashboardView(
 
                     // Monthly Budget with progress & daily pacing
                     val animatedProgress by animateFloatAsState(
-                        targetValue = budgetProgress.toFloat(),
+                        targetValue = state.budgetProgress,
                         animationSpec = tween(durationMillis = 800),
                         label = "budgetBar"
                     )
                     val barColor = when {
-                        budgetProgress < 0.70 -> colors.inkPrimary
-                        budgetProgress < 0.90 -> Color(0xFFE8A838)
+                        state.budgetProgress < 0.70f -> colors.inkPrimary
+                        state.budgetProgress < 0.90f -> Color(0xFFE8A838)
                         else -> Color(0xFFE05252)
                     }
 
@@ -1575,17 +1378,17 @@ fun HomeDashboardView(
                                 letterSpacing = 1.2.sp
                             )
 
-                            if (remainingBudget >= 0) {
+                            if (state.remainingBudget >= 0) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(
-                                        text = "₹${remainingBudget.formatCurrency()} left",
+                                        text = "₹${state.remainingBudget.formatCurrency()} left",
                                         fontFamily = JetBrainsMonoFamily,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 11.sp,
                                         color = colors.inkPrimary
                                     )
                                     Text(
-                                        text = "of ₹${budgetLimit.formatCurrency()}",
+                                        text = "of ₹${state.budgetLimit.formatCurrency()}",
                                         fontFamily = OutfitFamily,
                                         fontSize = 11.sp,
                                         color = colors.inkMuted
@@ -1593,7 +1396,7 @@ fun HomeDashboardView(
                                 }
                             } else {
                                 Text(
-                                    text = "Overspent: ₹${(-remainingBudget).formatCurrency()}",
+                                    text = "Overspent: ₹${(-state.remainingBudget).formatCurrency()}",
                                     fontFamily = JetBrainsMonoFamily,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp,
@@ -1620,7 +1423,7 @@ fun HomeDashboardView(
                         }
 
                         Text(
-                            text = "Daily allowance: ₹${dailyAllowance.toInt()}/day for next $daysRemaining days",
+                            text = "Daily allowance: ₹${state.dailyAllowance.toInt()}/day for next ${state.daysRemaining} days",
                             fontFamily = OutfitFamily,
                             fontSize = 10.sp,
                             color = colors.inkMuted
@@ -1739,7 +1542,7 @@ fun HomeDashboardView(
         }
 
         // ── 5. Action Required Banner (Conditional) ───────────────────
-        if (pendingSettlementApproval != null) {
+        if (state.pendingSettlementApproval != null) {
             item {
                 Card(
                     shape = RoundedCornerShape(d.radiusMD),
@@ -1774,7 +1577,7 @@ fun HomeDashboardView(
                                     color = colors.inkPrimary
                                 )
                                 Text(
-                                    text = "Friend marked ₹${pendingSettlementApproval.myShare.formatCurrency()} as settled with you",
+                                    text = "Friend marked ₹${state.pendingSettlementApproval.myShare.formatCurrency()} as settled with you",
                                     fontFamily = OutfitFamily,
                                     fontSize = 10.sp,
                                     color = colors.inkMuted,
@@ -1789,16 +1592,7 @@ fun HomeDashboardView(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Button(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        try {
-                                            FirebaseManager.confirmDirectSplitSettlement(pendingSettlementApproval.id)
-                                            Toast.makeText(context, "Settlement confirmed!", Toast.LENGTH_SHORT).show()
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                },
+                                onClick = { onConfirmSettlement(state.pendingSettlementApproval.id) },
                                 colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
                                 shape = RoundedCornerShape(d.radiusSM),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -1808,16 +1602,7 @@ fun HomeDashboardView(
                             }
 
                             OutlinedButton(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        try {
-                                            FirebaseManager.declineDirectSplitSettlement(pendingSettlementApproval.id)
-                                            Toast.makeText(context, "Settlement declined", Toast.LENGTH_SHORT).show()
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                },
+                                onClick = { onDeclineSettlement(state.pendingSettlementApproval.id) },
                                 shape = RoundedCornerShape(d.radiusSM),
                                 border = BorderStroke(0.5.dp, colors.borderWhisper),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
@@ -1915,7 +1700,7 @@ fun HomeDashboardView(
                             ) {
                                 Column {
                                     Text(
-                                        text = "₹${weekTotalSpend.formatCurrency()}",
+                                        text = "₹${state.weekTotalSpend.formatCurrency()}",
                                         fontFamily = JetBrainsMonoFamily,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 20.sp,
@@ -1940,7 +1725,7 @@ fun HomeDashboardView(
                                     .padding(vertical = 4.dp)
                             ) {
                                 // Subtle dashed benchmark line across chart (minimalist, no text overlay)
-                                val benchmarkFraction = (dailyBudgetBenchmark / maxSpend).toFloat().coerceIn(0.2f, 0.85f)
+                                val benchmarkFraction = (state.dailyBudgetBenchmark / state.maxSpend).toFloat().coerceIn(0.2f, 0.85f)
                                 Canvas(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1964,11 +1749,11 @@ fun HomeDashboardView(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.Bottom
                                 ) {
-                                    currentWeekDaySpends.forEachIndexed { idx, spend ->
-                                        val isToday = idx == currentDayOfWeekIdx
-                                        val heightFraction = (spend / maxSpend).toFloat().coerceIn(if (spend > 0) 0.12f else 0.05f, 1f)
+                                    state.currentWeekDaySpends.forEachIndexed { idx, spend ->
+                                        val isToday = idx == state.currentDayOfWeekIdx
+                                        val heightFraction = (spend / state.maxSpend).toFloat().coerceIn(if (spend > 0) 0.12f else 0.05f, 1f)
                                         val barColor = when {
-                                            spend > dailyBudgetBenchmark * 1.25 -> colors.alertRed
+                                            spend > state.dailyBudgetBenchmark * 1.25 -> colors.alertRed
                                             isToday -> colors.inkPrimary
                                             else -> colors.inkMuted.copy(alpha = 0.7f)
                                         }
@@ -2034,7 +1819,7 @@ fun HomeDashboardView(
                             ) {
                                 Column {
                                     Text(
-                                        text = "₹${totalPersonalSpent.formatCurrency()}",
+                                        text = "₹${state.totalPersonalSpent.formatCurrency()}",
                                         fontFamily = JetBrainsMonoFamily,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 20.sp,
@@ -2049,7 +1834,7 @@ fun HomeDashboardView(
                                 }
 
                                 Text(
-                                    text = "${categoryBreakdown.size} CATEGORIES",
+                                    text = "${state.categoryBreakdown.size} CATEGORIES",
                                     fontFamily = JetBrainsMonoFamily,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 10.sp,
@@ -2058,7 +1843,7 @@ fun HomeDashboardView(
                             }
 
                             // Segmented proportion bar
-                            if (categoryBreakdown.isEmpty() || totalPersonalSpent <= 0) {
+                            if (state.categoryBreakdown.isEmpty() || state.totalPersonalSpent <= 0) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -2080,9 +1865,9 @@ fun HomeDashboardView(
                                         .clip(RoundedCornerShape(999.dp))
                                         .background(colors.borderWhisper)
                                 ) {
-                                    val topSegments = categoryBreakdown.take(4)
+                                    val topSegments = state.categoryBreakdown.take(4)
                                     topSegments.forEachIndexed { index, pair ->
-                                        val weight = (pair.second / totalPersonalSpent).toFloat().coerceIn(0.02f, 1f)
+                                        val weight = (pair.second / state.totalPersonalSpent).toFloat().coerceIn(0.02f, 1f)
                                         Box(
                                             modifier = Modifier
                                                 .weight(weight)
@@ -2094,7 +1879,7 @@ fun HomeDashboardView(
                             }
 
                             // Top 3 Category Breakdown rows
-                            val topThree = categoryBreakdown.take(3)
+                            val topThree = state.categoryBreakdown.take(3)
                             val dotColors = listOf(
                                 colors.inkPrimary,
                                 colors.inkMuted,
@@ -2102,7 +1887,7 @@ fun HomeDashboardView(
                             )
                             Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
                                 topThree.forEachIndexed { index, (catName, catAmount) ->
-                                    val pct = if (totalPersonalSpent > 0) ((catAmount / totalPersonalSpent) * 100).toInt() else 0
+                                    val pct = if (state.totalPersonalSpent > 0) ((catAmount / state.totalPersonalSpent) * 100).toInt() else 0
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -2195,7 +1980,7 @@ fun HomeDashboardView(
             }
         }
 
-        if (curatedActivities.isEmpty()) {
+        if (state.curatedActivities.isEmpty()) {
             item {
                 Card(
                     shape = RoundedCornerShape(d.radiusLG),
@@ -2227,7 +2012,7 @@ fun HomeDashboardView(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        curatedActivities.forEachIndexed { index, item ->
+                        state.curatedActivities.forEachIndexed { index, item ->
                             val (badgeText, badgeBg, badgeFg) = when {
                                 item.rawSplit != null -> Triple("SPLIT", colors.inkPrimary.copy(alpha = 0.08f), colors.inkPrimary)
                                 item.rawPersonal != null -> Triple("SOLO", colors.canvasChalk, colors.inkMuted)
@@ -2307,7 +2092,7 @@ fun HomeDashboardView(
                                 }
                             }
 
-                            if (index < curatedActivities.lastIndex) {
+                            if (index < state.curatedActivities.lastIndex) {
                                 HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
                             }
                         }

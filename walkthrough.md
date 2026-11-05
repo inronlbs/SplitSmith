@@ -1,3 +1,30 @@
+## [2026-11-05 16:50] Home Screen Architecture & UDF Hardening (MAD 2026 Standards)
+
+### Features & Fixes
+1. **Separation of Concerns & ViewModel Extraction (`HomeViewModel.kt`)**:
+   - Extracted multi-source Firestore flow aggregation (personal expenses, direct splits, group shares, user profile) out of the UI composition into `HomeViewModel`.
+   - Unified all dashboard state fields into a single immutable `HomeDashboardUiState` data class exposed via `StateFlow` with `SharingStarted.WhileSubscribed(5000)`.
+   - Pure domain calculation method `calculateDashboardState` handles financial aggregation, calendar-based pacing, 7-day spending trends, and category distribution independently from Android UI lifecycles.
+2. **Lifecycle-Aware Collection (`HomeScreen.kt`)**:
+   - Replaced unmanaged Compose `collectAsState()` with `collectAsStateWithLifecycle()`, guaranteeing upstream Firestore snapshot listeners automatically pause 5 seconds after the app is backgrounded.
+   - Refactored `HomeDashboardView` into a purely declarative UI component consuming `state: HomeDashboardUiState`.
+3. **Safe Coroutine Scopes for Data Mutations**:
+   - Transferred settlement confirmation/decline actions and avatar uploads into `viewModelScope` so network mutations survive device rotation and screen transitions without risk of cancellation.
+4. **Comprehensive Automated Unit Testing (`HomeViewModelTest.kt`)**:
+   - Implemented 5 unit tests verifying zero-input defaults, net position math, calendar budget and daily allowance pacing, pending settlement detection, and chronological activity sorting.
+
+### Files Modified
+- `[NEW]` [HomeViewModel.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/home/HomeViewModel.kt)
+- `[MODIFY]` [HomeScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/home/HomeScreen.kt)
+- `[NEW]` [HomeViewModelTest.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/test/java/com/splitsmith/app/ui/home/HomeViewModelTest.kt)
+
+### Verification & Quality Gates
+- **Gradle Kotlin Compilation**: `./gradlew compileDebugKotlin` passed with code 0 (`BUILD SUCCESSFUL in 39s`).
+- **Unit Test Execution**: `./gradlew testDebugUnitTest` executed 27 tasks and passed with code 0 (`BUILD SUCCESSFUL in 23s`).
+- **Zero Emoji Audit**: Confirmed 0 emojis across all code, tests, and commit messages.
+
+---
+
 ## [2026-11-05 16:35] Home Screen Overhaul: Financial Command Center
 
 ### Features & Fixes
