@@ -1,3 +1,33 @@
+## [2026-11-05 18:40] Settings Screen Overhaul: Grouped Inset Bento Architecture
+
+### Features & Fixes
+1. **Executive Profile Hero Card (`HomeScreen.kt:ProfileSettingsView`)**:
+   - Styled user profile banner with full avatar, camera edit badge, verified handle, and email.
+   - Dual action pill row: `[My QR Code]` (launches user QR view) and `[#UserCode]` (copies 6-letter unique invite tag to clipboard).
+2. **6 Grouped Inset Bento Cards (MAD 2026 / Apple Inset Grouped Standards)**:
+   - **Account & Payments**: Display Name (modal), Default UPI ID (modal), My SplitSmith QR navigation.
+   - **Financial Preferences**: Monthly Budget Limit (persistent modal), Spend & Balance Reports navigation.
+   - **Security & Privacy**: Biometric App Lock toggle, Privacy Screen Mode toggle.
+   - **Storage & Data**: Cloud Receipt Backup toggle, On-Device Receipt Cache size inspection with 1-tap "Clear" action.
+   - **System & Updates**: GitHub In-App Release Updater, About SplitSmith & System Info modal.
+   - **Sign Out Danger Zone**: Standalone red border card with safety confirmation dialog before executing sign-out.
+3. **Logic & Bug Fixes**:
+   - **Fixed Budget Persistence Bug**: The budget dialog now launches a coroutine calling `FirebaseManager.updateBudgetSettings(parsed)` to persist the monthly limit directly to Firestore.
+   - **Fixed Header Duplication**: Removed the orphaned duplicate `STORAGE & CLOUD BACKUP` section header.
+   - **Implemented On-Device Cache Management**: Added `getReceiptCacheSize(context)` and `clearReceiptCache(context)` operating safely on `context.cacheDir`.
+   - **Enhanced ProfileSettingsRow**: Added leading icon squircle badges, subtitles, Monospace values, and trailing chevrons.
+
+### Files Modified
+- `[MODIFY]` [HomeScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/home/HomeScreen.kt)
+
+### Verification & Quality Gates
+- **Interactive Mockup Review**: Visual fidelity validated against approved `settings-redesign-mockup.html`.
+- **Gradle Kotlin Compilation**: `./gradlew compileDebugKotlin` passed with code 0 (`BUILD SUCCESSFUL in 38s`).
+- **Unit Test Execution**: `./gradlew testDebugUnitTest` executed 27 tasks and passed with code 0 (`BUILD SUCCESSFUL in 21s`).
+- **Zero Emoji Audit**: Confirmed 0 emojis across all code, tests, and commit messages.
+
+---
+
 ## [2026-11-05 16:50] Home Screen Architecture & UDF Hardening (MAD 2026 Standards)
 
 ### Features & Fixes

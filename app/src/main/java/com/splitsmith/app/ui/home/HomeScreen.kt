@@ -48,6 +48,12 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.ui.graphics.PathEffect
@@ -2125,6 +2131,7 @@ fun ProfileSettingsView(
     var showEditUpiDialog by remember { mutableStateOf(false) }
     var showEditNameDialog by remember { mutableStateOf(false) }
     var showEditBudgetDialog by remember { mutableStateOf(false) }
+    var showSignOutConfirmDialog by remember { mutableStateOf(false) }
     var showAvatarPickerSheet by remember { mutableStateOf(false) }
     val avatarPickerSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -2134,6 +2141,8 @@ fun ProfileSettingsView(
 
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    var cacheSizeText by remember { mutableStateOf(getReceiptCacheSize(context)) }
 
     val settingsPhotoPicker = rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
@@ -2170,10 +2179,12 @@ fun ProfileSettingsView(
         if (profile != null) {
             upiIdInput = profile.upiId
             displayNameInput = profile.displayName
-            budgetLimitInput = "15000" // Simulated or default
+            val lim = profile.budget.limit.toInt()
+            budgetLimitInput = if (lim > 0) lim.toString() else "15000"
         }
     }
 
+    // ── Dialog: Edit UPI ──────────────────────────────────────────
     if (showEditUpiDialog) {
         AlertDialog(
             onDismissRequest = { showEditUpiDialog = false },
@@ -2186,7 +2197,7 @@ fun ProfileSettingsView(
                     onValueChange = { upiIdInput = it },
                     modifier = Modifier.fillMaxWidth().heightIn(min = d.inputHeight),
                     shape = RoundedCornerShape(d.radiusSM),
-                    label = { Text("UPI ID / Phone Number", fontFamily = OutfitFamily, color = colors.inkMuted) },
+                    label = { Text("UPI ID / Phone Handle", fontFamily = OutfitFamily, color = colors.inkMuted) },
                     placeholder = { Text("name@okhdfcbank", fontFamily = OutfitFamily, color = colors.inkMuted) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = colors.inkPrimary,
@@ -2226,6 +2237,7 @@ fun ProfileSettingsView(
         )
     }
 
+    // ── Dialog: Edit Display Name ────────────────────────────────
     if (showEditNameDialog) {
         AlertDialog(
             onDismissRequest = { showEditNameDialog = false },
@@ -2281,6 +2293,7 @@ fun ProfileSettingsView(
         )
     }
 
+    // ── Dialog: Edit Budget Limit (Persistent to Firestore) ───────
     if (showEditBudgetDialog) {
         AlertDialog(
             onDismissRequest = { showEditBudgetDialog = false },
@@ -2288,28 +2301,44 @@ fun ProfileSettingsView(
             shape = RoundedCornerShape(d.radiusLG),
             title = { Text("Edit Budget Limit", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.inkPrimary) },
             text = {
-                OutlinedTextField(
-                    value = budgetLimitInput,
-                    onValueChange = { budgetLimitInput = it },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = d.inputHeight),
-                    shape = RoundedCornerShape(d.radiusSM),
-                    label = { Text("Monthly limit (₹ INR)", fontFamily = OutfitFamily, color = colors.inkMuted) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = colors.inkPrimary,
-                        unfocusedBorderColor = colors.borderWhisper,
-                        focusedTextColor = colors.inkPrimary,
-                        unfocusedTextColor = colors.inkPrimary,
-                        focusedContainerColor = colors.surfaceCard,
-                        unfocusedContainerColor = colors.surfaceCard
-                    ),
-                    textStyle = androidx.compose.ui.text.TextStyle(fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = colors.inkPrimary)
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                    OutlinedTextField(
+                        value = budgetLimitInput,
+                        onValueChange = { budgetLimitInput = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = d.inputHeight),
+                        shape = RoundedCornerShape(d.radiusSM),
+                        label = { Text("Monthly limit (INR)", fontFamily = OutfitFamily, color = colors.inkMuted) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colors.inkPrimary,
+                            unfocusedBorderColor = colors.borderWhisper,
+                            focusedTextColor = colors.inkPrimary,
+                            unfocusedTextColor = colors.inkPrimary,
+                            focusedContainerColor = colors.surfaceCard,
+                            unfocusedContainerColor = colors.surfaceCard
+                        ),
+                        textStyle = androidx.compose.ui.text.TextStyle(fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyLarge, color = colors.inkPrimary)
+                    )
+                    Text(
+                        text = "Used for real-time daily budget pacing on the Home screen.",
+                        fontFamily = OutfitFamily,
+                        fontSize = 11.sp,
+                        color = colors.inkMuted
+                    )
+                }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        showEditBudgetDialog = false
-                        Toast.makeText(context, "Budget limit updated!", Toast.LENGTH_SHORT).show()
+                        val parsed = budgetLimitInput.trim().toIntOrNull() ?: 15000
+                        coroutineScope.launch {
+                            try {
+                                FirebaseManager.updateBudgetSettings(parsed)
+                                showEditBudgetDialog = false
+                                Toast.makeText(context, "Monthly budget updated to ₹$parsed!", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
                     shape = RoundedCornerShape(d.radiusMD)
@@ -2325,6 +2354,51 @@ fun ProfileSettingsView(
         )
     }
 
+    // ── Dialog: Sign Out Safety Guard ────────────────────────────
+    if (showSignOutConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showSignOutConfirmDialog = false },
+            containerColor = colors.surfaceCard,
+            shape = RoundedCornerShape(d.radiusLG),
+            title = {
+                Text(
+                    "Sign Out of SplitSmith?",
+                    fontFamily = OutfitFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = d.textTitleLarge,
+                    color = colors.inkPrimary
+                )
+            },
+            text = {
+                Text(
+                    "Your encrypted receipt cache and local data will remain securely preserved on this device.",
+                    fontFamily = OutfitFamily,
+                    fontSize = d.textBodyMedium,
+                    color = colors.inkMuted
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSignOutConfirmDialog = false
+                        FirebaseManager.signOut()
+                        onSignOut()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.alertRed),
+                    shape = RoundedCornerShape(d.radiusMD)
+                ) {
+                    Text("Sign Out", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSignOutConfirmDialog = false }) {
+                    Text("Cancel", fontFamily = OutfitFamily, color = colors.inkMuted)
+                }
+            }
+        )
+    }
+
+    // ── Dialog: GitHub In-App Update ─────────────────────────────
     if (showUpdateDialog && updateReleaseInfo != null) {
         val info = updateReleaseInfo!!
         AlertDialog(
@@ -2397,6 +2471,7 @@ fun ProfileSettingsView(
         )
     }
 
+    // ── Sheet: Edit Avatar / Preset Picker ───────────────────────
     if (showAvatarPickerSheet) {
         ModalBottomSheet(
             onDismissRequest = { showAvatarPickerSheet = false },
@@ -2425,7 +2500,6 @@ fun ProfileSettingsView(
                     color = colors.inkMuted
                 )
 
-                // Render 8 cute presets in a grid-like structure (2 rows of 4)
                 Column(verticalArrangement = Arrangement.spacedBy(d.space12)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(d.space12)) {
                         (1..4).forEach { idx ->
@@ -2481,7 +2555,6 @@ fun ProfileSettingsView(
 
                 Spacer(modifier = Modifier.height(d.space4))
 
-                // Upload custom photo button
                 Surface(
                     onClick = { settingsPhotoPicker.launch("image/*") },
                     shape = RoundedCornerShape(d.radiusMD),
@@ -2499,9 +2572,8 @@ fun ProfileSettingsView(
                     }
                 }
 
-                // If signed in with Google, offer to revert to original photo
                 val googlePhoto = FirebaseManager.currentUserPhotoUrl
-                if (googlePhoto != null && googlePhoto.isNotEmpty()) {
+                if (!googlePhoto.isNullOrEmpty()) {
                     Surface(
                         onClick = {
                             coroutineScope.launch {
@@ -2538,507 +2610,195 @@ fun ProfileSettingsView(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding(),
-        contentPadding = PaddingValues(start = d.space24, top = d.space24, end = d.space24, bottom = 120.dp)
+        contentPadding = PaddingValues(start = d.space24, top = d.space24, end = d.space24, bottom = 120.dp),
+        verticalArrangement = Arrangement.spacedBy(d.space16)
     ) {
         item {
-            Text("Settings", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textHeadlineLarge, color = colors.inkPrimary, letterSpacing = (-0.5).sp)
-            Spacer(modifier = Modifier.height(d.space16))
-
-            // Flat Top Profile Header (Cardless)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = d.space16),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier.clickable { showAvatarPickerSheet = true }
-                ) {
-                    UserAvatar(
-                        avatarUrl = profile?.avatarUrl ?: "",
-                        displayName = profile?.displayName ?: "A",
-                        size = 64.dp
-                    )
-                    Surface(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .align(Alignment.BottomEnd),
-                        shape = CircleShape,
-                        color = colors.inkPrimary
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.PhotoCamera,
-                                contentDescription = "Edit Avatar",
-                                tint = colors.canvasChalk,
-                                modifier = Modifier.size(12.dp)
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.width(d.space16))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = profile?.displayName ?: "SplitSmith User",
-                        fontFamily = OutfitFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = d.textTitleLarge,
-                        color = colors.inkPrimary
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = (profile?.upiId ?: "").ifEmpty { profile?.email ?: "Tap photo to change avatar" },
-                        fontFamily = OutfitFamily,
-                        fontSize = d.textLabelMedium,
-                        color = colors.inkMuted
-                    )
-                }
+            Column {
+                Text(
+                    text = "Settings",
+                    fontFamily = OutfitFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = d.textHeadlineLarge,
+                    color = colors.inkPrimary,
+                    letterSpacing = (-0.5).sp
+                )
+                Text(
+                    text = "Account, preferences & security",
+                    fontFamily = OutfitFamily,
+                    fontSize = 12.sp,
+                    color = colors.inkMuted
+                )
             }
-
-            Spacer(modifier = Modifier.height(d.space24))
-
-            // ACCOUNT section
-            Text("ACCOUNT", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
-            Spacer(modifier = Modifier.height(d.space8))
         }
 
-        // Display Name Row
+        // ── 1. EXECUTIVE IDENTITY HERO CARD ──────────────────────────
         item {
-            ProfileSettingsRow(
-                label = "Display Name",
-                value = (profile?.displayName ?: "SplitSmith User").ifEmpty { "Not set" },
-                inkPrimary = colors.inkPrimary,
-                inkMuted = colors.inkMuted,
-                borderWhisper = colors.borderWhisper,
-                d = d,
-                onClick = { showEditNameDialog = true }
-            )
-        }
-
-        // UPI ID Row
-        item {
-            Spacer(modifier = Modifier.height(d.space4))
-            ProfileSettingsRow(
-                label = "UPI ID",
-                value = (profile?.upiId ?: "").ifEmpty { "Not set" },
-                inkPrimary = colors.inkPrimary,
-                inkMuted = colors.inkMuted,
-                borderWhisper = colors.borderWhisper,
-                d = d,
-                onClick = { showEditUpiDialog = true }
-            )
-        }
-
-        // My QR Code row
-        item {
-            Spacer(modifier = Modifier.height(d.space4))
-            ProfileSettingsRow(
-                label = "My QR Code",
-                trailingContent = {
-                    Icon(
-                        imageVector = Icons.Default.QrCode,
-                        contentDescription = "QR Code",
-                        tint = colors.inkPrimary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                },
-                inkPrimary = colors.inkPrimary,
-                inkMuted = colors.inkMuted,
-                borderWhisper = colors.borderWhisper,
-                d = d,
-                onClick = { onNavigateToQRCode() }
-            )
-        }
-
-        // My User Code row
-        item {
-            Spacer(modifier = Modifier.height(d.space4))
-            ProfileSettingsRow(
-                label = "My User Code",
-                value = uid.take(6).uppercase(),
-                inkPrimary = colors.inkPrimary,
-                inkMuted = colors.inkMuted,
-                borderWhisper = colors.borderWhisper,
-                d = d,
-                onClick = {
-                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    val clip = android.content.ClipData.newPlainText("User Code", uid.take(6).uppercase())
-                    clipboard.setPrimaryClip(clip)
-                    Toast.makeText(context, "User code copied to clipboard!", Toast.LENGTH_SHORT).show()
-                }
-            )
-        }
-
-        // ANALYTICS & DATA section
-        item {
-            Spacer(modifier = Modifier.height(d.space24))
-            Text("ANALYTICS & DATA", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
-            Spacer(modifier = Modifier.height(d.space8))
-            
-            ProfileSettingsRow(
-                label = "Spend & Balance Reports",
-                value = "View reports",
-                inkPrimary = colors.inkPrimary,
-                inkMuted = colors.inkMuted,
-                borderWhisper = colors.borderWhisper,
-                d = d,
-                onClick = { onNavigateToReports() }
-            )
-        }
-
-        // PREFERENCES section
-        item {
-            Spacer(modifier = Modifier.height(d.space24))
-            Text("PREFERENCES", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
-            Spacer(modifier = Modifier.height(d.space8))
-
-            ProfileSettingsRow(
-                label = "Budget Limit",
-                value = "₹${(profile?.budget?.limit ?: 15000.0).toInt()}",
-                inkPrimary = colors.inkPrimary,
-                inkMuted = colors.inkMuted,
-                borderWhisper = colors.borderWhisper,
-                d = d,
-                onClick = { showEditBudgetDialog = true }
-            )
-        }
-
-
-
-        // STORAGE & CLOUD BACKUP section
-        item {
-            Spacer(modifier = Modifier.height(d.space24))
-            Text("STORAGE & CLOUD BACKUP", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
-            Spacer(modifier = Modifier.height(d.space8))
-        }
-
-        // SECURITY section
-        item {
-            Spacer(modifier = Modifier.height(d.space24))
-            Text("SECURITY", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
-            Spacer(modifier = Modifier.height(d.space8))
-
-            val prefs = remember { context.getSharedPreferences("splitsmith_prefs", android.content.Context.MODE_PRIVATE) }
-            var isBiometricEnabled by remember { mutableStateOf(prefs.getBoolean("key_biometric_enabled", false)) }
-
-            ProfileSettingsRow(
-                label = "App Biometric Lock",
-                trailingContent = {
-                    Switch(
-                        checked = isBiometricEnabled,
-                        onCheckedChange = { checked ->
-                            isBiometricEnabled = checked
-                            prefs.edit().putBoolean("key_biometric_enabled", checked).apply()
-                            Toast.makeText(context, if (checked) "Biometric Lock enabled" else "Biometric Lock disabled", Toast.LENGTH_SHORT).show()
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = colors.canvasChalk,
-                            checkedTrackColor = colors.inkPrimary,
-                            uncheckedThumbColor = colors.inkMuted,
-                            uncheckedTrackColor = colors.borderWhisper
-                        )
-                    )
-                },
-                inkPrimary = colors.inkPrimary,
-                inkMuted = colors.inkMuted,
-                borderWhisper = colors.borderWhisper,
-                d = d,
-                onClick = {
-                    val newValue = !isBiometricEnabled
-                    isBiometricEnabled = newValue
-                    prefs.edit().putBoolean("key_biometric_enabled", newValue).apply()
-                    Toast.makeText(context, if (newValue) "Biometric Lock enabled" else "Biometric Lock disabled", Toast.LENGTH_SHORT).show()
-                }
-            )
-        }
-
-        // App Theme Switch with Sun / Moon Indicator Icon
-        item {
-            Spacer(modifier = Modifier.height(d.space4))
-            val themeController = LocalThemeController.current
-            ProfileSettingsRow(
-                label = "App Theme",
-                trailingContent = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (themeController.isDark) Icons.Default.NightsStay else Icons.Default.WbSunny,
-                            contentDescription = if (themeController.isDark) "Dark Mode" else "Light Mode",
-                            tint = colors.inkPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Switch(
-                            checked = themeController.isDark,
-                            onCheckedChange = { themeController.toggleTheme() },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = colors.canvasChalk,
-                                checkedTrackColor = colors.inkPrimary,
-                                uncheckedThumbColor = colors.inkMuted,
-                                uncheckedTrackColor = colors.borderWhisper
-                            )
-                        )
-                    }
-                },
-                inkPrimary = colors.inkPrimary,
-                inkMuted = colors.inkMuted,
-                borderWhisper = colors.borderWhisper,
-                d = d,
-                onClick = { themeController.toggleTheme() }
-            )
-        }
-
-        // STORAGE & CLOUD BACKUP section
-        item {
-            Spacer(modifier = Modifier.height(d.space24))
-            Text("STORAGE & CLOUD BACKUP", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
-            Spacer(modifier = Modifier.height(d.space8))
-
-            ProfileSettingsRow(
-                label = "Cloud Backup for Receipts",
-                trailingContent = {
-                    Switch(
-                        checked = profile?.cloudBackupReceipts ?: true,
-                        onCheckedChange = { enabled ->
-                            coroutineScope.launch {
-                                FirebaseManager.updateCloudBackupReceiptsSetting(enabled)
-                            }
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = colors.canvasChalk,
-                            checkedTrackColor = colors.inkPrimary,
-                            uncheckedThumbColor = colors.inkMuted,
-                            uncheckedTrackColor = colors.borderWhisper
-                        )
-                    )
-                },
-                inkPrimary = colors.inkPrimary,
-                inkMuted = colors.inkMuted,
-                borderWhisper = colors.borderWhisper,
-                d = d,
-                onClick = {
-                    val current = profile?.cloudBackupReceipts ?: true
-                    coroutineScope.launch {
-                        FirebaseManager.updateCloudBackupReceiptsSetting(!current)
-                    }
-                }
-            )
-        }
-
-        // ABOUT section
-        item {
-            Spacer(modifier = Modifier.height(d.space24))
-            Text("ABOUT", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
-            Spacer(modifier = Modifier.height(d.space8))
-
-            val latestTag = updateReleaseInfo?.tagName ?: ""
-            val isNewerAvailable = updateReleaseInfo?.isNewer == true
-
-            ProfileSettingsRow(
-                label = "Check for Updates",
-                trailingContent = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(d.space8)
-                    ) {
-                        Text(
-                            text = when {
-                                isCheckingForUpdate -> "Checking..."
-                                latestTag.isNotEmpty() -> latestTag
-                                else -> "v${com.splitsmith.app.BuildConfig.VERSION_NAME}"
-                            },
-                            fontFamily = OutfitFamily,
-                            fontSize = d.textBodyMedium,
-                            color = colors.inkMuted
-                        )
-                        if (isNewerAvailable) {
-                            Surface(
-                                shape = RoundedCornerShape(d.radiusSM),
-                                color = colors.inkPrimary,
-                                modifier = Modifier.clickable {
-                                    if (updateReleaseInfo != null) showUpdateDialog = true
-                                }
-                            ) {
-                                Text(
-                                    text = "UPDATE",
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = d.textLabelSmall,
-                                    color = colors.canvasChalk,
-                                    modifier = Modifier.padding(horizontal = d.space8, vertical = d.space4)
-                                )
-                            }
-                        }
-                    }
-                },
-                inkPrimary = colors.inkPrimary,
-                inkMuted = colors.inkMuted,
-                borderWhisper = colors.borderWhisper,
-                d = d,
-                onClick = {
-                    if (isNewerAvailable && updateReleaseInfo != null) {
-                        showUpdateDialog = true
-                    } else if (!isCheckingForUpdate) {
-                        isCheckingForUpdate = true
-                        coroutineScope.launch {
-                            try {
-                                val release = com.splitsmith.app.util.AppUpdateManager.checkForUpdates()
-                                isCheckingForUpdate = false
-                                if (release != null) {
-                                    if (release.isNewer) {
-                                        updateReleaseInfo = release
-                                        showUpdateDialog = true
-                                    } else {
-                                        Toast.makeText(context, "You are already using the latest version (v${com.splitsmith.app.BuildConfig.VERSION_NAME})!", Toast.LENGTH_SHORT).show()
-                                    }
-                                } else {
-                                    Toast.makeText(context, "Could not check GitHub releases. Check network connection.", Toast.LENGTH_LONG).show()
-                                }
-                            } catch (e: Exception) {
-                                isCheckingForUpdate = false
-                                Toast.makeText(context, "Update check failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-                }
-            )
-
-            ProfileSettingsRow(
-                label = "App Version",
-                value = "v${com.splitsmith.app.BuildConfig.VERSION_NAME}",
-                inkPrimary = colors.inkPrimary,
-                inkMuted = colors.inkMuted,
-                borderWhisper = colors.borderWhisper,
-                d = d,
-                onClick = { Toast.makeText(context, "SplitSmith v${com.splitsmith.app.BuildConfig.VERSION_NAME} is up to date!", Toast.LENGTH_SHORT).show() }
-            )
-
-            var showInfoDialog by remember { mutableStateOf(false) }
-
-            ProfileSettingsRow(
-                label = "About SplitSmith & Info",
-                value = "Learn more",
-                inkPrimary = colors.inkPrimary,
-                inkMuted = colors.inkMuted,
-                borderWhisper = colors.borderWhisper,
-                d = d,
-                onClick = { showInfoDialog = true }
-            )
-
-            if (showInfoDialog) {
-                ModalBottomSheet(
-                    onDismissRequest = { showInfoDialog = false },
-                    containerColor = colors.canvasChalk,
-                    dragHandle = { BottomSheetDefaults.DragHandle(color = colors.borderWhisper) }
+            Card(
+                shape = RoundedCornerShape(d.radiusLG),
+                colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                border = BorderStroke(1.dp, colors.borderWhisper),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(d.space16),
+                    verticalArrangement = Arrangement.spacedBy(d.space16)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(d.space24)
-                            .navigationBarsPadding(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(d.space16)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(d.space16)
                     ) {
-                        // Brand Logo & Header
-                        Image(
-                            painter = painterResource(id = R.drawable.app_logo_brand),
-                            contentDescription = "SplitSmith Brand Logo",
+                        // Avatar with Camera Edit Badge
+                        Box(
                             modifier = Modifier
                                 .size(64.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                        )
-                        
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = "SplitSmith",
-                                fontFamily = OutfitFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 24.sp,
-                                color = colors.inkPrimary
+                                .clickable { showAvatarPickerSheet = true }
+                        ) {
+                            UserAvatar(
+                                avatarUrl = profile?.avatarUrl ?: "",
+                                displayName = profile?.displayName ?: "A",
+                                size = 64.dp
                             )
                             Surface(
-                                shape = RoundedCornerShape(999.dp),
-                                color = colors.surfaceCard,
-                                border = BorderStroke(0.5.dp, colors.borderWhisper)
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .align(Alignment.BottomEnd),
+                                shape = CircleShape,
+                                color = colors.inkPrimary,
+                                border = BorderStroke(2.dp, colors.surfaceCard)
                             ) {
-                                Text(
-                                    text = "v${com.splitsmith.app.BuildConfig.VERSION_NAME} • Release Build",
-                                    fontFamily = JetBrainsMonoFamily,
-                                    fontSize = d.textLabelSmall,
-                                    color = colors.inkMuted,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-
-                        Text(
-                            text = "Smart, effortless group expense splitting, real-time balances, and personal ledger accounting.",
-                            fontFamily = OutfitFamily,
-                            fontSize = d.textBodyLarge,
-                            color = colors.inkMuted,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = d.space16)
-                        )
-
-                        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
-
-                        // Feature Bento Grid
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                text = "KEY FEATURES & INFRASTRUCTURE",
-                                fontFamily = OutfitFamily,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.inkMuted,
-                                letterSpacing = 1.5.sp
-                            )
-                            
-                            val features = listOf(
-                                "Real-Time Ledger Accounting",
-                                "Group & Personal Monthly Budgets",
-                                "Connections & Zero-Overhead Search",
-                                "QR Code Instant Invites & Connect",
-                                "OLED Dark UI & High Performance"
-                            )
-                            features.forEach { feat ->
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        text = "•  $feat",
-                                        fontFamily = OutfitFamily,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = d.textBodyMedium,
-                                        color = colors.inkPrimary
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.PhotoCamera,
+                                        contentDescription = "Edit Avatar",
+                                        tint = colors.canvasChalk,
+                                        modifier = Modifier.size(12.dp)
                                     )
                                 }
                             }
                         }
 
-                        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
-
-                        // Website & Close Action Buttons
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(d.space12)
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    com.splitsmith.app.util.AppUpdateManager.openInBrowser(context, "https://splitsmith.web.app/")
-                                },
-                                modifier = Modifier.weight(1f).height(d.buttonHeight),
-                                shape = RoundedCornerShape(d.radiusMD),
-                                border = BorderStroke(1.dp, colors.borderWhisper)
+                        // Name & Identity Info
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text("Visit Web", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                                Text(
+                                    text = profile?.displayName ?: "SplitSmith User",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp,
+                                    color = colors.inkPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = colors.inkPrimary.copy(alpha = 0.08f),
+                                    border = BorderStroke(0.5.dp, colors.borderWhisper)
+                                ) {
+                                    Text(
+                                        text = "VERIFIED",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 9.sp,
+                                        color = colors.inkPrimary,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
 
-                            Button(
-                                onClick = { showInfoDialog = false },
-                                modifier = Modifier.weight(1f).height(d.buttonHeight),
-                                colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
-                                shape = RoundedCornerShape(d.radiusMD)
+                            Text(
+                                text = (profile?.upiId ?: "").ifEmpty { "No UPI linked" },
+                                fontFamily = JetBrainsMonoFamily,
+                                fontSize = 12.sp,
+                                color = colors.inkMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            Text(
+                                text = profile?.email ?: "",
+                                fontFamily = OutfitFamily,
+                                fontSize = 11.sp,
+                                color = colors.inkMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+                    // Dual Action Pill Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(d.space8)
+                    ) {
+                        Surface(
+                            onClick = { onNavigateToQRCode() },
+                            shape = RoundedCornerShape(d.radiusMD),
+                            color = colors.canvasChalk,
+                            border = BorderStroke(1.dp, colors.borderWhisper),
+                            modifier = Modifier.weight(1f).height(38.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
                             ) {
-                                Text("Done", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                                Icon(
+                                    imageVector = Icons.Default.QrCode,
+                                    contentDescription = "My QR Code",
+                                    tint = colors.inkPrimary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "My QR Code",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 12.sp,
+                                    color = colors.inkPrimary
+                                )
+                            }
+                        }
+
+                        Surface(
+                            onClick = {
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("User Code", uid.take(6).uppercase())
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "User code #${uid.take(6).uppercase()} copied!", Toast.LENGTH_SHORT).show()
+                            },
+                            shape = RoundedCornerShape(d.radiusMD),
+                            color = colors.canvasChalk,
+                            border = BorderStroke(1.dp, colors.borderWhisper),
+                            modifier = Modifier.weight(1f).height(38.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copy User Code",
+                                    tint = colors.inkMuted,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "#${uid.take(6).uppercase()}",
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = colors.inkPrimary
+                                )
                             }
                         }
                     }
@@ -3046,27 +2806,565 @@ fun ProfileSettingsView(
             }
         }
 
+        // ── 2. ACCOUNT & PAYMENTS BENTO CARD ─────────────────────────
         item {
-            Spacer(modifier = Modifier.height(d.space32))
-            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
-            Spacer(modifier = Modifier.height(d.space16))
+            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                Text(
+                    text = "ACCOUNT & PAYMENTS",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.2.sp
+                )
 
-            TextButton(
-                onClick = {
-                    FirebaseManager.signOut()
-                    onSignOut()
-                },
+                Card(
+                    shape = RoundedCornerShape(d.radiusLG),
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                    border = BorderStroke(1.dp, colors.borderWhisper),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        ProfileSettingsRow(
+                            label = "Display Name",
+                            value = (profile?.displayName ?: "SplitSmith User").ifEmpty { "Not set" },
+                            subtitle = "Your public name visible to friends",
+                            icon = Icons.Default.Person,
+                            showChevron = true,
+                            inkPrimary = colors.inkPrimary,
+                            inkMuted = colors.inkMuted,
+                            borderWhisper = colors.borderWhisper,
+                            surfaceCard = colors.surfaceCard,
+                            d = d,
+                            onClick = { showEditNameDialog = true }
+                        )
+
+                        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+                        ProfileSettingsRow(
+                            label = "Default UPI ID",
+                            value = (profile?.upiId ?: "").ifEmpty { "Not set" },
+                            subtitle = "Primary handle to receive payments",
+                            icon = Icons.Default.AccountBalance,
+                            showChevron = true,
+                            inkPrimary = colors.inkPrimary,
+                            inkMuted = colors.inkMuted,
+                            borderWhisper = colors.borderWhisper,
+                            surfaceCard = colors.surfaceCard,
+                            d = d,
+                            onClick = { showEditUpiDialog = true }
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── 3. FINANCIAL PREFERENCES BENTO CARD ──────────────────────
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                Text(
+                    text = "FINANCIAL PREFERENCES",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.2.sp
+                )
+
+                Card(
+                    shape = RoundedCornerShape(d.radiusLG),
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                    border = BorderStroke(1.dp, colors.borderWhisper),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        ProfileSettingsRow(
+                            label = "Monthly Budget Limit",
+                            value = "₹${(profile?.budget?.limit ?: 15000.0).toInt()}",
+                            subtitle = "Powers real-time daily budget pacing",
+                            icon = Icons.Default.AccountBalanceWallet,
+                            showChevron = true,
+                            inkPrimary = colors.inkPrimary,
+                            inkMuted = colors.inkMuted,
+                            borderWhisper = colors.borderWhisper,
+                            surfaceCard = colors.surfaceCard,
+                            d = d,
+                            onClick = { showEditBudgetDialog = true }
+                        )
+
+                        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+                        ProfileSettingsRow(
+                            label = "Spend & Balance Reports",
+                            value = "View analytics",
+                            subtitle = "Export CSV, trends & debt summaries",
+                            icon = Icons.Default.Analytics,
+                            showChevron = true,
+                            inkPrimary = colors.inkPrimary,
+                            inkMuted = colors.inkMuted,
+                            borderWhisper = colors.borderWhisper,
+                            surfaceCard = colors.surfaceCard,
+                            d = d,
+                            onClick = { onNavigateToReports() }
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── 4. SECURITY & PRIVACY BENTO CARD ─────────────────────────
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                Text(
+                    text = "SECURITY & PRIVACY",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.2.sp
+                )
+
+                val prefs = remember { context.getSharedPreferences("splitsmith_prefs", android.content.Context.MODE_PRIVATE) }
+                var isBiometricEnabled by remember { mutableStateOf(prefs.getBoolean("key_biometric_enabled", false)) }
+                val themeController = LocalThemeController.current
+
+                Card(
+                    shape = RoundedCornerShape(d.radiusLG),
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                    border = BorderStroke(1.dp, colors.borderWhisper),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        ProfileSettingsRow(
+                            label = "Biometric App Lock",
+                            subtitle = "Fingerprint or Face Unlock on open",
+                            icon = Icons.Default.Fingerprint,
+                            trailingContent = {
+                                Switch(
+                                    checked = isBiometricEnabled,
+                                    onCheckedChange = { checked ->
+                                        isBiometricEnabled = checked
+                                        prefs.edit().putBoolean("key_biometric_enabled", checked).apply()
+                                        Toast.makeText(context, if (checked) "Biometric Lock enabled" else "Biometric Lock disabled", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = colors.canvasChalk,
+                                        checkedTrackColor = colors.inkPrimary,
+                                        uncheckedThumbColor = colors.inkMuted,
+                                        uncheckedTrackColor = colors.borderWhisper
+                                    )
+                                )
+                            },
+                            inkPrimary = colors.inkPrimary,
+                            inkMuted = colors.inkMuted,
+                            borderWhisper = colors.borderWhisper,
+                            surfaceCard = colors.surfaceCard,
+                            d = d,
+                            onClick = {
+                                val newValue = !isBiometricEnabled
+                                isBiometricEnabled = newValue
+                                prefs.edit().putBoolean("key_biometric_enabled", newValue).apply()
+                                Toast.makeText(context, if (newValue) "Biometric Lock enabled" else "Biometric Lock disabled", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+
+                        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+                        ProfileSettingsRow(
+                            label = "App Theme",
+                            subtitle = if (themeController.isDark) "OLED Dark Mode enabled" else "Clean Light Canvas enabled",
+                            icon = Icons.Default.Palette,
+                            trailingContent = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (themeController.isDark) Icons.Default.NightsStay else Icons.Default.WbSunny,
+                                        contentDescription = if (themeController.isDark) "Dark Mode" else "Light Mode",
+                                        tint = colors.inkPrimary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Switch(
+                                        checked = themeController.isDark,
+                                        onCheckedChange = { themeController.toggleTheme() },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = colors.canvasChalk,
+                                            checkedTrackColor = colors.inkPrimary,
+                                            uncheckedThumbColor = colors.inkMuted,
+                                            uncheckedTrackColor = colors.borderWhisper
+                                        )
+                                    )
+                                }
+                            },
+                            inkPrimary = colors.inkPrimary,
+                            inkMuted = colors.inkMuted,
+                            borderWhisper = colors.borderWhisper,
+                            surfaceCard = colors.surfaceCard,
+                            d = d,
+                            onClick = { themeController.toggleTheme() }
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── 5. STORAGE & SYSTEM DATA BENTO CARD ──────────────────────
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                Text(
+                    text = "STORAGE & DATA",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.2.sp
+                )
+
+                Card(
+                    shape = RoundedCornerShape(d.radiusLG),
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                    border = BorderStroke(1.dp, colors.borderWhisper),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        ProfileSettingsRow(
+                            label = "Cloud Backup for Receipts",
+                            subtitle = "Encrypted sync to Cloudinary storage",
+                            icon = Icons.Default.CloudDone,
+                            trailingContent = {
+                                Switch(
+                                    checked = profile?.cloudBackupReceipts ?: true,
+                                    onCheckedChange = { enabled ->
+                                        coroutineScope.launch {
+                                            FirebaseManager.updateCloudBackupReceiptsSetting(enabled)
+                                        }
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = colors.canvasChalk,
+                                        checkedTrackColor = colors.inkPrimary,
+                                        uncheckedThumbColor = colors.inkMuted,
+                                        uncheckedTrackColor = colors.borderWhisper
+                                    )
+                                )
+                            },
+                            inkPrimary = colors.inkPrimary,
+                            inkMuted = colors.inkMuted,
+                            borderWhisper = colors.borderWhisper,
+                            surfaceCard = colors.surfaceCard,
+                            d = d,
+                            onClick = {
+                                val current = profile?.cloudBackupReceipts ?: true
+                                coroutineScope.launch {
+                                    FirebaseManager.updateCloudBackupReceiptsSetting(!current)
+                                }
+                            }
+                        )
+
+                        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+                        ProfileSettingsRow(
+                            label = "Receipt Image Cache",
+                            subtitle = "$cacheSizeText stored on device",
+                            icon = Icons.Default.DeleteSweep,
+                            trailingContent = {
+                                Surface(
+                                    onClick = {
+                                        clearReceiptCache(context)
+                                        cacheSizeText = getReceiptCacheSize(context)
+                                        Toast.makeText(context, "Receipt cache cleared!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    shape = RoundedCornerShape(d.radiusSM),
+                                    color = colors.alertRed.copy(alpha = 0.1f),
+                                    border = BorderStroke(0.5.dp, colors.alertRed.copy(alpha = 0.3f))
+                                ) {
+                                    Text(
+                                        text = "Clear",
+                                        fontFamily = OutfitFamily,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colors.alertRed,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            },
+                            inkPrimary = colors.inkPrimary,
+                            inkMuted = colors.inkMuted,
+                            borderWhisper = colors.borderWhisper,
+                            surfaceCard = colors.surfaceCard,
+                            d = d,
+                            onClick = {
+                                clearReceiptCache(context)
+                                cacheSizeText = getReceiptCacheSize(context)
+                                Toast.makeText(context, "Receipt cache cleared!", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── 6. SYSTEM & UPDATES BENTO CARD ───────────────────────────
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                Text(
+                    text = "SYSTEM & UPDATES",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.2.sp
+                )
+
+                val latestTag = updateReleaseInfo?.tagName ?: ""
+                val isNewerAvailable = updateReleaseInfo?.isNewer == true
+                var showInfoDialog by remember { mutableStateOf(false) }
+
+                Card(
+                    shape = RoundedCornerShape(d.radiusLG),
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                    border = BorderStroke(1.dp, colors.borderWhisper),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        ProfileSettingsRow(
+                            label = "Check for Updates",
+                            subtitle = "v${com.splitsmith.app.BuildConfig.VERSION_NAME} • Release build",
+                            icon = Icons.Default.SystemUpdate,
+                            trailingContent = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                                ) {
+                                    Text(
+                                        text = when {
+                                            isCheckingForUpdate -> "Checking..."
+                                            latestTag.isNotEmpty() -> latestTag
+                                            else -> "Up to date"
+                                        },
+                                        fontFamily = OutfitFamily,
+                                        fontSize = 12.sp,
+                                        color = colors.inkMuted
+                                    )
+                                    if (isNewerAvailable) {
+                                        Surface(
+                                            shape = RoundedCornerShape(d.radiusSM),
+                                            color = colors.inkPrimary,
+                                            modifier = Modifier.clickable {
+                                                if (updateReleaseInfo != null) showUpdateDialog = true
+                                            }
+                                        ) {
+                                            Text(
+                                                text = "UPDATE",
+                                                fontFamily = OutfitFamily,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = d.textLabelSmall,
+                                                color = colors.canvasChalk,
+                                                modifier = Modifier.padding(horizontal = d.space8, vertical = d.space4)
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            inkPrimary = colors.inkPrimary,
+                            inkMuted = colors.inkMuted,
+                            borderWhisper = colors.borderWhisper,
+                            surfaceCard = colors.surfaceCard,
+                            d = d,
+                            onClick = {
+                                if (isNewerAvailable && updateReleaseInfo != null) {
+                                    showUpdateDialog = true
+                                } else if (!isCheckingForUpdate) {
+                                    isCheckingForUpdate = true
+                                    coroutineScope.launch {
+                                        try {
+                                            val release = com.splitsmith.app.util.AppUpdateManager.checkForUpdates()
+                                            isCheckingForUpdate = false
+                                            if (release != null) {
+                                                if (release.isNewer) {
+                                                    updateReleaseInfo = release
+                                                    showUpdateDialog = true
+                                                } else {
+                                                    Toast.makeText(context, "SplitSmith v${com.splitsmith.app.BuildConfig.VERSION_NAME} is the latest version!", Toast.LENGTH_SHORT).show()
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "Could not check GitHub releases.", Toast.LENGTH_LONG).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            isCheckingForUpdate = false
+                                            Toast.makeText(context, "Update check failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            }
+                        )
+
+                        HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+                        ProfileSettingsRow(
+                            label = "About SplitSmith",
+                            subtitle = "Infrastructure, terms & open-source",
+                            icon = Icons.Default.Info,
+                            showChevron = true,
+                            inkPrimary = colors.inkPrimary,
+                            inkMuted = colors.inkMuted,
+                            borderWhisper = colors.borderWhisper,
+                            surfaceCard = colors.surfaceCard,
+                            d = d,
+                            onClick = { showInfoDialog = true }
+                        )
+                    }
+                }
+
+                if (showInfoDialog) {
+                    ModalBottomSheet(
+                        onDismissRequest = { showInfoDialog = false },
+                        containerColor = colors.canvasChalk,
+                        dragHandle = { BottomSheetDefaults.DragHandle(color = colors.borderWhisper) }
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(d.space24)
+                                .navigationBarsPadding(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(d.space16)
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.app_logo_brand),
+                                contentDescription = "SplitSmith Brand Logo",
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                            )
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "SplitSmith",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 24.sp,
+                                    color = colors.inkPrimary
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = colors.surfaceCard,
+                                    border = BorderStroke(0.5.dp, colors.borderWhisper)
+                                ) {
+                                    Text(
+                                        text = "v${com.splitsmith.app.BuildConfig.VERSION_NAME} • Release Build",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontSize = d.textLabelSmall,
+                                        color = colors.inkMuted,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = "Smart, effortless group expense splitting, real-time balances, and personal ledger accounting.",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textBodyLarge,
+                                color = colors.inkMuted,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = d.space16)
+                            )
+
+                            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "KEY FEATURES & INFRASTRUCTURE",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.inkMuted,
+                                    letterSpacing = 1.5.sp
+                                )
+
+                                val features = listOf(
+                                    "Real-Time Ledger Accounting",
+                                    "Group & Personal Monthly Budgets",
+                                    "Connections & Zero-Overhead Search",
+                                    "QR Code Instant Invites & Connect",
+                                    "OLED Dark UI & High Performance"
+                                )
+                                features.forEach { feat ->
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(
+                                            text = "•  $feat",
+                                            fontFamily = OutfitFamily,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = d.textBodyMedium,
+                                            color = colors.inkPrimary
+                                        )
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(d.space12)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        com.splitsmith.app.util.AppUpdateManager.openInBrowser(context, "https://splitsmith.web.app/")
+                                    },
+                                    modifier = Modifier.weight(1f).height(d.buttonHeight),
+                                    shape = RoundedCornerShape(d.radiusMD),
+                                    border = BorderStroke(1.dp, colors.borderWhisper)
+                                ) {
+                                    Text("Visit Web", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                                }
+
+                                Button(
+                                    onClick = { showInfoDialog = false },
+                                    modifier = Modifier.weight(1f).height(d.buttonHeight),
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
+                                    shape = RoundedCornerShape(d.radiusMD)
+                                ) {
+                                    Text("Done", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 7. DANGER ZONE (SIGN OUT GUARD) ──────────────────────────
+        item {
+            Card(
+                shape = RoundedCornerShape(d.radiusLG),
+                colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                border = BorderStroke(1.dp, colors.alertRed.copy(alpha = 0.3f)),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = d.rowHeightSm)
+                    .clickable { showSignOutConfirmDialog = true }
             ) {
-                Text(
-                    text = "Sign Out",
-                    fontFamily = OutfitFamily,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = d.textBodyLarge,
-                    color = colors.alertRed
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = d.space16),
+                    horizontalArrangement = Arrangement.spacedBy(d.space8, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                        contentDescription = "Sign Out",
+                        tint = colors.alertRed,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Sign Out",
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = d.textBodyLarge,
+                        color = colors.alertRed
+                    )
+                }
             }
         }
     }
@@ -3076,10 +3374,14 @@ fun ProfileSettingsView(
 fun ProfileSettingsRow(
     label: String,
     value: String = "",
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+    showChevron: Boolean = false,
     trailingContent: (@Composable () -> Unit)? = null,
     inkPrimary: Color,
     inkMuted: Color,
     borderWhisper: Color,
+    surfaceCard: Color,
     d: com.splitsmith.app.theme.Dimens,
     onClick: () -> Unit
 ) {
@@ -3087,35 +3389,104 @@ fun ProfileSettingsRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .heightIn(min = d.rowHeightSm)
-            .padding(vertical = d.space12),
+            .padding(horizontal = d.space16, vertical = d.space12),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = label,
-            fontFamily = OutfitFamily,
-            fontSize = d.textBodyLarge,
-            color = inkPrimary,
-            modifier = Modifier.weight(1f)
-        )
-        Spacer(modifier = Modifier.width(d.space16))
-        if (trailingContent != null) {
-            trailingContent()
-        } else if (value.isNotEmpty()) {
-            Text(
-                text = value,
-                fontFamily = OutfitFamily,
-                fontSize = d.textBodyMedium,
-                color = inkMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+        Row(
+            modifier = Modifier.weight(1f).padding(end = d.space8),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(d.space12)
+        ) {
+            if (icon != null) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = inkPrimary.copy(alpha = 0.05f),
+                    border = BorderStroke(1.dp, borderWhisper),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = label,
+                            tint = inkPrimary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    text = label,
+                    fontFamily = OutfitFamily,
+                    fontSize = d.textBodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = inkPrimary
+                )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        fontFamily = OutfitFamily,
+                        fontSize = 11.sp,
+                        color = inkMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(d.space8)
+        ) {
+            if (trailingContent != null) {
+                trailingContent()
+            } else if (value.isNotEmpty()) {
+                Text(
+                    text = value,
+                    fontFamily = JetBrainsMonoFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = inkPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            if (showChevron) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = inkMuted.copy(alpha = 0.6f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
     }
-    HorizontalDivider(color = borderWhisper, thickness = 0.5.dp)
 }
 
+fun getReceiptCacheSize(context: android.content.Context): String {
+    return try {
+        val totalBytes = context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        if (totalBytes < 1024 * 1024) {
+            "${totalBytes / 1024} KB"
+        } else {
+            String.format(java.util.Locale.US, "%.1f MB", totalBytes.toDouble() / (1024 * 1024))
+        }
+    } catch (e: Exception) {
+        "0.0 KB"
+    }
+}
+
+fun clearReceiptCache(context: android.content.Context) {
+    try {
+        context.cacheDir.listFiles()?.forEach { file ->
+            try { file.deleteRecursively() } catch (e: Exception) {}
+        }
+    } catch (e: Exception) {}
+}
 // ─── CREATE GROUP DIALOG ──────────────────────────────────────
 @Composable
 fun CreateGroupDialog(
