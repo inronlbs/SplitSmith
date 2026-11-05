@@ -1,3 +1,27 @@
+## [2026-11-05 19:00] Release v0.4.1.0 Published
+
+### Features & Highlights
+1. **Financial Command Center (`HomeScreen.kt`)**: Time-based dynamic greeting, Unified Net Position hero card with daily allowance pacing, 3-pill quick action strip (`Scan Bill`, `Split Bill`, `Log Expense`), interactive spending insights (7-Day Trend + Category Breakdown), and curated latest transactions.
+2. **Modern Android Architecture (MAD 2026)**: ViewModel extraction (`HomeViewModel.kt`), lifecycle-aware state collection (`collectAsStateWithLifecycle`), 5-second background auto-pause (`WhileSubscribed(5000)`), and automated unit test suite (`HomeViewModelTest.kt`).
+3. **Settings Screen Bento Redesign**: 6 Grouped Inset Bento Cards with squircle icon badges, subtitle cues, persistent monthly budget synchronization with Firestore, and on-device receipt cache inspection and clearing.
+4. **Direct Splits & Contacts Pipeline**: WhatsApp-style contact search with persistent cache, and two-pillar destination split/expense pipeline.
+
+### Deployed Artifacts & Links
+- **Version**: `versionCode = 62`, `versionName = "0.4.1.0"`
+- **GitHub Release**: [v0.4.1.0](https://github.com/inronlbs/SplitSmith/releases/tag/v0.4.1.0)
+  - `SplitSmith-v0.4.1.0-release.apk` (70.37 MB, signed)
+  - `SplitSmith-v0.4.1.0-release.aab` (43.76 MB, signed)
+- **Firebase Hosting Website CDN**: [https://splitsmith.web.app](https://splitsmith.web.app)
+  - Direct Binary: `https://splitsmith.web.app/splitsmith.bin`
+  - In-App Updater Metadata: `https://splitsmith.web.app/version.json`
+
+### Verification & Quality Gates
+- **Gradle Release Compilation**: `./gradlew assembleRelease bundleRelease` passed with code 0 (`BUILD SUCCESSFUL in 2m 48s`).
+- **Unit Test Execution**: `./gradlew testDebugUnitTest` executed 27 tasks and passed with code 0.
+- **Zero Emoji Compliance**: 0 emojis across all code, release notes, and commit messages.
+
+---
+
 ## [2026-11-05 18:40] Settings Screen Overhaul: Grouped Inset Bento Architecture
 
 ### Features & Fixes
