@@ -321,7 +321,7 @@ fun HomeScreen(
                             }
 
                             // Right: Personal (2) + Settings (3)
-                            NavIconSlot(2, Icons.Default.AccountBalanceWallet, "Personal", pagerState.targetPage, colors.inkPrimary, colors.borderWhisper, colors.inkMuted, d) {
+                            NavIconSlot(2, Icons.Default.AccountBalanceWallet, "Expenses", pagerState.targetPage, colors.inkPrimary, colors.borderWhisper, colors.inkMuted, d) {
                                 coroutineScope.launch { pagerState.animateScrollToPage(2) }
                             }
                             NavIconSlot(3, Icons.Default.Settings, "Settings", pagerState.targetPage, colors.inkPrimary, colors.borderWhisper, colors.inkMuted, d) {

@@ -1,6 +1,8 @@
 package com.splitsmith.app.data
 
 import androidx.annotation.Keep
+import com.google.firebase.firestore.Exclude
+import com.google.firebase.firestore.PropertyName
 import kotlinx.serialization.Serializable
 
 @Keep
@@ -52,8 +54,15 @@ data class Group(
     val admins: Map<String, Boolean> = emptyMap(),
     val joinRequests: Map<String, Boolean> = emptyMap(),
     val customCategories: List<String> = emptyList(),
-    val isExpenseTracker: Boolean = false
-)
+    @get:PropertyName("isExpenseTracker")
+    val isExpenseTracker: Boolean = false,
+    @get:PropertyName("expenseTracker")
+    val expenseTracker: Boolean = false
+) {
+    @get:Exclude
+    val isTracker: Boolean
+        get() = isExpenseTracker || expenseTracker
+}
 
 @Keep
 @Serializable

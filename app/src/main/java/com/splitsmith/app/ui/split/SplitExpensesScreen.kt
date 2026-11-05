@@ -25,12 +25,16 @@ import com.splitsmith.app.ui.components.GroupIconView
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
@@ -79,7 +83,12 @@ data class IndividualPeerGroup(
     val splits: List<DirectSplit>
 )
 
-private var savedSplitSegment = 0 // 0 = GROUPS, 1 = PEOPLE
+sealed interface SplitFeedItem {
+    data class GroupEntry(val group: Group) : SplitFeedItem
+    data class PeerEntry(val peer: IndividualPeerGroup) : SplitFeedItem
+}
+
+private var savedSplitFilter = 0 // 0 = ALL, 1 = GROUPS, 2 = FRIENDS
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,7 +104,7 @@ fun SplitExpensesScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var selectedSegment by remember { mutableIntStateOf(savedSplitSegment) } // 0 = GROUPS, 1 = PEOPLE
+    var selectedFilter by remember { mutableIntStateOf(savedSplitFilter) } // 0 = ALL, 1 = GROUPS, 2 = FRIENDS
     var showCreateGroup by remember { mutableStateOf(false) }
     var fabExpanded by remember { mutableStateOf(false) }
     var selectedSplitForDetail by remember { mutableStateOf<DirectSplit?>(null) }
@@ -154,8 +163,11 @@ fun SplitExpensesScreen(
         }
     }
 
-    val filteredGroups = remember(groups, searchQuery) {
-        groups.filter { !it.isExpenseTracker && it.name.contains(searchQuery, ignoreCase = true) }
+    val splitGroups = remember(groups) { groups.filter { !it.isTracker } }
+    val filteredGroups = remember(splitGroups, searchQuery) {
+        splitGroups.filter { group ->
+            group.name.contains(searchQuery, ignoreCase = true)
+        }
     }
     
     val individualPeers = remember(directSplits, connectedUsers, contactNames, contactAvatars, contactUpis, currentUserId, searchQuery) {
@@ -208,6 +220,16 @@ fun SplitExpensesScreen(
             else if (a.netBalance == 0.0 && b.netBalance != 0.0) 1
             else a.peerName.compareTo(b.peerName, ignoreCase = true)
         }
+    }
+
+    val combinedFeedItems = remember(filteredGroups, individualPeers) {
+        val list = mutableListOf<SplitFeedItem>()
+        val activePeers = individualPeers.filter { it.netBalance != 0.0 }
+        val settledPeers = individualPeers.filter { it.netBalance == 0.0 }
+        activePeers.forEach { list.add(SplitFeedItem.PeerEntry(it)) }
+        filteredGroups.forEach { list.add(SplitFeedItem.GroupEntry(it)) }
+        settledPeers.forEach { list.add(SplitFeedItem.PeerEntry(it)) }
+        list
     }
 
     val totalOwedToYou = remember(individualPeers) {
@@ -353,24 +375,24 @@ fun SplitExpensesScreen(
                 }
             }
 
-            // Segmented Pill Control (Groups vs People)
+            // Minimal Segmented Filter Pills (All vs Groups vs Friends)
             Row(
-                horizontalArrangement = Arrangement.spacedBy(d.space12),
+                horizontalArrangement = Arrangement.spacedBy(d.space8),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                listOf("Groups (${filteredGroups.size})", "People (${individualPeers.size})").forEachIndexed { index, label ->
-                    val isSelected = selectedSegment == index
+                listOf("All", "Groups", "Friends").forEachIndexed { index, label ->
+                    val isSelected = selectedFilter == index
                     Surface(
                         onClick = {
-                            selectedSegment = index
-                            savedSplitSegment = index
+                            selectedFilter = index
+                            savedSplitFilter = index
                         },
                         shape = RoundedCornerShape(d.radiusFull),
                         color = if (isSelected) colors.inkPrimary else colors.surfaceCard,
                         border = BorderStroke(1.dp, if (isSelected) colors.inkPrimary else colors.borderWhisper),
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 44.dp)
+                            .heightIn(min = 38.dp)
                             .semantics {
                                 role = Role.Tab
                                 selected = isSelected
@@ -378,13 +400,13 @@ fun SplitExpensesScreen(
                     ) {
                         Box(
                             contentAlignment = Alignment.Center,
-                            modifier = Modifier.padding(horizontal = d.space16, vertical = d.space8)
+                            modifier = Modifier.padding(horizontal = d.space12, vertical = 6.dp)
                         ) {
                             Text(
                                 text = label,
                                 fontFamily = OutfitFamily,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                fontSize = d.textLabelLarge,
+                                fontSize = d.textLabelMedium,
                                 color = if (isSelected) colors.canvasChalk else colors.inkMuted
                             )
                         }
@@ -392,7 +414,7 @@ fun SplitExpensesScreen(
                 }
             }
 
-            // List View
+            // Unified WhatsApp-style Feed View
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(d.space12),
@@ -412,53 +434,46 @@ fun SplitExpensesScreen(
                         }
                     }
                 } else {
-                    if (selectedSegment == 0) {
-                        // GROUPS TAB
-                        if (filteredGroups.isNotEmpty()) {
-                            items(filteredGroups) { group ->
-                                GroupListItem(group, onNavigateToGroup, colors, d)
+                    val currentItems = when (selectedFilter) {
+                        1 -> filteredGroups.map { SplitFeedItem.GroupEntry(it) }
+                        2 -> individualPeers.map { SplitFeedItem.PeerEntry(it) }
+                        else -> combinedFeedItems
+                    }
+
+                    if (currentItems.isNotEmpty()) {
+                        items(currentItems, key = {
+                            when (it) {
+                                is SplitFeedItem.GroupEntry -> "group_${it.group.id}"
+                                is SplitFeedItem.PeerEntry -> "peer_${it.peer.peerUid}"
                             }
-                        } else {
-                            item {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(d.space8)
-                                ) {
-                                    val emptyTitle = if (searchQuery.isNotEmpty()) "No groups found for \"$searchQuery\"" else "No groups yet"
-                                    val emptySubtitle = if (searchQuery.isNotEmpty()) "Try searching for a different group name." else "Tap + to create a group."
-                                    Text(emptyTitle, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = colors.inkPrimary, textAlign = TextAlign.Center)
-                                    Text(emptySubtitle, fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkMuted, textAlign = TextAlign.Center)
+                        }) { feedItem ->
+                            when (feedItem) {
+                                is SplitFeedItem.GroupEntry -> {
+                                    GroupListItem(feedItem.group, onNavigateToGroup, colors, d)
+                                }
+                                is SplitFeedItem.PeerEntry -> {
+                                    IndividualPeerListItem(
+                                        peerGroup = feedItem.peer,
+                                        colors = colors,
+                                        d = d,
+                                        onClick = {
+                                            onNavigateToDirectSplit(feedItem.peer.peerUid)
+                                        }
+                                    )
                                 }
                             }
                         }
                     } else {
-                        // PEOPLE TAB
-                        if (individualPeers.isNotEmpty()) {
-                            items(individualPeers) { peerGroup ->
-                                IndividualPeerListItem(
-                                    peerGroup = peerGroup,
-                                    colors = colors,
-                                    d = d,
-                                    onClick = {
-                                        savedSplitSegment = 1
-                                        selectedSegment = 1
-                                        onNavigateToDirectSplit(peerGroup.peerUid)
-                                    }
-                                )
-                            }
-                        } else {
-                            item {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(d.space8)
-                                ) {
-                                    val emptyTitle = if (searchQuery.isNotEmpty()) "No people found for \"$searchQuery\"" else "No individual splits yet"
-                                    val emptySubtitle = if (searchQuery.isNotEmpty()) "Try searching for a different name." else "Tap + to split with a contact."
-                                    Text(emptyTitle, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = colors.inkPrimary, textAlign = TextAlign.Center)
-                                    Text(emptySubtitle, fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkMuted, textAlign = TextAlign.Center)
-                                }
+                        item {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(d.space8)
+                            ) {
+                                val emptyTitle = if (searchQuery.isNotEmpty()) "No matches found for \"$searchQuery\"" else "No splits yet"
+                                val emptySubtitle = if (searchQuery.isNotEmpty()) "Try searching with a different term." else "Tap + to create a group or split with a friend."
+                                Text(emptyTitle, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = colors.inkPrimary, textAlign = TextAlign.Center)
+                                Text(emptySubtitle, fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkMuted, textAlign = TextAlign.Center)
                             }
                         }
                     }
@@ -1148,7 +1163,7 @@ fun DirectSplitDetailBottomSheet(
     }
 }
 
-// ─── CREATE GROUP BOTTOM SHEET ────────────────────────────────
+// ─── CREATE GROUP BOTTOM SHEET (WhatsApp-Style 2-Step Flow) ─────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateGroupBottomSheet(
@@ -1162,62 +1177,37 @@ fun CreateGroupBottomSheet(
     val coroutineScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var currentStep by rememberSaveable { mutableStateOf(1) }
     var isTrackerMode by rememberSaveable(isExpenseTracker) { mutableStateOf(isExpenseTracker) }
     var groupName by remember { mutableStateOf("") }
-    var selectedIconName by remember { mutableStateOf("Other") }
-    var memberInput by remember { mutableStateOf("") }
+    var selectedIconName by remember { mutableStateOf("Trip") }
+    var memberSearchQuery by remember { mutableStateOf("") }
     var addedMembers by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
-    var isSearching by remember { mutableStateOf(false) }
+    var unifiedContacts by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
+    var isLoadingContacts by remember { mutableStateOf(true) }
+    var isCreating by remember { mutableStateOf(false) }
+    var isSearchingExternal by remember { mutableStateOf(false) }
 
-    var recentContacts by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
     LaunchedEffect(Unit) {
+        isLoadingContacts = true
         try {
-            recentContacts = FirebaseManager.getRecentDirectContacts()
+            unifiedContacts = FirebaseManager.getUnifiedConnectedContacts()
         } catch (e: Exception) {
-            android.util.Log.e("SplitSmithDebug", "Failed to fetch direct contacts: ${e.message}")
+            android.util.Log.e("SplitSmithDebug", "Failed to fetch unified contacts: ${e.message}")
+        } finally {
+            isLoadingContacts = false
         }
     }
 
-    val suggestions = remember(memberInput, recentContacts) {
-        if (memberInput.trim().isEmpty()) emptyList()
-        else recentContacts.filter {
-            it.displayName.contains(memberInput, ignoreCase = true) ||
-            it.email.contains(memberInput, ignoreCase = true)
+    val filteredContacts = remember(memberSearchQuery, unifiedContacts) {
+        val q = memberSearchQuery.trim()
+        if (q.isEmpty()) unifiedContacts
+        else unifiedContacts.filter {
+            it.displayName.contains(q, ignoreCase = true) ||
+            it.email.contains(q, ignoreCase = true) ||
+            it.shortCode.contains(q, ignoreCase = true)
         }
     }
-
-    val qrScanLauncher = rememberLauncherForActivityResult(
-        contract = com.journeyapps.barcodescanner.ScanContract(),
-        onResult = { result ->
-            if (result.contents != null) {
-                val scannedCode = result.contents.trim()
-                isSearching = true
-                coroutineScope.launch {
-                    try {
-                        val cleanCode = com.splitsmith.app.util.QrPayloadParser.extractCleanCode(scannedCode)
-                        val resolved = FirebaseManager.searchUserByCode(scannedCode)
-                            ?: FirebaseManager.searchUserByEmail(cleanCode)
-                        if (resolved != null && resolved.uid.isNotEmpty()) {
-                            FirebaseManager.addConnection(resolved.uid)
-                            if (addedMembers.none { it.uid == resolved.uid }) {
-                                addedMembers = addedMembers + resolved
-                                Toast.makeText(context, "Added ${resolved.displayName}!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "Already added", Toast.LENGTH_SHORT).show()
-                            }
-                        } else {
-                            Toast.makeText(context, "User not found", Toast.LENGTH_SHORT).show()
-                        }
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "QR code not recognized", Toast.LENGTH_SHORT).show()
-                    } finally {
-                        isSearching = false
-                    }
-                }
-            }
-        }
-    )
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1238,261 +1228,78 @@ fun CreateGroupBottomSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = d.space24, vertical = d.space16),
-            verticalArrangement = Arrangement.spacedBy(d.space20)
+                .padding(horizontal = d.space24, vertical = d.space16)
         ) {
-            // Title & Mode Selector
-            Column(verticalArrangement = Arrangement.spacedBy(d.space12)) {
-                Text(
-                    text = if (isTrackerMode) "New Expense Tracker Group" else "New Split Group",
-                    fontFamily = OutfitFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = d.textTitleLarge,
-                    color = colors.inkPrimary
-                )
-
-                // Segmented Toggle for Group Mode
+            if (currentStep == 1) {
+                // ── STEP 1: ADD FRIENDS (PEOPLE FIRST) ──
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    listOf("Split Group" to false, "Expense Tracker" to true).forEach { (label, isTracker) ->
-                        val isSelected = isTrackerMode == isTracker
-                        Surface(
-                            onClick = { isTrackerMode = isTracker },
-                            shape = RoundedCornerShape(d.radiusFull),
-                            color = if (isSelected) colors.inkPrimary else colors.canvasChalk,
-                            border = BorderStroke(1.dp, if (isSelected) colors.inkPrimary else colors.borderWhisper),
-                            modifier = Modifier.weight(1f).height(d.space32 + d.space8)
-                        ) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                Text(
-                                    text = label,
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                    fontSize = d.textLabelMedium,
-                                    color = if (isSelected) colors.canvasChalk else colors.inkMuted
-                                )
-                            }
-                        }
+                    Column {
+                        Text(
+                            text = "New Group",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textTitleLarge,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            text = if (addedMembers.isEmpty()) "Step 1 of 2 · Add friends" else "${addedMembers.size} friends selected",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelMedium,
+                            color = if (addedMembers.isNotEmpty()) colors.inkPrimary else colors.inkMuted
+                        )
+                    }
+                    TextButton(onClick = { currentStep = 2 }) {
+                        Text(
+                            text = if (addedMembers.isEmpty()) "Skip →" else "Next →",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.inkPrimary
+                        )
                     }
                 }
 
-                Text(
-                    text = if (isTrackerMode) "Shared spend tracking for trips, projects, & company (no split debts)." else "Splits expenses among members and calculates 'who owes whom' balances.",
-                    fontFamily = OutfitFamily,
-                    fontSize = d.textLabelSmall,
-                    color = colors.inkMuted
-                )
-            }
+                Spacer(modifier = Modifier.height(d.space12))
 
-            // Group name field
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = "Group name",
-                    fontFamily = OutfitFamily,
-                    fontSize = d.textLabelMedium,
-                    color = colors.inkMuted
-                )
+                // Search field
                 OutlinedTextField(
-                    value = groupName,
-                    onValueChange = { groupName = it },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = d.inputHeight),
+                    value = memberSearchQuery,
+                    onValueChange = { memberSearchQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(d.radiusSM),
                     placeholder = {
-                        Text(if (isTrackerMode) "e.g. Paris Trip, Company Spend..." else "e.g. Goa Trip, Flat Rent...", fontFamily = OutfitFamily, color = colors.inkMuted)
+                        Text("Search name, email, or code...", fontFamily = OutfitFamily, color = colors.inkMuted)
                     },
                     singleLine = true,
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = "Search", tint = colors.inkMuted, modifier = Modifier.size(18.dp))
+                    },
+                    trailingIcon = {
+                        if (memberSearchQuery.isNotEmpty()) {
+                            IconButton(onClick = { memberSearchQuery = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear", tint = colors.inkMuted, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = colors.inkPrimary,
                         unfocusedBorderColor = colors.borderWhisper,
-                        focusedContainerColor = colors.surfaceCard,
-                        unfocusedContainerColor = colors.surfaceCard,
+                        focusedContainerColor = colors.canvasChalk,
+                        unfocusedContainerColor = colors.canvasChalk,
                         focusedTextColor = colors.inkPrimary,
                         unfocusedTextColor = colors.inkPrimary
-                    ),
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        fontFamily = OutfitFamily,
-                        fontSize = d.textBodyLarge,
-                        color = colors.inkPrimary
                     )
                 )
-            }
 
-            // Group Icon Picker
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Group Icon",
-                    fontFamily = OutfitFamily,
-                    fontSize = d.textLabelMedium,
-                    color = colors.inkMuted
-                )
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(d.space12),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    items(listOf("Home", "Trip", "Work", "Event", "Food", "Payment", "Shopping", "Dining", "Drinks", "Pets", "Education", "Tech", "Other")) { iconName ->
-                        val isSelected = selectedIconName == iconName
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .border(
-                                    width = if (isSelected) 2.dp else 1.dp,
-                                    color = if (isSelected) colors.inkPrimary else Color.Transparent,
-                                    shape = CircleShape
-                                )
-                                .padding(3.dp)
-                                .clickable { selectedIconName = iconName },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            GroupIconView(
-                                iconName = iconName,
-                                size = 42.dp,
-                                modifier = Modifier.alpha(if (isSelected) 1.0f else 0.6f)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Add members section
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Add Members",
-                    fontFamily = OutfitFamily,
-                    fontSize = d.textLabelMedium,
-                    color = colors.inkMuted
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(d.space8),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = memberInput,
-                        onValueChange = { memberInput = it },
-                        modifier = Modifier.weight(1f).heightIn(min = d.inputHeight),
-                        shape = RoundedCornerShape(d.radiusSM),
-                        placeholder = {
-                            Text("Email or short code", fontFamily = OutfitFamily, color = colors.inkMuted)
-                        },
-                        singleLine = true,
-                        trailingIcon = {
-                            Text(
-                                text = "Scan",
-                                fontFamily = OutfitFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = d.textLabelMedium,
-                                color = colors.inkPrimary,
-                                modifier = Modifier
-                                    .clickable {
-                                        val options = com.journeyapps.barcodescanner.ScanOptions().apply {
-                                            setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
-                                            setPrompt("Scan a member QR code")
-                                            setBeepEnabled(false)
-                                            setOrientationLocked(false)
-                                        }
-                                        qrScanLauncher.launch(options)
-                                    }
-                                    .padding(horizontal = d.space12)
-                            )
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = colors.inkPrimary,
-                            unfocusedBorderColor = colors.borderWhisper,
-                            focusedContainerColor = colors.surfaceCard,
-                            unfocusedContainerColor = colors.surfaceCard,
-                            focusedTextColor = colors.inkPrimary,
-                            unfocusedTextColor = colors.inkPrimary
-                        ),
-                        textStyle = androidx.compose.ui.text.TextStyle(
-                            fontFamily = OutfitFamily,
-                            fontSize = d.textBodyMedium,
-                            color = colors.inkPrimary
-                        )
-                    )
-
-                    Button(
-                        onClick = {
-                            if (memberInput.trim().isEmpty()) return@Button
-                            isSearching = true
-                            coroutineScope.launch {
-                                try {
-                                    val resolved = FirebaseManager.searchUserByCode(memberInput.trim())
-                                        ?: FirebaseManager.searchUserByEmail(memberInput.trim())
-                                    if (resolved != null && resolved.uid.isNotEmpty()) {
-                                        FirebaseManager.addConnection(resolved.uid)
-                                        if (addedMembers.none { it.uid == resolved.uid }) {
-                                            addedMembers = addedMembers + resolved
-                                            memberInput = ""
-                                            Toast.makeText(context, "Added ${resolved.displayName}!", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            Toast.makeText(context, "Already added", Toast.LENGTH_SHORT).show()
-                                        }
-                                    } else {
-                                        Toast.makeText(context, "User not found", Toast.LENGTH_SHORT).show()
-                                    }
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                } finally {
-                                    isSearching = false
-                                }
-                            }
-                        },
-                        modifier = Modifier.height(d.inputHeight),
-                        shape = RoundedCornerShape(d.radiusSM),
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
-                        enabled = !isSearching && memberInput.trim().isNotEmpty()
-                    ) {
-                        if (isSearching) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = colors.canvasChalk, strokeWidth = 2.dp)
-                        } else {
-                            Text("Add", fontFamily = OutfitFamily, color = colors.canvasChalk)
-                        }
-                    }
-                }
-
-                // Dynamic suggestions for connected users
-                if (suggestions.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(colors.canvasChalk, RoundedCornerShape(d.radiusSM))
-                            .padding(vertical = d.space4),
-                        verticalArrangement = Arrangement.spacedBy(d.space4)
-                    ) {
-                        suggestions.forEach { suggestion ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        if (addedMembers.none { it.uid == suggestion.uid }) {
-                                            addedMembers = addedMembers + suggestion
-                                        }
-                                        memberInput = ""
-                                    }
-                                    .padding(horizontal = d.space12, vertical = d.space8),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(d.space8)
-                            ) {
-                                UserAvatar(avatarUrl = suggestion.avatarUrl, displayName = suggestion.displayName, size = d.avatarSm)
-                                Column {
-                                    Text(suggestion.displayName, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textBodyMedium, color = colors.inkPrimary)
-                                    Text(suggestion.email, fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Render added members chips
+                // Staged Chips Carousel
                 if (addedMembers.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    androidx.compose.foundation.lazy.LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(d.space8)
+                    Spacer(modifier = Modifier.height(d.space12))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(d.space8),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         items(addedMembers) { member ->
                             Surface(
@@ -1502,11 +1309,12 @@ fun CreateGroupBottomSheet(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    modifier = Modifier.padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
+                                    UserAvatar(avatarUrl = member.avatarUrl, displayName = member.displayName, size = 24.dp)
                                     Text(
-                                        text = member.displayName,
+                                        text = member.displayName.ifEmpty { "Friend" },
                                         fontFamily = OutfitFamily,
                                         fontSize = d.textLabelMedium,
                                         color = colors.inkPrimary
@@ -1516,7 +1324,7 @@ fun CreateGroupBottomSheet(
                                         contentDescription = "Remove",
                                         tint = colors.inkMuted,
                                         modifier = Modifier
-                                            .size(16.dp)
+                                            .size(14.dp)
                                             .clickable { addedMembers = addedMembers.filter { it.uid != member.uid } }
                                     )
                                 }
@@ -1524,49 +1332,385 @@ fun CreateGroupBottomSheet(
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(d.space8))
+                Spacer(modifier = Modifier.height(d.space12))
 
-            // Create button
-            Button(
-                onClick = {
-                    if (groupName.trim().isEmpty()) return@Button
-                    isLoading = true
-                    coroutineScope.launch {
-                        try {
-                            val id = FirebaseManager.createGroup(
-                                name = groupName.trim(),
-                                iconName = selectedIconName,
-                                type = selectedIconName,
-                                memberUids = addedMembers.map { it.uid },
-                                isExpenseTracker = isTrackerMode
-                            )
-                            onGroupCreated(id)
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                            isLoading = false
+                // Contact list header
+                Text(
+                    text = "ALL CONNECTED CONTACTS (${filteredContacts.size})",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.2.sp
+                )
+
+                Spacer(modifier = Modifier.height(d.space8))
+
+                if (isLoadingContacts) {
+                    Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = colors.inkPrimary, strokeWidth = 2.dp)
+                    }
+                } else if (filteredContacts.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = d.space24),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(d.space8)
+                    ) {
+                        Text(
+                            text = if (memberSearchQuery.isEmpty()) "No connected contacts yet." else "No connected friends match \"$memberSearchQuery\".",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textBodyMedium,
+                            color = colors.inkMuted,
+                            textAlign = TextAlign.Center
+                        )
+                        if (memberSearchQuery.trim().isNotEmpty()) {
+                            Button(
+                                onClick = {
+                                    isSearchingExternal = true
+                                    coroutineScope.launch {
+                                        try {
+                                            val query = memberSearchQuery.trim()
+                                            val resolved = FirebaseManager.searchUserByCode(query)
+                                                ?: FirebaseManager.searchUserByEmail(query)
+                                            if (resolved != null && resolved.uid.isNotEmpty()) {
+                                                if (addedMembers.none { it.uid == resolved.uid }) {
+                                                    addedMembers = addedMembers + resolved
+                                                    memberSearchQuery = ""
+                                                    Toast.makeText(context, "Added ${resolved.displayName}!", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "Already selected", Toast.LENGTH_SHORT).show()
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "No user found with this email/code", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Search failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        } finally {
+                                            isSearchingExternal = false
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(d.radiusSM),
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
+                                enabled = !isSearchingExternal
+                            ) {
+                                if (isSearchingExternal) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = colors.canvasChalk, strokeWidth = 2.dp)
+                                } else {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Text("Lookup & Add \"$memberSearchQuery\"", fontFamily = OutfitFamily, fontSize = d.textLabelMedium)
+                                    }
+                                }
+                            }
                         }
                     }
-                },
-                modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
-                enabled = !isLoading && groupName.trim().isNotEmpty(),
-                shape = RoundedCornerShape(d.radiusMD),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.inkPrimary,
-                    disabledContainerColor = colors.borderWhisper
-                )
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colors.canvasChalk, strokeWidth = 2.dp)
                 } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp),
+                        verticalArrangement = Arrangement.spacedBy(d.space4)
+                    ) {
+                        items(filteredContacts) { contact ->
+                            val isSelected = addedMembers.any { it.uid == contact.uid }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(d.radiusSM))
+                                    .clickable {
+                                        addedMembers = if (isSelected) {
+                                            addedMembers.filter { it.uid != contact.uid }
+                                        } else {
+                                            addedMembers + contact
+                                        }
+                                    }
+                                    .background(if (isSelected) colors.inkPrimary.copy(alpha = 0.08f) else Color.Transparent)
+                                    .padding(horizontal = d.space8, vertical = d.space8),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(d.space12),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    UserAvatar(avatarUrl = contact.avatarUrl, displayName = contact.displayName, size = 38.dp)
+                                    Column {
+                                        Text(
+                                            text = contact.displayName.ifEmpty { "Friend" },
+                                            fontFamily = OutfitFamily,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = d.textBodyLarge,
+                                            color = colors.inkPrimary
+                                        )
+                                        Text(
+                                            text = contact.email.ifEmpty { "User #${contact.shortCode}" },
+                                            fontFamily = OutfitFamily,
+                                            fontSize = d.textLabelSmall,
+                                            color = colors.inkMuted
+                                        )
+                                    }
+                                }
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Selected",
+                                        tint = colors.inkPrimary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .border(1.5.dp, colors.borderWhisper, CircleShape)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(d.space16))
+
+                Button(
+                    onClick = { currentStep = 2 },
+                    modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                    shape = RoundedCornerShape(d.radiusMD),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary)
+                ) {
                     Text(
-                        text = if (isTrackerMode) "Create Expense Tracker Group" else "Create Split Group",
+                        text = if (addedMembers.isNotEmpty()) "Next (${addedMembers.size} Selected) →" else "Next (Create Solo) →",
                         fontFamily = OutfitFamily,
                         fontWeight = FontWeight.Bold,
-                        fontSize = d.textTitleMedium,
+                        fontSize = d.textBodyLarge,
                         color = colors.canvasChalk
                     )
+                }
+            } else {
+                // ── STEP 2: GROUP DETAILS & MODE (CONFIGURATION) ──
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    IconButton(
+                        onClick = { currentStep = 1 },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = colors.inkPrimary
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Group Details",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textTitleLarge,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            text = "Step 2 of 2 · Name & Mode",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelMedium,
+                            color = colors.inkMuted
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(d.space16))
+
+                // Group Name Input
+                Text(
+                    text = "GROUP NAME",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.2.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = groupName,
+                    onValueChange = { groupName = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(d.radiusSM),
+                    placeholder = {
+                        Text(if (isTrackerMode) "e.g. Paris Trip, Team Project..." else "e.g. Goa Trip, Flatmates...", fontFamily = OutfitFamily, color = colors.inkMuted)
+                    },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = colors.inkPrimary,
+                        unfocusedBorderColor = colors.borderWhisper,
+                        focusedContainerColor = colors.canvasChalk,
+                        unfocusedContainerColor = colors.canvasChalk,
+                        focusedTextColor = colors.inkPrimary,
+                        unfocusedTextColor = colors.inkPrimary
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(d.space12))
+
+                // Icon Picker
+                Text(
+                    text = "CATEGORY ICON",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.2.sp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(d.space8),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(listOf("Trip", "Home", "Work", "Event", "Food", "Shopping", "Tech", "Other")) { iconName ->
+                        val isSelected = selectedIconName == iconName
+                        Surface(
+                            onClick = { selectedIconName = iconName },
+                            shape = RoundedCornerShape(d.radiusFull),
+                            color = if (isSelected) colors.inkPrimary else colors.canvasChalk,
+                            border = BorderStroke(1.dp, if (isSelected) colors.inkPrimary else colors.borderWhisper),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
+                                Text(
+                                    text = iconName,
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textLabelMedium,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) colors.canvasChalk else colors.inkMuted
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(d.space16))
+
+                // Mode Selection Cards
+                Text(
+                    text = "CHOOSE GROUP TYPE",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.2.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Split Group Card
+                Surface(
+                    onClick = { isTrackerMode = false },
+                    shape = RoundedCornerShape(d.radiusMD),
+                    color = if (!isTrackerMode) colors.inkPrimary.copy(alpha = 0.06f) else colors.canvasChalk,
+                    border = BorderStroke(if (!isTrackerMode) 1.5.dp else 1.dp, if (!isTrackerMode) colors.inkPrimary else colors.borderWhisper),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(d.space12),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(d.space12)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (!isTrackerMode) colors.inkPrimary else colors.borderWhisper,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.GroupAdd, contentDescription = null, tint = colors.canvasChalk, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Split Group (With Balances)", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyLarge, color = colors.inkPrimary)
+                            Text("Splits expenses, tracks who owes who, settlements via UPI/Cash.", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
+                        }
+                        if (!isTrackerMode) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = colors.inkPrimary, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Expense Tracker Card
+                Surface(
+                    onClick = { isTrackerMode = true },
+                    shape = RoundedCornerShape(d.radiusMD),
+                    color = if (isTrackerMode) colors.inkPrimary.copy(alpha = 0.06f) else colors.canvasChalk,
+                    border = BorderStroke(if (isTrackerMode) 1.5.dp else 1.dp, if (isTrackerMode) colors.inkPrimary else colors.borderWhisper),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(d.space12),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(d.space12)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isTrackerMode) colors.inkPrimary else colors.borderWhisper,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = colors.canvasChalk, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Expense Tracker (No Debts)", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyLarge, color = colors.inkPrimary)
+                            Text("Collaborative spend log for trips & projects. Zero debt tracking.", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
+                        }
+                        if (isTrackerMode) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = colors.inkPrimary, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(d.space16))
+
+                // Create Button
+                Button(
+                    onClick = {
+                        if (groupName.trim().isEmpty()) return@Button
+                        isCreating = true
+                        coroutineScope.launch {
+                            try {
+                                val id = FirebaseManager.createGroup(
+                                    name = groupName.trim(),
+                                    iconName = selectedIconName,
+                                    type = selectedIconName,
+                                    memberUids = addedMembers.map { it.uid },
+                                    isExpenseTracker = isTrackerMode
+                                )
+                                onGroupCreated(id)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                isCreating = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                    enabled = !isCreating && groupName.trim().isNotEmpty(),
+                    shape = RoundedCornerShape(d.radiusMD),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.inkPrimary,
+                        disabledContainerColor = colors.borderWhisper
+                    )
+                ) {
+                    if (isCreating) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colors.canvasChalk, strokeWidth = 2.dp)
+                    } else {
+                        Text(
+                            text = if (isTrackerMode) "Create Expense Tracker Group" else "Create Split Group",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textBodyLarge,
+                            color = colors.canvasChalk
+                        )
+                    }
                 }
             }
         }
@@ -1584,9 +1728,9 @@ fun IndividualPeerListItem(
 ) {
     val net = peerGroup.netBalance
     val balanceText = when {
-        net > 0 -> "Owes you \u20b9${net.formatCurrency()}"
-        net < 0 -> "You owe \u20b9${(-net).formatCurrency()}"
-        else -> "Settled up"
+        net > 0 -> "+\u20b9${net.formatCurrency()}"
+        net < 0 -> "-\u20b9${(-net).formatCurrency()}"
+        else -> "settled"
     }
     val balanceColor = when {
         net > 0 -> colors.inkPrimary
@@ -1623,7 +1767,7 @@ fun IndividualPeerListItem(
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = balanceText,
-                    fontFamily = OutfitFamily,
+                    fontFamily = JetBrainsMonoFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = d.textBodyLarge,
                     color = balanceColor

@@ -40,6 +40,40 @@ object AppUpdateManager {
         repo: String = githubRepo,
         currentVersion: String = currentAppVersion
     ): AppReleaseInfo? = withContext(Dispatchers.IO) {
+        // Tier 1: Check high-speed Firebase CDN metadata (zero rate limits, instant global cache)
+        try {
+            val cdnUrl = URL("https://splitsmith.web.app/version.json")
+            val cdnConn = cdnUrl.openConnection() as HttpURLConnection
+            cdnConn.requestMethod = "GET"
+            cdnConn.setRequestProperty("User-Agent", "SplitSmith-App")
+            cdnConn.connectTimeout = 4000
+            cdnConn.readTimeout = 4000
+
+            if (cdnConn.responseCode == 200) {
+                val responseText = cdnConn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(responseText)
+                val tagName = json.optString("tagName", "")
+                val versionName = json.optString("versionName", "")
+                val releaseNotes = json.optString("releaseNotes", "New update available.")
+                val downloadUrl = json.optString("downloadUrl", "https://splitsmith.web.app/splitsmith.bin")
+
+                val cleanLatest = (if (versionName.isNotEmpty()) versionName else tagName).trim().removePrefix("v").removePrefix("V")
+                val cleanCurrent = currentVersion.trim().removePrefix("v").removePrefix("V")
+                val isNewer = isVersionNewer(cleanLatest, cleanCurrent)
+
+                return@withContext AppReleaseInfo(
+                    tagName = if (tagName.isNotEmpty()) tagName else "v$cleanLatest",
+                    versionName = cleanLatest,
+                    releaseNotes = releaseNotes,
+                    downloadUrl = downloadUrl,
+                    isNewer = isNewer
+                )
+            }
+        } catch (e: Exception) {
+            // Silently proceed to Tier 2 GitHub fallback
+        }
+
+        // Tier 2: GitHub Releases API fallback
         try {
             val urlString = "https://api.github.com/repos/$owner/$repo/releases/latest"
             val url = URL(urlString)
@@ -47,8 +81,8 @@ object AppUpdateManager {
             connection.requestMethod = "GET"
             connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
             connection.setRequestProperty("User-Agent", "SplitSmith-App")
-            connection.connectTimeout = 8000
-            connection.readTimeout = 8000
+            connection.connectTimeout = 6000
+            connection.readTimeout = 6000
 
             if (connection.responseCode == 200) {
                 val responseText = connection.inputStream.bufferedReader().use { it.readText() }
@@ -191,6 +225,22 @@ object AppUpdateManager {
      */
     fun installApk(context: Context, apkFile: File) {
         try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (!context.packageManager.canRequestPackageInstalls()) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Please allow SplitSmith to install updates from this source.",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    val permissionIntent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(permissionIntent)
+                    return
+                }
+            }
+
             val apkUri: Uri = FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
@@ -204,6 +254,7 @@ object AppUpdateManager {
             context.startActivity(intent)
         } catch (e: Exception) {
             e.printStackTrace()
+            openInBrowser(context, "https://splitsmith.web.app/")
         }
     }
 }

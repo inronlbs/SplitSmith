@@ -1,3 +1,69 @@
+## [2026-11-04 17:45] Group Mode Immutability & Clean Expense Tab Separation
+
+### Features & Fixes
+1. **Group Mode Immutability (`GroupDetailScreen.kt`)**:
+   - Removed the mutable `Switch` toggle from `StyledSettingsTab` in `GroupDetailScreen`. Group mode is strictly permanent once created, safeguarding historical expenses, splits, and debt balances from accidental corruption.
+   - Replaced with a read-only group mode indicator badge: `"Split Group (With Balances)"` or `"Expense Tracker (No Debts)"` marked with a `"Permanent"` badge.
+
+2. **Clean Domain & Tab Separation (`SplitExpensesScreen.kt`, `PersonalExpensesScreen.kt`)**:
+   - Filtered `SplitExpensesScreen` to display **only Split Groups** (`!group.isTracker`) alongside 1-on-1 direct splits.
+   - Collaborative Expense Tracker groups now live exclusively in their dedicated home: the `"Expense Groups"` segment of `PersonalExpensesScreen`.
+   - Removed redundant filter pills (`[All]`, `[Split Groups]`, `[Trackers]`) and group badges from `SplitExpensesScreen`.
+
+3. **Pure Monochrome Design System Alignment (`SplitExpensesScreen.kt`)**:
+   - Eliminated the non-monochrome color leak on the participant counter subtitle in `CreateGroupBottomSheet` by switching from `positiveGreen` to `inkPrimary`.
+   - All interactive controls, badges, and surfaces in `SplitExpensesScreen` and `GroupDetailScreen` now strictly adhere to the chalk-and-ink monochrome palette (`canvasChalk`, `inkPrimary`, `surfaceCard`, `borderWhisper`).
+
+### Files Modified
+- `[MODIFY]` [GroupDetailScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/group/GroupDetailScreen.kt)
+- `[MODIFY]` [SplitExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/split/SplitExpensesScreen.kt)
+
+### Verification & Quality Gates
+- **Gradle Kotlin Compilation**: `./gradlew compileDebugKotlin` exited with code 0 (`BUILD SUCCESSFUL`).
+- **Unit Test Execution**: `./gradlew testDebugUnitTest` executed 27 tasks and passed with code 0 (`BUILD SUCCESSFUL in 25s`).
+
+---
+
+## [2026-11-04 16:30] WhatsApp-Style Group Creation, Live Contact Search & Expense Tracker Mode Fix
+
+### Features & Fixes
+1. **Expense Tracker Mode Toggle & Dual-Key Firestore Fix (`DataModels.kt`, `FirebaseManager.kt`)**:
+   - Fixed Firestore JavaBean deserialization mismatch where `isExpenseTracker` was stored or read under `expenseTracker` due to Java getter naming conventions.
+   - Dual-mapped `@get:PropertyName("isExpenseTracker")` and `@get:PropertyName("expenseTracker")` in `Group` model, with a computed helper `val isTracker: Boolean get() = isExpenseTracker || expenseTracker`.
+   - Updated `updateGroupTrackerMode` and `createGroup` in `FirebaseManager` to write both keys atomically so backward compatibility is 100% maintained.
+   - Added optimistic UI state in `GroupDetailScreen` settings tab so the toggle response feels instantaneous without snapping back.
+   - Fixed crash/validation bug in `FirebaseManager.addExpense` allowing empty splits when `splitMode == "NONE"` (tracker mode).
+
+2. **WhatsApp-Style 2-Step Group Creation Flow (`SplitExpensesScreen.kt`)**:
+   - Overhauled `CreateGroupBottomSheet` from a cluttered single-page form into WhatsApp's progressive disclosure pattern:
+     - **Step 1 ("Add Participants")**: Full contact list surfaced instantly, live name-prefix search bar, horizontal staged member chips strip with remove buttons, and checkboxes. Users can tap "Next" or "Skip" to create without members.
+     - **Step 2 ("New Group Details")**: Group title, category icon selector, and clear visual selection cards for **Split Group** (debts, balances, settlements) vs **Expense Tracker** (budget tracking, zero debts).
+
+3. **Unified Contact Engine & Frictionless Member Management (`FirebaseManager.kt`, `GroupDetailScreen.kt`)**:
+   - Implemented `getUnifiedConnectedContacts()` in `FirebaseManager` combining direct connections (`users/{uid}/connections`), 1-on-1 split peers (`direct_splits`), and all mutual group members across user's active groups.
+   - Added `batchInviteMembers(groupId, targetUserIds)` for atomic multi-member invitations in a single batch write.
+   - Revamped `StyledSettingsTab` member invitation in `GroupDetailScreen`:
+     - Added 1-tap "Copy Invite Link" / "Share QR Code" directly inside the invitation card.
+     - "Quick Add Friends" horizontal carousel showing suggested connected contacts not yet in the group.
+     - Instant name-prefix search filtering connected contacts with staged multi-select chips and a batch "Add Members" button.
+
+4. **Split Expenses Screen Group Filtering & Badges (`SplitExpensesScreen.kt`)**:
+   - Added `groupTypeFilter` with filter pills: `[All]`, `[Split Groups]`, and `[Trackers]`.
+   - Added clear visual badges (`[Tracker]` vs `[Split]`) on group cards in the list.
+
+### Files Modified
+- `[MODIFY]` [DataModels.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/data/DataModels.kt)
+- `[MODIFY]` [FirebaseManager.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/data/FirebaseManager.kt)
+- `[MODIFY]` [SplitExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/split/SplitExpensesScreen.kt)
+- `[MODIFY]` [GroupDetailScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/group/GroupDetailScreen.kt)
+- `[MODIFY]` [PersonalExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/personal/PersonalExpensesScreen.kt)
+
+### Verification & Quality Gates
+- **Gradle Kotlin Compilation**: `./gradlew compileDebugKotlin` exited with code 0.
+- **Unit Test Execution**: `./gradlew testDebugUnitTest` executed 27 tasks and passed with code 0 (`BUILD SUCCESSFUL`).
+
+---
+
 ## [2026-08-07 23:45] Patch Release v0.3.8.2
 
 ### Features & Fixes
@@ -546,3 +612,70 @@ Patch release resolving missing Edit & Delete options in expense detail bottom s
 - ✅ Committed: `fix: v0.3.9.6 patch - resolve missing edit/delete options in expense detail cards`
 - ✅ Pushed to `main` — commit `4df32ab`
 - 7 files changed, 130 insertions(+), 31 deletions(-)
+
+
+## [2026-11-04 22:25] Full-Screen Member Picker, Member Removal RBAC & Group Mode Cleanup
+
+### Changes Implemented
+1. **Firebase Data Layer (`FirebaseManager.kt`)**:
+   - Implemented `removeMemberFromGroup(groupId, targetUserId)` using atomic Firestore transaction.
+   - Enforced server-side RBAC clearance checks: callers must be owner or admin; group owner cannot be removed; co-admins can only be removed by the owner.
+   - Implemented `batchInviteMembers(groupId, targetUserIds)` to stage multiple participant additions atomically.
+
+2. **Group Settings & Member Picker (`GroupDetailScreen.kt`)**:
+   - Removed the obsolete "GROUP TYPE / MODE" card completely.
+   - Added `(+)` circular quick-add button in the "QUICK ADD FRIENDS" section.
+   - Added full-screen `AddMembersFullScreenSheet` expanding from the bottom (`skipPartiallyExpanded = true`, `fillMaxSize()`), styled with the monochrome system (zero emojis):
+     - Top navigation bar with Back button, participant count, and Done button.
+     - Search bar for live filtering of connected contacts by name or email.
+     - WhatsApp-like staged selected contact chips row with quick unselect `(x)`.
+     - Contact list with custom monochrome checkboxes.
+     - Full-width bottom "Add Members" action bar.
+   - Added member removal clearance logic in the members list:
+     - Owners can remove co-admins and members.
+     - Co-admins can remove regular members only.
+     - Red "Remove" action button with confirmation dialog.
+
+3. **Design System & Zero Emojis**:
+   - Verified 100% monochrome design conformance (`canvasChalk`, `inkPrimary`, `surfaceCard`, `borderWhisper`).
+   - Zero emojis across all modified code, UI strings, dialogs, and toasts.
+
+### Verification & Testing
+- `compileDebugKotlin`: SUCCESSFUL (53s)
+- `testDebugUnitTest`: SUCCESSFUL (41s)
+
+
+## [2026-11-05 10:43] Minimal Reimagined Split & Expenses Architecture
+
+### Architectural Changes Implemented
+1. **Unified Social Debt Hub (`SplitExpensesScreen.kt`)**:
+   - Merged Split Groups and 1-on-1 Friends into a single, cohesive WhatsApp-style feed.
+   - Introduced sealed interface `SplitFeedItem` supporting both `GroupEntry` and `PeerEntry`.
+   - Added minimal, compact filter pills: `All`, `Groups`, and `Friends`.
+   - Standardized minimal row items (`IndividualPeerListItem` and `GroupListItem`):
+     - Displays avatar (group icon or user avatar).
+     - Clean semi-bold typography for titles and split count captions.
+     - JetBrains Mono mono amounts for net balances: `+₹X` in primary ink, `-₹Y` in alert red, or `settled` in muted ink.
+     - Ultra-thin monochrome dividers (`borderWhisper`, 0.5.dp).
+
+2. **Unified Expense Tracking Hub (`PersonalExpensesScreen.kt`)**:
+   - Shifted IA focus to pure expenditure tracking and budgeting (without split debts).
+   - **Hero Pinned Card #1: Personal Expenses**:
+     - Featured at the top of "All Trackers" as the special primary solo tracker.
+     - Displays monthly spend, budget limit, and slim progress bar with quick navigation into the detailed Personal Log.
+   - **Shared Expense Groups**:
+     - Cleanly displayed directly below the Personal card under `SHARED EXPENSE GROUPS`.
+     - Displays each tracker group with icon, name, member count, and tap-through to group details.
+   - **Personal Log Tab**:
+     - Provides the complete detailed personal ledger with search, category filter pills, receipt viewer, and transaction history.
+
+3. **Bottom Navigation Alignment (`HomeScreen.kt`)**:
+   - Updated tab 2 label from "Personal" to "Expenses" to cleanly reflect the unified tracking model.
+
+4. **Design System & Zero Emojis**:
+   - Strictly 100% monochrome design using `colors.canvasChalk`, `colors.inkPrimary`, `colors.surfaceCard`, and `colors.borderWhisper`.
+   - Zero emojis across all modified code, UI strings, dialogs, and toasts.
+
+### Verification & Testing
+- `compileDebugKotlin`: SUCCESSFUL (50s)
+- `testDebugUnitTest`: SUCCESSFUL (37s, 27 tasks)

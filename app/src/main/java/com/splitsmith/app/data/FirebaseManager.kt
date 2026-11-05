@@ -281,7 +281,8 @@ object FirebaseManager {
             pendingMembers = pendingMap,
             adminId = uid,
             admins = mapOf(uid to true),
-            isExpenseTracker = isExpenseTracker
+            isExpenseTracker = isExpenseTracker,
+            expenseTracker = isExpenseTracker
         )
         groupRef.set(group).await()
         return groupRef.id
@@ -315,7 +316,12 @@ object FirebaseManager {
     }
 
     suspend fun updateGroupTrackerMode(groupId: String, isExpenseTracker: Boolean) {
-        db.collection("groups").document(groupId).update("isExpenseTracker", isExpenseTracker).await()
+        db.collection("groups").document(groupId).update(
+            mapOf(
+                "isExpenseTracker" to isExpenseTracker,
+                "expenseTracker" to isExpenseTracker
+            )
+        ).await()
     }
 
     suspend fun requestToJoinGroup(groupId: String) {
@@ -341,6 +347,12 @@ object FirebaseManager {
         db.collection("groups").document(groupId).update("pendingMembers.$targetUserId", true).await()
     }
 
+    suspend fun batchInviteMembers(groupId: String, targetUserIds: List<String>) {
+        if (targetUserIds.isEmpty()) return
+        val updates = targetUserIds.associate { "pendingMembers.$it" to true }
+        db.collection("groups").document(groupId).update(updates).await()
+    }
+
     suspend fun addMemberToGroup(groupId: String, targetUserId: String) {
         db.collection("groups").document(groupId).update("members.$targetUserId", true).await()
     }
@@ -356,6 +368,33 @@ object FirebaseManager {
             } else {
                 transaction.update(docRef, "members.$uid", com.google.firebase.firestore.FieldValue.delete())
             }
+        }.await()
+    }
+
+    suspend fun removeMemberFromGroup(groupId: String, targetUserId: String) {
+        val uid = currentUserId ?: throw RuntimeException("Not authenticated")
+        val docRef = db.collection("groups").document(groupId)
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(docRef)
+            val adminId = snapshot.getString("adminId") ?: ""
+            val admins = snapshot.get("admins") as? Map<*, *> ?: emptyMap<Any, Any>()
+            val isCallerOwner = adminId == uid
+            val isCallerAdmin = isCallerOwner || admins[uid] == true
+            if (!isCallerAdmin) {
+                throw RuntimeException("Only group admins can remove members")
+            }
+            if (targetUserId == adminId) {
+                throw RuntimeException("The group owner cannot be removed")
+            }
+            val targetIsCoAdmin = admins[targetUserId] == true
+            if (!isCallerOwner && targetIsCoAdmin) {
+                throw RuntimeException("Only the group owner can remove an admin")
+            }
+            transaction.update(
+                docRef,
+                "members.$targetUserId", com.google.firebase.firestore.FieldValue.delete(),
+                "admins.$targetUserId", com.google.firebase.firestore.FieldValue.delete()
+            )
         }.await()
     }
 
@@ -492,8 +531,10 @@ object FirebaseManager {
         if (paidBy.isBlank() || paidBy.lowercase() == "friend" || paidBy.lowercase() == "user") {
             throw IllegalArgumentException("Cannot save group expense without a valid payer user ID")
         }
-        if (splits.isEmpty() || splits.keys.any { it.isBlank() || it.lowercase() == "friend" || it.lowercase() == "user" }) {
-            throw IllegalArgumentException("Cannot save group expense with invalid participant user IDs")
+        if (splitMode != "NONE") {
+            if (splits.isEmpty() || splits.keys.any { it.isBlank() || it.lowercase() == "friend" || it.lowercase() == "user" }) {
+                throw IllegalArgumentException("Cannot save group expense with invalid participant user IDs")
+            }
         }
         val expenseRef = db.collection("groups").document(groupId).collection("expenses").document()
         val finalUrls = if (receiptUrls.isNotEmpty()) receiptUrls else if (receiptUrl.isNotBlank()) listOf(receiptUrl) else emptyList()
@@ -1218,12 +1259,59 @@ object FirebaseManager {
         }
     }
 
+    suspend fun getUnifiedConnectedContacts(): List<UserProfile> {
+        val uid = currentUserId ?: return emptyList()
+        val unifiedUids = mutableSetOf<String>()
+
+        // 1. Saved connections
+        try {
+            val connectionsSnap = db.collection("users").document(uid).collection("connections").get().await()
+            unifiedUids.addAll(connectionsSnap.documents.map { it.id })
+        } catch (e: Exception) {
+            android.util.Log.w("FirebaseManager", "Failed to fetch connections: ${e.message}")
+        }
+
+        // 2. Direct splits
+        try {
+            val s1 = db.collection("direct_splits").whereEqualTo("paidBy", uid).get().await()
+            val s2 = db.collection("direct_splits").whereEqualTo("withUser", uid).get().await()
+            unifiedUids.addAll(s1.toObjects(DirectSplit::class.java).map { it.withUser })
+            unifiedUids.addAll(s2.toObjects(DirectSplit::class.java).map { it.paidBy })
+        } catch (e: Exception) {
+            android.util.Log.w("FirebaseManager", "Failed to fetch direct split contacts: ${e.message}")
+        }
+
+        // 3. Mutual group members from all user groups
+        try {
+            val gSnap = db.collection("groups").whereEqualTo("members.$uid", true).get().await()
+            for (doc in gSnap.documents) {
+                val members = doc.get("members") as? Map<*, *>
+                members?.keys?.forEach { memberKey ->
+                    if (memberKey is String && memberKey != uid) {
+                        unifiedUids.add(memberKey)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("FirebaseManager", "Failed to fetch group member contacts: ${e.message}")
+        }
+
+        unifiedUids.remove(uid)
+        unifiedUids.remove("")
+
+        val profiles = mutableListOf<UserProfile>()
+        for (targetUid in unifiedUids) {
+            getUserProfile(targetUid)?.let { profiles.add(it) }
+        }
+        return profiles.sortedBy { it.getResolvedName().lowercase() }
+    }
+
     suspend fun searchUsersInstantly(query: String): List<UserProfile> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return emptyList()
 
-        // 1. First search within saved connections & recent contacts (0 unindexed DB scans)
-        val localContacts = (getConnectedUserProfiles() + getRecentDirectContacts()).distinctBy { it.uid }
+        // 1. First search within unified connected contacts
+        val localContacts = getUnifiedConnectedContacts()
         val matchedLocal = localContacts.filter {
             it.displayName.contains(trimmed, ignoreCase = true) ||
             it.email.contains(trimmed, ignoreCase = true) ||

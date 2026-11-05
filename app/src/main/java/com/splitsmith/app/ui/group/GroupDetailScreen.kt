@@ -31,6 +31,10 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.Share
 import com.splitsmith.app.ui.components.UserAvatar
 import com.splitsmith.app.ui.components.GroupIconView
 import com.splitsmith.app.ui.components.dotGridBackground
@@ -2080,8 +2084,17 @@ private fun StyledSettingsTab(
     val clipboardManager = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
 
-    var memberInput by remember { mutableStateOf("") }
-    var isAdding by remember { mutableStateOf(false) }
+    var unifiedContacts by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
+    var showAddMembersSheet by remember { mutableStateOf(false) }
+    var memberToRemove by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    LaunchedEffect(group?.id) {
+        try {
+            unifiedContacts = FirebaseManager.getUnifiedConnectedContacts()
+        } catch (e: Exception) {
+            android.util.Log.e("SplitSmith", "Failed to load contacts: ${e.message}")
+        }
+    }
 
     var showLeaveConfirm by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -2102,6 +2115,49 @@ private fun StyledSettingsTab(
 
     val qrBitmap = remember(group.id) {
         generateQRCodeBitmap("splitsmith://join?code=${group.id}", 512)
+    }
+
+    if (memberToRemove != null) {
+        val (targetUid, targetName) = memberToRemove!!
+        AlertDialog(
+            onDismissRequest = { memberToRemove = null },
+            title = { Text("Remove Member?", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to remove $targetName from this group? They will no longer have access to group expenses.", fontFamily = OutfitFamily) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val uidToRemove = targetUid
+                        memberToRemove = null
+                        coroutineScope.launch {
+                            try {
+                                FirebaseManager.removeMemberFromGroup(group.id, uidToRemove)
+                                Toast.makeText(context, "Removed $targetName from group.", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                ) {
+                    Text("Remove", color = colors.alertRed, fontFamily = OutfitFamily, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { memberToRemove = null }) {
+                    Text("Cancel", color = colors.inkMuted, fontFamily = OutfitFamily)
+                }
+            },
+            shape = RoundedCornerShape(d.radiusLG),
+            containerColor = colors.surfaceCard
+        )
+    }
+
+    if (showAddMembersSheet) {
+        AddMembersFullScreenSheet(
+            groupId = group.id,
+            unifiedContacts = unifiedContacts,
+            currentMemberUids = group.members.keys + group.pendingMembers.keys,
+            onDismiss = { showAddMembersSheet = false }
+        )
     }
 
     if (showLeaveConfirm) {
@@ -2376,64 +2432,6 @@ private fun StyledSettingsTab(
                             contentDescription = "Edit Group Name",
                             tint = colors.inkPrimary,
                             modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(d.space8))
-                HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
-            }
-        }
-
-        // Group Mode Section
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
-                Text(
-                    text = "GROUP TYPE / MODE",
-                    fontFamily = OutfitFamily,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.inkMuted,
-                    letterSpacing = 1.5.sp
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (group.isExpenseTracker) "Expense Tracker (No Splits)" else "Split Group (With Balances)",
-                            fontFamily = OutfitFamily,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = d.textTitleMedium,
-                            color = colors.inkPrimary
-                        )
-                        Text(
-                            text = if (group.isExpenseTracker) "Collaborative spend tracking for trips, projects, company" else "Splits expenses among members & tracks who owes who",
-                            fontFamily = OutfitFamily,
-                            fontSize = d.textLabelSmall,
-                            color = colors.inkMuted
-                        )
-                    }
-                    if (isGroupAdmin) {
-                        Switch(
-                            checked = group.isExpenseTracker,
-                            onCheckedChange = { isChecked ->
-                                coroutineScope.launch {
-                                    try {
-                                        FirebaseManager.updateGroupTrackerMode(group.id, isChecked)
-                                        Toast.makeText(context, if (isChecked) "Switched to Expense Tracker mode" else "Switched to Split Group mode", Toast.LENGTH_SHORT).show()
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Failed to update: ${e.message}", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = colors.canvasChalk,
-                                checkedTrackColor = colors.inkPrimary,
-                                uncheckedThumbColor = colors.inkMuted,
-                                uncheckedTrackColor = colors.borderWhisper
-                            )
                         )
                     }
                 }
@@ -3000,7 +2998,9 @@ private fun StyledSettingsTab(
             val isOwner = uid == group.adminId
             val isCoAdmin = group.admins[uid] == true
             val myUid = FirebaseManager.currentUserId ?: ""
-            val currentUserIsAdmin = group.adminId == myUid || group.admins[myUid] == true
+            val currentUserIsOwner = group.adminId == myUid
+            val currentUserIsAdmin = currentUserIsOwner || group.admins[myUid] == true
+            val canRemoveMember = !isCurrent && currentUserIsAdmin && !isOwner && (currentUserIsOwner || !isCoAdmin)
 
             Row(
                 modifier = Modifier
@@ -3045,119 +3045,249 @@ private fun StyledSettingsTab(
                     }
                 }
 
-                if (!isOwner && !isCoAdmin && currentUserIsAdmin) {
-                    TextButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                try {
-                                    FirebaseManager.makeUserAdmin(group.id, uid)
-                                    Toast.makeText(context, "$memberName is now an admin!", Toast.LENGTH_SHORT).show()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (!isOwner && !isCoAdmin && currentUserIsAdmin) {
+                        TextButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    try {
+                                        FirebaseManager.makeUserAdmin(group.id, uid)
+                                        Toast.makeText(context, "$memberName is now an admin!", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
-                            }
-                        },
-                        contentPadding = PaddingValues(horizontal = d.space8, vertical = d.space4)
-                    ) {
-                        Text(
-                            text = "Make Admin",
-                            fontFamily = OutfitFamily,
-                            fontSize = d.textLabelSmall,
-                            color = colors.inkPrimary
-                        )
+                            },
+                            contentPadding = PaddingValues(horizontal = d.space8, vertical = d.space4)
+                        ) {
+                            Text(
+                                text = "Make Admin",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelSmall,
+                                color = colors.inkPrimary
+                            )
+                        }
+                    } else if (!isOwner && isCoAdmin && (group.adminId == myUid || group.adminId.isEmpty())) {
+                        TextButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    try {
+                                        FirebaseManager.revokeUserAdmin(group.id, uid)
+                                        Toast.makeText(context, "Revoked admin status for $memberName", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = d.space8, vertical = d.space4)
+                        ) {
+                            Text(
+                                text = "Revoke Admin",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelSmall,
+                                color = colors.alertRed
+                            )
+                        }
                     }
-                } else if (!isOwner && isCoAdmin && (group.adminId == myUid || group.adminId.isEmpty())) {
-                    TextButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                try {
-                                    FirebaseManager.revokeUserAdmin(group.id, uid)
-                                    Toast.makeText(context, "Revoked admin status for $memberName", Toast.LENGTH_SHORT).show()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
-                        contentPadding = PaddingValues(horizontal = d.space8, vertical = d.space4)
-                    ) {
-                        Text(
-                            text = "Revoke Admin",
-                            fontFamily = OutfitFamily,
-                            fontSize = d.textLabelSmall,
-                            color = colors.alertRed
-                        )
+
+                    if (canRemoveMember) {
+                        TextButton(
+                            onClick = { memberToRemove = Pair(uid, memberName) },
+                            contentPadding = PaddingValues(horizontal = d.space8, vertical = d.space4)
+                        ) {
+                            Text(
+                                text = "Remove",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelSmall,
+                                color = colors.alertRed
+                            )
+                        }
                     }
                 }
             }
             HorizontalDivider(color = colors.borderWhisper)
         }
 
-        // Add Member Input Row
+        // ── WhatsApp-Style Invite Members Section ──
         item {
-            Spacer(modifier = Modifier.height(d.space8))
-            Text(
-                text = "ADD NEW MEMBER",
-                fontFamily = OutfitFamily,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = colors.inkMuted,
-                letterSpacing = 1.5.sp
-            )
-            Spacer(modifier = Modifier.height(d.space8))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(d.space12)
-            ) {
-                OutlinedTextField(
-                    value = memberInput,
-                    onValueChange = { memberInput = it },
-                    placeholder = { Text("Email or User Code", fontFamily = OutfitFamily, color = colors.inkMuted) },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(d.radiusSM),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = colors.inkPrimary,
-                        unfocusedBorderColor = colors.borderWhisper,
-                        focusedTextColor = colors.inkPrimary,
-                        unfocusedTextColor = colors.inkPrimary,
-                        focusedContainerColor = colors.surfaceCard,
-                        unfocusedContainerColor = colors.surfaceCard
-                    ),
-                    textStyle = androidx.compose.ui.text.TextStyle(fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = colors.inkPrimary)
+            val currentMemberUids = remember(group) { group.members.keys + group.pendingMembers.keys }
+            val eligibleContacts = remember(unifiedContacts, currentMemberUids) {
+                unifiedContacts.filter { it.uid !in currentMemberUids }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(d.space12)) {
+                Text(
+                    text = "INVITE MEMBERS",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.5.sp
                 )
 
-                Button(
-                    onClick = {
-                        if (memberInput.trim().isEmpty()) return@Button
-                        isAdding = true
-                        coroutineScope.launch {
-                            try {
-                                val resolved = FirebaseManager.searchUserByEmail(memberInput.trim())
-                                    ?: FirebaseManager.searchUserByCode(memberInput.trim())
-                                if (resolved != null) {
-                                    FirebaseManager.inviteUserToGroup(group.id, resolved.uid)
-                                    Toast.makeText(context, "Invitation sent to ${resolved.displayName}!", Toast.LENGTH_SHORT).show()
-                                    memberInput = ""
-                                } else {
-                                    Toast.makeText(context, "User not found", Toast.LENGTH_SHORT).show()
-                                }
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                            } finally {
-                                isAdding = false
-                            }
-                        }
-                    },
-                    enabled = !isAdding && memberInput.trim().isNotEmpty(),
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
-                    shape = RoundedCornerShape(d.radiusMD)
+                // Quick Share Link & QR Buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(d.space8)
                 ) {
-                    if (isAdding) {
-                        CircularProgressIndicator(color = colors.canvasChalk, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    } else {
-                        Text("Add", fontFamily = OutfitFamily, color = colors.canvasChalk)
+                    Surface(
+                        onClick = {
+                            val inviteLink = "splitsmith://join?code=${group.id}"
+                            clipboardManager.setText(AnnotatedString(inviteLink))
+                            Toast.makeText(context, "Invite link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = RoundedCornerShape(d.radiusMD),
+                        color = colors.surfaceCard,
+                        border = BorderStroke(1.dp, colors.borderWhisper),
+                        modifier = Modifier.weight(1f).height(44.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = colors.inkPrimary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copy Link", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                        }
+                    }
+
+                    Surface(
+                        onClick = {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                try {
+                                    val cachePath = File(context.cacheDir, "images")
+                                    cachePath.mkdirs()
+                                    val file = File(cachePath, "qr_code.png")
+                                    val stream = FileOutputStream(file)
+                                    qrBitmap?.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                                    stream.close()
+
+                                    val contentUri = FileProvider.getUriForFile(context, "com.splitsmith.app.fileprovider", file)
+                                    if (contentUri != null) {
+                                        val shareText = "Join my SplitSmith group '${group.name}' using this link:\nhttps://splitsmith.web.app/join?code=${group.id}&v=1"
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "image/png"
+                                            putExtra(Intent.EXTRA_STREAM, contentUri)
+                                            putExtra(Intent.EXTRA_TEXT, shareText)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share Group QR Code"))
+                                    }
+                                } catch (e: Exception) {
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Sharing failed: ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(d.radiusMD),
+                        color = colors.surfaceCard,
+                        border = BorderStroke(1.dp, colors.borderWhisper),
+                        modifier = Modifier.weight(1f).height(44.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Icon(Icons.Default.QrCode, contentDescription = null, tint = colors.inkPrimary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Share QR", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                        }
                     }
                 }
+
+                // Quick Add Friends Carousel with Circular (+) Button
+                Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                    Text(
+                        text = "QUICK ADD FRIENDS",
+                        fontFamily = OutfitFamily,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.inkMuted,
+                        letterSpacing = 1.2.sp
+                    )
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(d.space12),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        // Prominent circular (+) Add Button
+                        item {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(d.radiusSM))
+                                    .clickable { showAddMembersSheet = true }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .border(1.5.dp, colors.inkPrimary, CircleShape)
+                                        .background(colors.surfaceCard),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Add Members",
+                                        tint = colors.inkPrimary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "Add",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textLabelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.inkPrimary
+                                )
+                            }
+                        }
+
+                        items(eligibleContacts.take(8)) { friend ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(d.radiusSM))
+                                    .clickable {
+                                        coroutineScope.launch {
+                                            try {
+                                                FirebaseManager.inviteUserToGroup(group.id, friend.uid)
+                                                Toast.makeText(context, "Invited ${friend.displayName}!", Toast.LENGTH_SHORT).show()
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                UserAvatar(
+                                    avatarUrl = friend.avatarUrl,
+                                    displayName = friend.displayName,
+                                    size = 44.dp
+                                )
+                                Text(
+                                    text = friend.displayName.split(" ").firstOrNull() ?: "Friend",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textLabelSmall,
+                                    color = colors.inkMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 50.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(d.space8))
+                HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
             }
         }
 
@@ -3769,6 +3899,354 @@ fun SettlementDetailBottomSheet(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddMembersFullScreenSheet(
+    groupId: String,
+    unifiedContacts: List<UserProfile>,
+    currentMemberUids: Set<String>,
+    onDismiss: () -> Unit
+) {
+    val colors = LocalSplitColors.current
+    val d = LocalDimens.current
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedUids by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var isSubmitting by remember { mutableStateOf(false) }
 
+    val eligibleContacts = remember(unifiedContacts, currentMemberUids) {
+        unifiedContacts.filter { !currentMemberUids.contains(it.uid) }
+    }
+
+    val filteredContacts = remember(eligibleContacts, searchQuery) {
+        val q = searchQuery.trim().lowercase()
+        if (q.isEmpty()) {
+            eligibleContacts
+        } else {
+            eligibleContacts.filter {
+                it.displayName.lowercase().contains(q) ||
+                it.email.lowercase().contains(q) ||
+                it.upiId.lowercase().contains(q)
+            }
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.canvasChalk,
+        dragHandle = null,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            // Top Navigation & Action Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = d.space16, vertical = d.space12),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = colors.inkPrimary
+                    )
+                }
+                Spacer(modifier = Modifier.width(d.space8))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Add Participants",
+                        fontFamily = OutfitFamily,
+                        fontSize = d.textTitleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.inkPrimary
+                    )
+                    Text(
+                        text = "${selectedUids.size} of ${eligibleContacts.size} selected",
+                        fontFamily = OutfitFamily,
+                        fontSize = d.textLabelSmall,
+                        color = colors.inkMuted
+                    )
+                }
+                if (selectedUids.isNotEmpty()) {
+                    TextButton(
+                        onClick = {
+                            if (!isSubmitting) {
+                                isSubmitting = true
+                                coroutineScope.launch {
+                                    try {
+                                        FirebaseManager.batchInviteMembers(groupId, selectedUids.toList())
+                                        Toast.makeText(context, "Added ${selectedUids.size} members.", Toast.LENGTH_SHORT).show()
+                                        onDismiss()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                        isSubmitting = false
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !isSubmitting
+                    ) {
+                        Text(
+                            text = "Done",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.inkPrimary,
+                            fontSize = d.textBodyLarge
+                        )
+                    }
+                }
+            }
+
+            // Search Bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = d.space16, vertical = d.space4),
+                placeholder = {
+                    Text(
+                        "Search name or email...",
+                        fontFamily = OutfitFamily,
+                        color = colors.inkMuted,
+                        fontSize = d.textBodyMedium
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = colors.inkMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = "Clear",
+                                tint = colors.inkMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(d.radiusMD),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = colors.inkPrimary,
+                    unfocusedBorderColor = colors.borderWhisper,
+                    focusedTextColor = colors.inkPrimary,
+                    unfocusedTextColor = colors.inkPrimary,
+                    focusedContainerColor = colors.surfaceCard,
+                    unfocusedContainerColor = colors.surfaceCard
+                )
+            )
+
+            // Staged Selected Contacts Chips
+            if (selectedUids.isNotEmpty()) {
+                val selectedContacts = eligibleContacts.filter { selectedUids.contains(it.uid) }
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = d.space16, vertical = d.space8),
+                    horizontalArrangement = Arrangement.spacedBy(d.space8)
+                ) {
+                    items(selectedContacts, key = { it.uid }) { contact ->
+                        Surface(
+                            shape = RoundedCornerShape(100.dp),
+                            color = colors.surfaceCard,
+                            border = BorderStroke(1.dp, colors.borderWhisper),
+                            modifier = Modifier.clickable {
+                                selectedUids = selectedUids - contact.uid
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                UserAvatar(
+                                    avatarUrl = contact.avatarUrl,
+                                    displayName = contact.displayName,
+                                    size = 24.dp
+                                )
+                                Text(
+                                    text = contact.displayName.split(" ").firstOrNull() ?: contact.displayName,
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textLabelSmall,
+                                    fontWeight = FontWeight.Medium,
+                                    color = colors.inkPrimary
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Remove",
+                                    tint = colors.inkMuted,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+
+            // Contacts List
+            if (filteredContacts.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (eligibleContacts.isEmpty()) "No new contacts available to add." else "No contacts match \"$searchQuery\"",
+                        fontFamily = OutfitFamily,
+                        fontSize = d.textBodyMedium,
+                        color = colors.inkMuted,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(d.space24)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    items(filteredContacts, key = { it.uid }) { contact ->
+                        val isSelected = selectedUids.contains(contact.uid)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedUids = if (isSelected) {
+                                        selectedUids - contact.uid
+                                    } else {
+                                        selectedUids + contact.uid
+                                    }
+                                }
+                                .padding(horizontal = d.space16, vertical = d.space12),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            UserAvatar(
+                                avatarUrl = contact.avatarUrl,
+                                displayName = contact.displayName,
+                                size = 44.dp
+                            )
+                            Spacer(modifier = Modifier.width(d.space12))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = contact.displayName,
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = d.textBodyLarge,
+                                    color = colors.inkPrimary
+                                )
+                                val secondaryText = contact.email.ifEmpty { contact.upiId }
+                                if (secondaryText.isNotEmpty()) {
+                                    Text(
+                                        text = secondaryText,
+                                        fontFamily = OutfitFamily,
+                                        fontSize = d.textLabelSmall,
+                                        color = colors.inkMuted
+                                    )
+                                }
+                            }
+                            Checkbox(
+                                checked = isSelected,
+                                onCheckedChange = { checked ->
+                                    selectedUids = if (checked) {
+                                        selectedUids + contact.uid
+                                    } else {
+                                        selectedUids - contact.uid
+                                    }
+                                },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = colors.inkPrimary,
+                                    checkmarkColor = colors.canvasChalk,
+                                    uncheckedColor = colors.inkMuted
+                                )
+                            )
+                        }
+                        HorizontalDivider(
+                            color = colors.borderWhisper.copy(alpha = 0.5f),
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(start = 72.dp)
+                        )
+                    }
+                }
+            }
+
+            // Bottom Action Bar
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = colors.surfaceCard,
+                border = BorderStroke(1.dp, colors.borderWhisper)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = d.space16, vertical = d.space12)
+                ) {
+                    Button(
+                        onClick = {
+                            if (!isSubmitting && selectedUids.isNotEmpty()) {
+                                isSubmitting = true
+                                coroutineScope.launch {
+                                    try {
+                                        FirebaseManager.batchInviteMembers(groupId, selectedUids.toList())
+                                        Toast.makeText(context, "Added ${selectedUids.size} members.", Toast.LENGTH_SHORT).show()
+                                        onDismiss()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                        isSubmitting = false
+                                    }
+                                }
+                            }
+                        },
+                        enabled = selectedUids.isNotEmpty() && !isSubmitting,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(d.buttonHeight),
+                        shape = RoundedCornerShape(d.radiusMD),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.inkPrimary,
+                            contentColor = colors.canvasChalk,
+                            disabledContainerColor = colors.surfaceCard,
+                            disabledContentColor = colors.inkMuted
+                        )
+                    ) {
+                        if (isSubmitting) {
+                            CircularProgressIndicator(
+                                color = colors.canvasChalk,
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text(
+                                text = if (selectedUids.isEmpty()) "Select Contacts to Add" else "Add (${selectedUids.size}) Members",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = d.textLabelLarge
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
