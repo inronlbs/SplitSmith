@@ -57,7 +57,8 @@ data class Group(
     @get:PropertyName("isExpenseTracker")
     val isExpenseTracker: Boolean = false,
     @get:PropertyName("expenseTracker")
-    val expenseTracker: Boolean = false
+    val expenseTracker: Boolean = false,
+    val imageUrl: String = ""
 ) {
     @get:Exclude
     val isTracker: Boolean

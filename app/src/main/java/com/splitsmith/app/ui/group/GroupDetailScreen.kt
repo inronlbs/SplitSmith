@@ -249,6 +249,7 @@ fun GroupDetailScreen(
                 ) {
                     GroupIconView(
                         iconName = currentGroup.iconName,
+                        imageUrl = currentGroup.imageUrl,
                         size = 80.dp
                     )
                     Spacer(modifier = Modifier.height(d.space24))
@@ -414,6 +415,7 @@ fun GroupDetailScreen(
                         }
                         GroupIconView(
                             iconName = currentGroup.iconName,
+                            imageUrl = currentGroup.imageUrl,
                             size = 38.dp
                         )
                         Column(
@@ -2379,6 +2381,133 @@ private fun StyledSettingsTab(
                     Spacer(modifier = Modifier.height(d.space8))
                     HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
                 }
+            }
+        }
+
+        // Group Profile Picture Section (Admin Only editing)
+        item {
+            val groupPhotoPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+                contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+            ) { uri: android.net.Uri? ->
+                if (uri != null) {
+                    coroutineScope.launch {
+                        try {
+                            val base64 = com.splitsmith.app.util.ImageUtils.compressImageUriToBase64(context, uri)
+                            if (base64 != null) {
+                                FirebaseManager.updateGroupImageUrl(group.id, base64)
+                                Toast.makeText(context, "Group profile picture updated!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Failed to process image", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Upload failed: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                Text(
+                    text = "GROUP PROFILE PICTURE",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.5.sp
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f, fill = false),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(d.space16)
+                    ) {
+                        Box(contentAlignment = Alignment.BottomEnd) {
+                            GroupIconView(
+                                iconName = group.iconName,
+                                imageUrl = group.imageUrl,
+                                size = 56.dp
+                            )
+                            if (isGroupAdmin) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = colors.inkPrimary,
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clickable { groupPhotoPicker.launch("image/*") }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.CameraAlt,
+                                            contentDescription = "Change Picture",
+                                            tint = colors.canvasChalk,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = if (group.imageUrl.isNotBlank()) "Custom Photo" else "Default Icon (${group.iconName})",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = d.textTitleMedium,
+                                color = colors.inkPrimary
+                            )
+                            Text(
+                                text = if (isGroupAdmin) {
+                                    "Tap to choose from gallery"
+                                } else {
+                                    "Only admins can change group picture"
+                                },
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelMedium,
+                                color = colors.inkMuted
+                            )
+                        }
+                    }
+
+                    if (isGroupAdmin) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(d.space4)) {
+                            TextButton(onClick = { groupPhotoPicker.launch("image/*") }) {
+                                Text(
+                                    text = if (group.imageUrl.isNotBlank()) "Change" else "Upload",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.inkPrimary
+                                )
+                            }
+                            if (group.imageUrl.isNotBlank()) {
+                                TextButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            try {
+                                                FirebaseManager.updateGroupImageUrl(group.id, "")
+                                                Toast.makeText(context, "Group picture removed", Toast.LENGTH_SHORT).show()
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Text(
+                                        text = "Remove",
+                                        fontFamily = OutfitFamily,
+                                        color = colors.alertRed
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(d.space8))
+                HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
             }
         }
 

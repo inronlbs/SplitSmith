@@ -1243,6 +1243,7 @@ fun SlipImportScreen(
                                     ) {
                                         GroupIconView(
                                             iconName = group.iconName,
+                                            imageUrl = group.imageUrl,
                                             size = 28.dp
                                         )
                                         Column {
@@ -1620,6 +1621,7 @@ fun SlipImportScreen(
                                     ) {
                                         GroupIconView(
                                             iconName = group.iconName,
+                                            imageUrl = group.imageUrl,
                                             size = 28.dp
                                         )
                                         Column {

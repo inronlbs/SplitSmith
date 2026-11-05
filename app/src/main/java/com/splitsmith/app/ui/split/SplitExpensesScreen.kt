@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -520,6 +521,7 @@ fun GroupListItem(
         ) {
             GroupIconView(
                 iconName = group.iconName,
+                imageUrl = group.imageUrl,
                 size = d.groupIconSize
             )
             Spacer(modifier = Modifier.width(d.space12))
@@ -1196,6 +1198,19 @@ fun CreateGroupBottomSheet(
     var isLoadingContacts by remember { mutableStateOf(true) }
     var isCreating by remember { mutableStateOf(false) }
     var isSearchingExternal by remember { mutableStateOf(false) }
+    var selectedGroupImageBase64 by remember { mutableStateOf("") }
+    val createGroupPhotoPicker = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            val base64 = com.splitsmith.app.util.ImageUtils.compressImageUriToBase64(context, uri)
+            if (base64 != null) {
+                selectedGroupImageBase64 = base64
+            } else {
+                Toast.makeText(context, "Failed to process photo", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         isLoadingContacts = true
@@ -1532,9 +1547,9 @@ fun CreateGroupBottomSheet(
 
                 Spacer(modifier = Modifier.height(d.space16))
 
-                // Group Name Input
+                // Group Name & Photo Input
                 Text(
-                    text = "GROUP NAME",
+                    text = "GROUP NAME & PHOTO",
                     fontFamily = OutfitFamily,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
@@ -1542,24 +1557,60 @@ fun CreateGroupBottomSheet(
                     letterSpacing = 1.2.sp
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = groupName,
-                    onValueChange = { groupName = it },
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(d.radiusSM),
-                    placeholder = {
-                        Text(if (isTrackerMode) "e.g. Paris Trip, Team Project..." else "e.g. Goa Trip, Flatmates...", fontFamily = OutfitFamily, color = colors.inkMuted)
-                    },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = colors.inkPrimary,
-                        unfocusedBorderColor = colors.borderWhisper,
-                        focusedContainerColor = colors.canvasChalk,
-                        unfocusedContainerColor = colors.canvasChalk,
-                        focusedTextColor = colors.inkPrimary,
-                        unfocusedTextColor = colors.inkPrimary
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(d.space12)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(CircleShape)
+                            .clickable { createGroupPhotoPicker.launch("image/*") },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        GroupIconView(
+                            iconName = selectedIconName,
+                            imageUrl = selectedGroupImageBase64,
+                            size = 54.dp
+                        )
+                        Surface(
+                            shape = CircleShape,
+                            color = colors.inkPrimary.copy(alpha = 0.85f),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(18.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.CameraAlt,
+                                    contentDescription = "Upload Group Photo",
+                                    tint = colors.canvasChalk,
+                                    modifier = Modifier.size(10.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = groupName,
+                        onValueChange = { groupName = it },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(d.radiusSM),
+                        placeholder = {
+                            Text(if (isTrackerMode) "e.g. Paris Trip, Team..." else "e.g. Goa Trip, Flatmates...", fontFamily = OutfitFamily, color = colors.inkMuted)
+                        },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colors.inkPrimary,
+                            unfocusedBorderColor = colors.borderWhisper,
+                            focusedContainerColor = colors.canvasChalk,
+                            unfocusedContainerColor = colors.canvasChalk,
+                            focusedTextColor = colors.inkPrimary,
+                            unfocusedTextColor = colors.inkPrimary
+                        )
                     )
-                )
+                }
 
                 Spacer(modifier = Modifier.height(d.space12))
 
@@ -1692,7 +1743,8 @@ fun CreateGroupBottomSheet(
                                     iconName = selectedIconName,
                                     type = selectedIconName,
                                     memberUids = addedMembers.map { it.uid },
-                                    isExpenseTracker = isTrackerMode
+                                    isExpenseTracker = isTrackerMode,
+                                    imageUrl = selectedGroupImageBase64
                                 )
                                 onGroupCreated(id)
                             } catch (e: Exception) {

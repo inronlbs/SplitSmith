@@ -1,3 +1,39 @@
+## [2026-11-05 22:20] Group Profile Picture Upload Option (Admin Only RBAC)
+
+### Features & Fixes
+1. **Data Model & Backend Updates (`DataModels.kt`, `FirebaseManager.kt`)**:
+   - Added `imageUrl: String = ""` to `Group` with default value to preserve full backward compatibility and R8 reflection.
+   - Added `FirebaseManager.updateGroupImageUrl(groupId, imageUrl)` to persist group pictures to Firestore.
+   - Updated `FirebaseManager.createGroup(...)` to accept `imageUrl = selectedGroupImageBase64`.
+2. **Memory-Safe Downscaling & Base64 Encoding (`ImageUtils.kt`)**:
+   - Created `ImageUtils.compressImageUriToBase64` downscaling photos to 180x180 WebP (`quality = 75`), yielding compact strings (~4-6 KB) stored directly in Firestore without external CDN latency.
+3. **Adaptive UI Rendering (`GroupIconView.kt`)**:
+   - Upgraded `GroupIconView` to support `imageUrl`. Renders cropped circle image via Coil / Base64 decode when populated, smoothly falling back to preset vector icons when absent.
+   - Propagated `imageUrl = group.imageUrl` across all call sites (`GroupDetailScreen`, `SplitExpensesScreen`, `PersonalExpensesScreen`, `SlipImportScreen`).
+4. **Strict Admin-Only RBAC (`GroupDetailScreen.kt`)**:
+   - In `StyledSettingsTab`, added a **Group Profile Picture** section.
+   - If `isGroupAdmin == true`: Shows camera edit badge overlay, `[Upload/Change]` button, and `[Remove]` button.
+   - If `isGroupAdmin == false`: Displays the group avatar in read-only mode with subtitle *"Only admins can change group picture"*.
+5. **Group Creation Flow (`SplitExpensesScreen.kt`)**:
+   - In `CreateGroupBottomSheet` Step 2, added a WhatsApp-style photo picker avatar slot next to the group name so creators can personalize their group upon creation.
+
+### Files Modified
+- `[MODIFY]` [DataModels.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/data/DataModels.kt)
+- `[NEW]` [ImageUtils.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/util/ImageUtils.kt)
+- `[MODIFY]` [FirebaseManager.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/data/FirebaseManager.kt)
+- `[MODIFY]` [GroupIconView.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/components/GroupIconView.kt)
+- `[MODIFY]` [GroupDetailScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/group/GroupDetailScreen.kt)
+- `[MODIFY]` [SplitExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/split/SplitExpensesScreen.kt)
+- `[MODIFY]` [PersonalExpensesScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/personal/PersonalExpensesScreen.kt)
+- `[MODIFY]` [SlipImportScreen.kt](file:///C:/Users/Atomix/Documents/antigravity/lively-babbage/splitsmith/app/src/main/java/com/splitsmith/app/ui/slip/SlipImportScreen.kt)
+
+### Verification & Quality Gates
+- **Gradle Kotlin Compilation**: `./gradlew compileDebugKotlin` passed with code 0 (`BUILD SUCCESSFUL in 1m 28s`).
+- **Unit Test Execution**: `./gradlew testDebugUnitTest` executed 27 tasks and passed with code 0 (`BUILD SUCCESSFUL in 40s`).
+- **Zero Emoji Compliance**: 0 emojis across all code, tests, and commit messages.
+
+---
+
 ## [2026-11-05 21:28] Direct Tab Navigation for Split & Expenses from Home
 
 ### Features & Fixes

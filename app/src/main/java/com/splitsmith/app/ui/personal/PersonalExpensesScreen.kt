@@ -314,6 +314,7 @@ fun PersonalExpensesScreen(
                                 ) {
                                     GroupIconView(
                                         iconName = group.iconName,
+                                        imageUrl = group.imageUrl,
                                         size = d.avatarMd
                                     )
                                     Spacer(modifier = Modifier.width(d.space16))
