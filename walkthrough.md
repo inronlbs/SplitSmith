@@ -1,3 +1,38 @@
+## [2026-11-07 13:30] Release v0.4.2.1 Published: Typography & Touch Target Accessibility Modernization
+
+### Features & Highlights
+1. **Typography Scale Modernization (`Dimens.kt`)**:
+   - Replaced flagship-only baseline (412 dp) with standard Android compact baseline (360 dp).
+   - Clamped font scaling with an invariant 1.0f floor, eliminating the previous 5-15% artificial font shrinking on standard 360-392 dp devices per Material Design 3 and Android A11y standards.
+   - Upgraded core type tokens: textBodyLarge to 16 sp, textHeadlineLarge to 26 sp, textHeadlineMedium to 22 sp, textLabelLarge to 14 sp, textLabelSmall to 11.5 sp, and textMonoLarge to 16.5 sp.
+2. **Elevated Home Screen Readability (`HomeScreen.kt`)**:
+   - Upgraded latest transaction row titles from 12 sp to 15 sp, subtitles from 10 sp to 13 sp, amounts from 12 sp to 15 sp, and badges to 11 sp.
+   - Upgraded Net Position amount from 28 sp to 30 sp, receivable/payable amounts to 13.5 sp, and allowance to 12 sp.
+   - Upgraded spending insights switcher tabs and breakdown percentages to 12 sp.
+3. **Accessibility & Touch Target Standards (WCAG 2.2)**:
+   - Enlarged floating bottom dock center FAB from 44 dp to 50 dp (with 24 dp icon) for effortless thumb tapping.
+   - Enlarged quick action cards from 68 dp to 72 dp with 22 dp icons and 13 sp labels.
+   - Enlarged action required settlement buttons from 28 dp to 34 dp with 12 sp text.
+4. **Consistency Across Screens (`SplitExpensesScreen.kt`, `GroupDetailScreen.kt`, `PersonalExpensesScreen.kt`)**:
+   - Replaced hardcoded 9.sp, 10.sp, and 11.sp section overlines, chip labels, and action tags with standard design tokens (11.5.sp - 13.sp).
+
+### Deployed Artifacts & Links
+- **Version**: versionCode = 64, versionName = "0.4.2.1"
+- **GitHub Release**: [v0.4.2.1](https://github.com/inronlbs/SplitSmith/releases/tag/v0.4.2.1)
+  - SplitSmith-v0.4.2.1-release.apk (70.39 MB, signed)
+  - SplitSmith-v0.4.2.1-release.aab (43.77 MB, signed)
+- **Firebase Hosting Website CDN**: [https://splitsmith.web.app](https://splitsmith.web.app)
+  - Direct Binary: https://splitsmith.web.app/splitsmith.bin
+  - In-App Updater Metadata: https://splitsmith.web.app/version.json
+
+### Verification & Quality Gates
+- **Gradle Kotlin Compilation**: ./gradlew compileDebugKotlin passed with code 0 (BUILD SUCCESSFUL in 1m 44s).
+- **Unit Test Execution**: ./gradlew testDebugUnitTest passed with code 0 (27 tasks executed).
+- **Gradle Release Compilation**: ./gradlew assembleRelease bundleRelease passed with code 0 (BUILD SUCCESSFUL in 2m 46s).
+- **Zero Emoji Compliance**: 0 emojis across all code, release notes, and commit messages.
+
+---
+
 ## [2026-11-05 22:30] Release v0.4.2.0 Published
 
 ### Features & Highlights

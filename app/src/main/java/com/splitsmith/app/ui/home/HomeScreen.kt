@@ -1241,14 +1241,14 @@ fun HomeDashboardView(
                     text = "$greetingTime, $firstName",
                     fontFamily = OutfitFamily,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 21.sp,
+                    fontSize = 22.sp,
                     color = colors.inkPrimary,
                     letterSpacing = (-0.3).sp
                 )
                 Text(
                     text = "Here is your financial overview",
                     fontFamily = OutfitFamily,
-                    fontSize = 12.sp,
+                    fontSize = 13.5.sp,
                     color = colors.inkMuted
                 )
             }
@@ -1278,7 +1278,7 @@ fun HomeDashboardView(
                             Text(
                                 text = "NET POSITION",
                                 fontFamily = OutfitFamily,
-                                fontSize = 10.sp,
+                                fontSize = d.textLabelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = colors.inkMuted,
                                 letterSpacing = 1.2.sp
@@ -1288,7 +1288,7 @@ fun HomeDashboardView(
                                 text = netText,
                                 fontFamily = JetBrainsMonoFamily,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 28.sp,
+                                fontSize = 30.sp,
                                 color = if (state.netPosition >= 0) colors.inkPrimary else colors.alertRed
                             )
                         }
@@ -1310,7 +1310,7 @@ fun HomeDashboardView(
                                 text = if (state.netPosition == 0.0) "Settled" else if (state.netPosition > 0) "Owed to you" else "You owe",
                                 fontFamily = OutfitFamily,
                                 fontWeight = FontWeight.SemiBold,
-                                fontSize = 11.sp,
+                                fontSize = 12.5.sp,
                                 color = if (state.netPosition >= 0) colors.inkPrimary else colors.alertRed
                             )
                         }
@@ -1329,19 +1329,19 @@ fun HomeDashboardView(
                             Text(
                                 text = "Receivable:",
                                 fontFamily = OutfitFamily,
-                                fontSize = 11.sp,
+                                fontSize = 12.5.sp,
                                 color = colors.inkMuted
                             )
                             Text(
                                 text = "₹${state.totalDirectReceivable.formatCurrency()}",
                                 fontFamily = JetBrainsMonoFamily,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
+                                fontSize = 13.5.sp,
                                 color = colors.inkPrimary
                             )
                         }
 
-                        Text(text = "•", fontSize = 11.sp, color = colors.borderWhisper)
+                        Text(text = "•", fontSize = 12.sp, color = colors.borderWhisper)
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -1350,14 +1350,14 @@ fun HomeDashboardView(
                             Text(
                                 text = "Payable:",
                                 fontFamily = OutfitFamily,
-                                fontSize = 11.sp,
+                                fontSize = 12.5.sp,
                                 color = colors.inkMuted
                             )
                             Text(
                                 text = "₹${state.totalDirectPayable.formatCurrency()}",
                                 fontFamily = JetBrainsMonoFamily,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
+                                fontSize = 13.5.sp,
                                 color = colors.alertRed
                             )
                         }
@@ -1386,7 +1386,7 @@ fun HomeDashboardView(
                             Text(
                                 text = "MONTHLY BUDGET",
                                 fontFamily = OutfitFamily,
-                                fontSize = 10.sp,
+                                fontSize = d.textLabelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = colors.inkMuted,
                                 letterSpacing = 1.2.sp
@@ -1398,13 +1398,13 @@ fun HomeDashboardView(
                                         text = "₹${state.remainingBudget.formatCurrency()} left",
                                         fontFamily = JetBrainsMonoFamily,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
+                                        fontSize = 12.5.sp,
                                         color = colors.inkPrimary
                                     )
                                     Text(
                                         text = "of ₹${state.budgetLimit.formatCurrency()}",
                                         fontFamily = OutfitFamily,
-                                        fontSize = 11.sp,
+                                        fontSize = 12.sp,
                                         color = colors.inkMuted
                                     )
                                 }
@@ -1413,7 +1413,7 @@ fun HomeDashboardView(
                                     text = "Overspent: ₹${(-state.remainingBudget).formatCurrency()}",
                                     fontFamily = JetBrainsMonoFamily,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp,
+                                    fontSize = 12.5.sp,
                                     color = colors.alertRed
                                 )
                             }
@@ -1439,7 +1439,7 @@ fun HomeDashboardView(
                         Text(
                             text = "Daily allowance: ₹${state.dailyAllowance.toInt()}/day for next ${state.daysRemaining} days",
                             fontFamily = OutfitFamily,
-                            fontSize = 10.sp,
+                            fontSize = 12.sp,
                             color = colors.inkMuted
                         )
                     }
@@ -1453,7 +1453,7 @@ fun HomeDashboardView(
                 Text(
                     text = "QUICK ACTIONS",
                     fontFamily = OutfitFamily,
-                    fontSize = 10.sp,
+                    fontSize = d.textLabelSmall,
                     fontWeight = FontWeight.Bold,
                     color = colors.inkMuted,
                     letterSpacing = 1.2.sp
@@ -1468,7 +1468,7 @@ fun HomeDashboardView(
                         onClick = onScanBill,
                         shape = RoundedCornerShape(d.radiusMD),
                         color = colors.inkPrimary,
-                        modifier = Modifier.weight(1f).height(68.dp)
+                        modifier = Modifier.weight(1f).height(72.dp)
                     ) {
                         Column(
                             modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 8.dp),
@@ -1479,14 +1479,14 @@ fun HomeDashboardView(
                                 imageVector = Icons.Default.PhotoCamera,
                                 contentDescription = "Scan Bill",
                                 tint = colors.canvasChalk,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "Scan Bill",
                                 fontFamily = OutfitFamily,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
+                                fontSize = 13.sp,
                                 color = colors.canvasChalk
                             )
                         }
@@ -1498,7 +1498,7 @@ fun HomeDashboardView(
                         shape = RoundedCornerShape(d.radiusMD),
                         color = colors.surfaceCard,
                         border = BorderStroke(1.dp, colors.borderWhisper),
-                        modifier = Modifier.weight(1f).height(68.dp)
+                        modifier = Modifier.weight(1f).height(72.dp)
                     ) {
                         Column(
                             modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 8.dp),
@@ -1509,14 +1509,14 @@ fun HomeDashboardView(
                                 imageVector = Icons.Default.Share,
                                 contentDescription = "Split Bill",
                                 tint = colors.inkPrimary,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "Split Bill",
                                 fontFamily = OutfitFamily,
                                 fontWeight = FontWeight.SemiBold,
-                                fontSize = 11.sp,
+                                fontSize = 13.sp,
                                 color = colors.inkPrimary
                             )
                         }
@@ -1528,7 +1528,7 @@ fun HomeDashboardView(
                         shape = RoundedCornerShape(d.radiusMD),
                         color = colors.surfaceCard,
                         border = BorderStroke(1.dp, colors.borderWhisper),
-                        modifier = Modifier.weight(1f).height(68.dp)
+                        modifier = Modifier.weight(1f).height(72.dp)
                     ) {
                         Column(
                             modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 8.dp),
@@ -1539,14 +1539,14 @@ fun HomeDashboardView(
                                 imageVector = Icons.Default.AccountBalanceWallet,
                                 contentDescription = "Log Expense",
                                 tint = colors.inkPrimary,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "Log Expense",
                                 fontFamily = OutfitFamily,
                                 fontWeight = FontWeight.SemiBold,
-                                fontSize = 11.sp,
+                                fontSize = 13.sp,
                                 color = colors.inkPrimary
                             )
                         }
@@ -1587,13 +1587,13 @@ fun HomeDashboardView(
                                     text = "Settlement Confirmation",
                                     fontFamily = OutfitFamily,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
+                                    fontSize = 13.5.sp,
                                     color = colors.inkPrimary
                                 )
                                 Text(
                                     text = "Friend marked ₹${state.pendingSettlementApproval.myShare.formatCurrency()} as settled with you",
                                     fontFamily = OutfitFamily,
-                                    fontSize = 10.sp,
+                                    fontSize = 12.sp,
                                     color = colors.inkMuted,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -1609,20 +1609,20 @@ fun HomeDashboardView(
                                 onClick = { onConfirmSettlement(state.pendingSettlementApproval.id) },
                                 colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary),
                                 shape = RoundedCornerShape(d.radiusSM),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier.height(28.dp)
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
                             ) {
-                                Text("Confirm", fontFamily = OutfitFamily, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
+                                Text("Confirm", fontFamily = OutfitFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.canvasChalk)
                             }
 
                             OutlinedButton(
                                 onClick = { onDeclineSettlement(state.pendingSettlementApproval.id) },
                                 shape = RoundedCornerShape(d.radiusSM),
                                 border = BorderStroke(0.5.dp, colors.borderWhisper),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                modifier = Modifier.height(28.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
                             ) {
-                                Text("Decline", fontFamily = OutfitFamily, fontSize = 10.sp, fontWeight = FontWeight.Normal, color = colors.inkMuted)
+                                Text("Decline", fontFamily = OutfitFamily, fontSize = 12.sp, fontWeight = FontWeight.Normal, color = colors.inkMuted)
                             }
                         }
                     }
@@ -1653,7 +1653,7 @@ fun HomeDashboardView(
                         Text(
                             text = "SPENDING INSIGHTS",
                             fontFamily = OutfitFamily,
-                            fontSize = 10.sp,
+                            fontSize = d.textLabelSmall,
                             fontWeight = FontWeight.Bold,
                             color = colors.inkMuted,
                             letterSpacing = 1.2.sp
@@ -1673,14 +1673,14 @@ fun HomeDashboardView(
                                     .clip(RoundedCornerShape(d.radiusSM))
                                     .background(if (activeInsightTab == 0) colors.inkPrimary else Color.Transparent)
                                     .clickable { activeInsightTab = 0 }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = "7-Day Trend",
                                     fontFamily = OutfitFamily,
                                     fontWeight = if (activeInsightTab == 0) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 10.sp,
+                                    fontSize = 12.sp,
                                     color = if (activeInsightTab == 0) colors.canvasChalk else colors.inkMuted
                                 )
                             }
@@ -1690,14 +1690,14 @@ fun HomeDashboardView(
                                     .clip(RoundedCornerShape(d.radiusSM))
                                     .background(if (activeInsightTab == 1) colors.inkPrimary else Color.Transparent)
                                     .clickable { activeInsightTab = 1 }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = "Categories",
                                     fontFamily = OutfitFamily,
                                     fontWeight = if (activeInsightTab == 1) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 10.sp,
+                                    fontSize = 12.sp,
                                     color = if (activeInsightTab == 1) colors.canvasChalk else colors.inkMuted
                                 )
                             }
@@ -1723,7 +1723,7 @@ fun HomeDashboardView(
                                     Text(
                                         text = "Total spent this week",
                                         fontFamily = OutfitFamily,
-                                        fontSize = 10.sp,
+                                        fontSize = 12.sp,
                                         color = colors.inkMuted
                                     )
                                 }
@@ -1804,7 +1804,7 @@ fun HomeDashboardView(
                                                     text = dayLetters[idx],
                                                     fontFamily = OutfitFamily,
                                                     fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
-                                                    fontSize = 9.sp,
+                                                    fontSize = 11.sp,
                                                     color = if (isToday) colors.inkPrimary else colors.inkMuted
                                                 )
                                                 if (isToday) {
@@ -1842,7 +1842,7 @@ fun HomeDashboardView(
                                     Text(
                                         text = "Total outflow this month",
                                         fontFamily = OutfitFamily,
-                                        fontSize = 10.sp,
+                                        fontSize = 12.sp,
                                         color = colors.inkMuted
                                     )
                                 }
@@ -1851,7 +1851,7 @@ fun HomeDashboardView(
                                     text = "${state.categoryBreakdown.size} CATEGORIES",
                                     fontFamily = JetBrainsMonoFamily,
                                     fontWeight = FontWeight.SemiBold,
-                                    fontSize = 10.sp,
+                                    fontSize = 11.5.sp,
                                     color = colors.inkMuted
                                 )
                             }
@@ -1921,7 +1921,7 @@ fun HomeDashboardView(
                                                 text = catName,
                                                 fontFamily = OutfitFamily,
                                                 fontWeight = FontWeight.Medium,
-                                                fontSize = 12.sp,
+                                                fontSize = 13.5.sp,
                                                 color = colors.inkPrimary
                                             )
                                         }
@@ -1933,14 +1933,14 @@ fun HomeDashboardView(
                                             Text(
                                                 text = "$pct%",
                                                 fontFamily = OutfitFamily,
-                                                fontSize = 10.sp,
+                                                fontSize = 12.sp,
                                                 color = colors.inkMuted
                                             )
                                             Text(
                                                 text = "₹${catAmount.formatCurrency()}",
                                                 fontFamily = JetBrainsMonoFamily,
                                                 fontWeight = FontWeight.Bold,
-                                                fontSize = 12.sp,
+                                                fontSize = 13.5.sp,
                                                 color = colors.inkPrimary
                                             )
                                         }
@@ -1963,7 +1963,7 @@ fun HomeDashboardView(
                 Text(
                     text = "LATEST TRANSACTIONS",
                     fontFamily = OutfitFamily,
-                    fontSize = 10.sp,
+                    fontSize = d.textLabelSmall,
                     fontWeight = FontWeight.Bold,
                     color = colors.inkMuted,
                     letterSpacing = 1.2.sp
@@ -1977,16 +1977,16 @@ fun HomeDashboardView(
                         text = "All Splits →",
                         fontFamily = OutfitFamily,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 10.sp,
+                        fontSize = 12.sp,
                         color = colors.inkMuted,
                         modifier = Modifier.clickable { onNavigateToSplitsTab() }
                     )
-                    Text(text = "•", fontSize = 10.sp, color = colors.borderWhisper)
+                    Text(text = "•", fontSize = 12.sp, color = colors.borderWhisper)
                     Text(
                         text = "All Expenses →",
                         fontFamily = OutfitFamily,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 10.sp,
+                        fontSize = 12.sp,
                         color = colors.inkMuted,
                         modifier = Modifier.clickable { onNavigateToExpenses() }
                     )
@@ -2011,7 +2011,7 @@ fun HomeDashboardView(
                         Text(
                             text = "No recent transactions",
                             fontFamily = OutfitFamily,
-                            fontSize = 12.sp,
+                            fontSize = 13.5.sp,
                             color = colors.inkMuted
                         )
                     }
@@ -2061,7 +2061,7 @@ fun HomeDashboardView(
                                             text = badgeText,
                                             fontFamily = JetBrainsMonoFamily,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 9.sp,
+                                            fontSize = 11.sp,
                                             color = badgeFg
                                         )
                                     }
@@ -2071,7 +2071,7 @@ fun HomeDashboardView(
                                             text = item.title,
                                             fontFamily = OutfitFamily,
                                             fontWeight = FontWeight.SemiBold,
-                                            fontSize = 12.sp,
+                                            fontSize = 15.sp,
                                             color = colors.inkPrimary,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -2079,7 +2079,7 @@ fun HomeDashboardView(
                                         Text(
                                             text = item.subtitle,
                                             fontFamily = OutfitFamily,
-                                            fontSize = 10.sp,
+                                            fontSize = 13.sp,
                                             color = colors.inkMuted,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -2094,13 +2094,13 @@ fun HomeDashboardView(
                                         text = "${amountPrefix}₹${item.amount.formatCurrency()}",
                                         fontFamily = JetBrainsMonoFamily,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
+                                        fontSize = 15.sp,
                                         color = amountColor
                                     )
                                     Text(
                                         text = if (item.rawPersonal != null) "Logged" else if (item.isPositive) "You lent" else "You owe",
                                         fontFamily = OutfitFamily,
-                                        fontSize = 9.sp,
+                                        fontSize = 11.5.sp,
                                         color = colors.inkMuted
                                     )
                                 }

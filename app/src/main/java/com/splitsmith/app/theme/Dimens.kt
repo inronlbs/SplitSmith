@@ -11,10 +11,10 @@ import androidx.compose.ui.unit.sp
 
 // ─────────────────────────────────────────────────────────────
 // Design Baseline
-// Reference device: Samsung Galaxy S24 / Google Pixel 8
-// Screen width: 412 dp  |  xxhdpi (1 dp ≈ 3 physical pixels)
+// Reference device: Standard Android Compact Baseline (360 dp)
+// Screen width: 360 dp | Material Design 3 and Android A11y Standards
 // ─────────────────────────────────────────────────────────────
-private const val BASELINE_WIDTH_DP = 412f
+private const val BASELINE_WIDTH_DP = 360f
 
 /**
  * All size tokens for the SplitSmith design system.
@@ -23,7 +23,7 @@ private const val BASELINE_WIDTH_DP = 412f
  * through [LocalDimens]. Access anywhere with:
  *
  *     val d = LocalDimens.current
- *     Text(fontSize = d.textBody)
+ *     Text(fontSize = d.textBodyLarge)
  *     Modifier.height(d.buttonHeight)
  */
 data class Dimens(
@@ -135,36 +135,36 @@ data class Dimens(
 /**
  * Computes a [Dimens] instance scaled to [screenWidthDp].
  *
- * Layout scale is clamped to [0.80, 1.20] of the baseline so the
- * UI stays proportional across small budget phones and large flagships.
- * Text scale is clamped tighter ([0.85, 1.15]) because reading comfort
- * is more sensitive than layout spacing.
+ * Layout scale allows subtle expansion for larger screens, but has a 0.95 floor
+ * so spacing never collapses awkwardly on compact phones.
+ * Per Material Design 3 and Android A11y Guidelines, typography should NEVER scale down
+ * below 1.0f on compact phones; reading comfort must remain at comfortable scale.
  */
 fun buildDimens(screenWidthDp: Int): Dimens {
     val raw = screenWidthDp / BASELINE_WIDTH_DP
 
     // Two separate clamps: layout can flex more than text
-    val ls = raw.coerceIn(0.80f, 1.20f)  // layout scale
-    val ts = raw.coerceIn(0.85f, 1.15f)  // text scale
+    val ls = raw.coerceIn(0.95f, 1.25f)  // layout scale
+    val ts = raw.coerceIn(1.0f, 1.15f)   // text scale (strictly never below 1.0f)
 
     fun Dp(base: Float) = (base * ls).dp
     fun Sp(base: Float) = (base * ts).sp
 
     return Dimens(
         // ── Typography ───────────────────────────────────────
-        textDisplayLarge   = Sp(32f),
-        textHeadlineLarge  = Sp(24f),
-        textHeadlineMedium = Sp(20f),
-        textTitleLarge     = Sp(18f),
-        textTitleMedium    = Sp(16f),
-        textBodyLarge      = Sp(15f),
+        textDisplayLarge   = Sp(34f),
+        textHeadlineLarge  = Sp(26f),
+        textHeadlineMedium = Sp(22f),
+        textTitleLarge     = Sp(19f),
+        textTitleMedium    = Sp(16.5f),
+        textBodyLarge      = Sp(16f),
         textBodyMedium     = Sp(14f),
-        textLabelLarge     = Sp(13f),
-        textLabelMedium    = Sp(12f),
-        textLabelSmall     = Sp(11f),
-        textMonoDisplay    = Sp(28f),
-        textMonoLarge      = Sp(16f),
-        textMonoSmall      = Sp(13f),
+        textLabelLarge     = Sp(14f),
+        textLabelMedium    = Sp(12.5f),
+        textLabelSmall     = Sp(11.5f),
+        textMonoDisplay    = Sp(30f),
+        textMonoLarge      = Sp(16.5f),
+        textMonoSmall      = Sp(13.5f),
 
         // ── Spacing ──────────────────────────────────────────
         space2  = Dp(2f),
@@ -187,26 +187,26 @@ fun buildDimens(screenWidthDp: Int): Dimens {
 
         // ── Component Heights ─────────────────────────────────
         buttonHeight   = Dp(52f),
-        buttonHeightSm = Dp(40f),
-        rowHeightLg    = Dp(64f),
+        buttonHeightSm = Dp(44f),
+        rowHeightLg    = Dp(66f),
         rowHeightSm    = Dp(52f),
         inputHeight    = Dp(52f),
 
         // ── Navigation ───────────────────────────────────────
-        navDockHeight  = Dp(68f),
-        navBarHeight   = Dp(60f),
-        navIconSize    = Dp(22f),
-        navPillSize    = Dp(40f),
-        navCenterFab   = Dp(44f),
+        navDockHeight  = Dp(70f),
+        navBarHeight   = Dp(62f),
+        navIconSize    = Dp(24f),
+        navPillSize    = Dp(44f),
+        navCenterFab   = Dp(50f),
         navDockMarginH = Dp(20f),
         navDockMarginV = Dp(10f),
 
         // ── Avatars ──────────────────────────────────────────
         avatarLg    = Dp(56f),
-        avatarMd    = Dp(40f),
-        avatarSm    = Dp(32f),
-        avatarXs    = Dp(24f),
-        groupIconSize = Dp(44f),
+        avatarMd    = Dp(42f),
+        avatarSm    = Dp(34f),
+        avatarXs    = Dp(26f),
+        groupIconSize = Dp(46f),
 
         // ── Card ─────────────────────────────────────────────
         cardElevation  = Dp(2f),
@@ -225,8 +225,8 @@ fun buildDimens(screenWidthDp: Int): Dimens {
 // CompositionLocal — access via LocalDimens.current
 // ─────────────────────────────────────────────────────────────
 
-/** Fallback: baseline 412 dp device — replaced at composition root. */
-val LocalDimens = compositionLocalOf { buildDimens(412) }
+/** Fallback: baseline 360 dp device — replaced at composition root. */
+val LocalDimens = compositionLocalOf { buildDimens(360) }
 
 /**
  * Reads the current screen width from [LocalConfiguration] and

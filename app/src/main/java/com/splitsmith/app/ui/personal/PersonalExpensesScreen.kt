@@ -262,7 +262,7 @@ fun PersonalExpensesScreen(
                                                     text = "Preset",
                                                     fontFamily = OutfitFamily,
                                                     fontWeight = FontWeight.SemiBold,
-                                                    fontSize = 9.sp,
+                                                    fontSize = 11.5.sp,
                                                     color = colors.inkPrimary
                                                 )
                                             }
@@ -291,7 +291,7 @@ fun PersonalExpensesScreen(
                             Text(
                                 text = "SHARED EXPENSE GROUPS (${trackerGroups.size})",
                                 fontFamily = OutfitFamily,
-                                fontSize = 10.sp,
+                                fontSize = d.textLabelSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = colors.inkMuted,
                                 letterSpacing = 1.5.sp,

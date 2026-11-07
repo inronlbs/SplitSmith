@@ -1270,7 +1270,7 @@ private fun StyledExpensesTab(
                             modifier = Modifier.height(28.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
-                                Text(payerLabel, fontFamily = OutfitFamily, fontSize = 11.sp, color = if (isPayerActive) colors.canvasChalk else inkMuted, fontWeight = FontWeight.Bold)
+                                Text(payerLabel, fontFamily = OutfitFamily, fontSize = 12.5.sp, color = if (isPayerActive) colors.canvasChalk else inkMuted, fontWeight = FontWeight.Bold)
                             }
                         }
 
@@ -1285,7 +1285,7 @@ private fun StyledExpensesTab(
                                 modifier = Modifier.height(28.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
-                                    Text("Category: $selectedCategory \u25be", fontFamily = OutfitFamily, fontSize = 11.sp, color = if (isCategoryActive) colors.canvasChalk else inkMuted, fontWeight = FontWeight.Bold)
+                                    Text("Category: $selectedCategory \u25be", fontFamily = OutfitFamily, fontSize = 12.5.sp, color = if (isCategoryActive) colors.canvasChalk else inkMuted, fontWeight = FontWeight.Bold)
                                 }
                             }
                             DropdownMenu(

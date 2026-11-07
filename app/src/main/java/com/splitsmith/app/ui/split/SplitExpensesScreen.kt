@@ -585,7 +585,7 @@ fun GroupListItem(
                         text = "Requested",
                         fontFamily = OutfitFamily,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp,
+                        fontSize = 11.5.sp,
                         color = colors.inkMuted,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
@@ -665,7 +665,7 @@ fun DirectSplitListItem(
                         Text(
                             text = "($attachCount)",
                             fontFamily = OutfitFamily,
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             color = colors.inkMuted
                         )
                     }
@@ -1363,7 +1363,7 @@ fun CreateGroupBottomSheet(
                 Text(
                     text = "ALL CONNECTED CONTACTS (${filteredContacts.size})",
                     fontFamily = OutfitFamily,
-                    fontSize = 10.sp,
+                    fontSize = d.textLabelSmall,
                     fontWeight = FontWeight.Bold,
                     color = colors.inkMuted,
                     letterSpacing = 1.2.sp
@@ -1551,7 +1551,7 @@ fun CreateGroupBottomSheet(
                 Text(
                     text = "GROUP NAME & PHOTO",
                     fontFamily = OutfitFamily,
-                    fontSize = 10.sp,
+                    fontSize = d.textLabelSmall,
                     fontWeight = FontWeight.Bold,
                     color = colors.inkMuted,
                     letterSpacing = 1.2.sp
@@ -1618,7 +1618,7 @@ fun CreateGroupBottomSheet(
                 Text(
                     text = "CATEGORY ICON",
                     fontFamily = OutfitFamily,
-                    fontSize = 10.sp,
+                    fontSize = d.textLabelSmall,
                     fontWeight = FontWeight.Bold,
                     color = colors.inkMuted,
                     letterSpacing = 1.2.sp
@@ -1656,7 +1656,7 @@ fun CreateGroupBottomSheet(
                 Text(
                     text = "CHOOSE GROUP TYPE",
                     fontFamily = OutfitFamily,
-                    fontSize = 10.sp,
+                    fontSize = d.textLabelSmall,
                     fontWeight = FontWeight.Bold,
                     color = colors.inkMuted,
                     letterSpacing = 1.2.sp
@@ -2071,7 +2071,7 @@ fun PersonDetailBottomSheet(
                                                 modifier = Modifier.height(28.dp)
                                             ) {
                                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
-                                                    Text(payerLabel, fontFamily = OutfitFamily, fontSize = 11.sp, color = if (isPayerActive) colors.canvasChalk else colors.inkMuted, fontWeight = FontWeight.Bold)
+                                                    Text(payerLabel, fontFamily = OutfitFamily, fontSize = 12.5.sp, color = if (isPayerActive) colors.canvasChalk else colors.inkMuted, fontWeight = FontWeight.Bold)
                                                 }
                                             }
                                             
@@ -2086,7 +2086,7 @@ fun PersonDetailBottomSheet(
                                                     modifier = Modifier.height(28.dp)
                                                 ) {
                                                     Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
-                                                        Text("Category: $selectedCategory \u25be", fontFamily = OutfitFamily, fontSize = 11.sp, color = if (isCategoryActive) colors.canvasChalk else colors.inkMuted, fontWeight = FontWeight.Bold)
+                                                        Text("Category: $selectedCategory \u25be", fontFamily = OutfitFamily, fontSize = 12.5.sp, color = if (isCategoryActive) colors.canvasChalk else colors.inkMuted, fontWeight = FontWeight.Bold)
                                                     }
                                                 }
                                                 DropdownMenu(
@@ -2119,7 +2119,7 @@ fun PersonDetailBottomSheet(
                                 Text(
                                     text = "1-ON-1 SPLITS HISTORY",
                                     fontFamily = OutfitFamily,
-                                    fontSize = 10.sp,
+                                    fontSize = d.textLabelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = colors.inkMuted,
                                     letterSpacing = 1.5.sp
@@ -2133,7 +2133,7 @@ fun PersonDetailBottomSheet(
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                     modifier = Modifier.height(28.dp)
                                 ) {
-                                    Text("+ New Split", fontFamily = OutfitFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text("+ New Split", fontFamily = OutfitFamily, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
 
@@ -2170,7 +2170,7 @@ fun PersonDetailBottomSheet(
                                     Text(
                                         text = "NET STANDING",
                                         fontFamily = OutfitFamily,
-                                        fontSize = 10.sp,
+                                        fontSize = d.textLabelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = colors.inkMuted,
                                         letterSpacing = 1.5.sp
@@ -2227,7 +2227,7 @@ fun PersonDetailBottomSheet(
                             Text(
                                 text = "INDIVIDUAL UNSETTLED TRANSACTIONS",
                                 fontFamily = OutfitFamily,
-                                fontSize = 10.sp,
+                                fontSize = d.textLabelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = colors.inkMuted,
                                 letterSpacing = 1.5.sp
@@ -2282,7 +2282,7 @@ fun PersonDetailBottomSheet(
                                                     shape = RoundedCornerShape(d.radiusFull),
                                                     modifier = Modifier.height(32.dp)
                                                 ) {
-                                                    Text("Settle This", fontFamily = OutfitFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    Text("Settle This", fontFamily = OutfitFamily, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                                 }
                                             }
                                         }
@@ -2311,7 +2311,7 @@ fun PersonDetailBottomSheet(
                                     Text(
                                         text = "USER DETAILS",
                                         fontFamily = OutfitFamily,
-                                        fontSize = 10.sp,
+                                        fontSize = d.textLabelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = colors.inkMuted,
                                         letterSpacing = 1.5.sp
