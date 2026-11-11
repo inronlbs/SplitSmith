@@ -1780,7 +1780,7 @@ fun HomeDashboardView(
                                             // Pillar container
                                             Box(
                                                 modifier = Modifier
-                                                    .width(6.dp)
+                                                    .width(12.dp)
                                                     .height(56.dp)
                                                     .clip(RoundedCornerShape(999.dp))
                                                     .background(colors.borderWhisper.copy(alpha = 0.35f)),

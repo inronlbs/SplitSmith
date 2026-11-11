@@ -26,6 +26,10 @@ data class UserProfile(
         if (shortCode.isNotBlank()) return "User $shortCode"
         return fallback
     }
+
+    @get:Exclude
+    val isGuest: Boolean
+        get() = uid.startsWith("guest_")
 }
 
 fun UserProfile?.getResolvedName(fallback: String = "Friend"): String {
@@ -38,6 +42,16 @@ data class BudgetConfig(
     val limit: Double = 0.0,
     val type: String = "TRIP", // TRIP or MONTHLY
     val threshold: Int = 80
+)
+
+@Keep
+@Serializable
+data class VirtualMember(
+    val id: String = "",
+    val name: String = "",
+    val addedBy: String = "",
+    val createdAt: Long = 0L,
+    val isArchived: Boolean = false
 )
 
 @Keep
@@ -58,7 +72,9 @@ data class Group(
     val isExpenseTracker: Boolean = false,
     @get:PropertyName("expenseTracker")
     val expenseTracker: Boolean = false,
-    val imageUrl: String = ""
+    val imageUrl: String = "",
+    val virtualMembers: Map<String, VirtualMember> = emptyMap(),
+    val pastMembers: Map<String, String> = emptyMap()
 ) {
     @get:Exclude
     val isTracker: Boolean

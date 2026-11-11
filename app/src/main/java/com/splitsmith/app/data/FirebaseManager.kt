@@ -372,6 +372,29 @@ object FirebaseManager {
         db.collection("groups").document(groupId).update("members.$targetUserId", true).await()
     }
 
+    suspend fun addVirtualMember(groupId: String, name: String): String {
+        val uid = currentUserId ?: throw RuntimeException("Not authenticated")
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) throw IllegalArgumentException("Name cannot be empty")
+        val guestId = "guest_${java.util.UUID.randomUUID().toString().replace("-", "").take(8)}"
+        val vm = VirtualMember(
+            id = guestId,
+            name = cleanName,
+            addedBy = uid,
+            createdAt = System.currentTimeMillis(),
+            isArchived = false
+        )
+        val docRef = db.collection("groups").document(groupId)
+        db.runTransaction { transaction ->
+            transaction.update(
+                docRef,
+                "members.$guestId", true,
+                "virtualMembers.$guestId", vm
+            )
+        }.await()
+        return guestId
+    }
+
     suspend fun leaveGroup(groupId: String) {
         val uid = currentUserId ?: throw RuntimeException("Not authenticated")
         val docRef = db.collection("groups").document(groupId)
@@ -386,8 +409,21 @@ object FirebaseManager {
         }.await()
     }
 
-    suspend fun removeMemberFromGroup(groupId: String, targetUserId: String) {
+    suspend fun removeMemberFromGroup(
+        groupId: String,
+        targetUserId: String,
+        currentBalance: Double = 0.0,
+        memberName: String = ""
+    ) {
         val uid = currentUserId ?: throw RuntimeException("Not authenticated")
+        if (Math.abs(currentBalance) > 0.01) {
+            val formatted = String.format(java.util.Locale.US, "%.2f", Math.abs(currentBalance))
+            if (currentBalance < 0) {
+                throw RuntimeException("Cannot remove member. They still owe ₹$formatted to the group. Settle all debts first.")
+            } else {
+                throw RuntimeException("Cannot remove member. The group still owes them ₹$formatted. Settle all debts first.")
+            }
+        }
         val docRef = db.collection("groups").document(groupId)
         db.runTransaction { transaction ->
             val snapshot = transaction.get(docRef)
@@ -405,12 +441,105 @@ object FirebaseManager {
             if (!isCallerOwner && targetIsCoAdmin) {
                 throw RuntimeException("Only the group owner can remove an admin")
             }
-            transaction.update(
-                docRef,
-                "members.$targetUserId", com.google.firebase.firestore.FieldValue.delete(),
-                "admins.$targetUserId", com.google.firebase.firestore.FieldValue.delete()
+
+            val resolvedName = memberName.ifBlank {
+                (snapshot.get("virtualMembers.$targetUserId.name") as? String) ?: "Former Member"
+            }
+
+            val updates = mutableMapOf<String, Any>(
+                "members.$targetUserId" to com.google.firebase.firestore.FieldValue.delete(),
+                "admins.$targetUserId" to com.google.firebase.firestore.FieldValue.delete(),
+                "pastMembers.$targetUserId" to resolvedName
             )
+            val vmMap = snapshot.get("virtualMembers") as? Map<*, *>
+            if (targetUserId.startsWith("guest_") || vmMap?.containsKey(targetUserId) == true) {
+                updates["virtualMembers.$targetUserId.isArchived"] = true
+            }
+            transaction.update(docRef, updates)
         }.await()
+    }
+
+    suspend fun reactivateFormerMember(groupId: String, targetUserId: String) {
+        val uid = currentUserId ?: throw RuntimeException("Not authenticated")
+        val docRef = db.collection("groups").document(groupId)
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(docRef)
+            val adminId = snapshot.getString("adminId") ?: ""
+            val admins = snapshot.get("admins") as? Map<*, *> ?: emptyMap<Any, Any>()
+            val isCallerOwner = adminId == uid
+            val isCallerAdmin = isCallerOwner || admins[uid] == true
+            if (!isCallerAdmin) {
+                throw RuntimeException("Only group admins can re-activate members")
+            }
+            val updates = mutableMapOf<String, Any>(
+                "members.$targetUserId" to true,
+                "pastMembers.$targetUserId" to com.google.firebase.firestore.FieldValue.delete()
+            )
+            val vmMap = snapshot.get("virtualMembers") as? Map<*, *>
+            if (targetUserId.startsWith("guest_") || vmMap?.containsKey(targetUserId) == true) {
+                updates["virtualMembers.$targetUserId.isArchived"] = false
+            }
+            transaction.update(docRef, updates)
+        }.await()
+    }
+
+    suspend fun linkVirtualMemberToUser(groupId: String, guestId: String, targetRealUid: String) {
+        val uid = currentUserId ?: throw RuntimeException("Not authenticated")
+        val groupRef = db.collection("groups").document(groupId)
+        val expensesSnap = groupRef.collection("expenses").get().await()
+        val settlementsSnap = groupRef.collection("settlements").get().await()
+
+        val batch = db.batch()
+
+        // 1. Update expenses
+        for (doc in expensesSnap.documents) {
+            val exp = doc.toObject(Expense::class.java) ?: continue
+            var needsUpdate = false
+            val updates = mutableMapOf<String, Any>()
+            if (exp.paidBy == guestId) {
+                updates["paidBy"] = targetRealUid
+                needsUpdate = true
+            }
+            if (exp.splits.containsKey(guestId)) {
+                val newSplits = exp.splits.toMutableMap()
+                val share = newSplits.remove(guestId) ?: 0.0
+                newSplits[targetRealUid] = (newSplits[targetRealUid] ?: 0.0) + share
+                updates["splits"] = newSplits
+                needsUpdate = true
+            }
+            if (needsUpdate) {
+                batch.update(doc.reference, updates)
+            }
+        }
+
+        // 2. Update settlements
+        for (doc in settlementsSnap.documents) {
+            val set = doc.toObject(Settlement::class.java) ?: continue
+            var needsUpdate = false
+            val updates = mutableMapOf<String, Any>()
+            if (set.fromUser == guestId) {
+                updates["fromUser"] = targetRealUid
+                needsUpdate = true
+            }
+            if (set.toUser == guestId) {
+                updates["toUser"] = targetRealUid
+                needsUpdate = true
+            }
+            if (needsUpdate) {
+                batch.update(doc.reference, updates)
+            }
+        }
+
+        // 3. Update Group document
+        batch.update(
+            groupRef,
+            "members.$guestId", com.google.firebase.firestore.FieldValue.delete(),
+            "virtualMembers.$guestId", com.google.firebase.firestore.FieldValue.delete(),
+            "pastMembers.$guestId", com.google.firebase.firestore.FieldValue.delete(),
+            "members.$targetRealUid", true
+        )
+
+        batch.commit().await()
     }
 
     suspend fun updateGroupIcon(groupId: String, iconName: String) {
@@ -627,6 +756,29 @@ object FirebaseManager {
             timestamp = System.currentTimeMillis(),
             receiptUrl = finalUrls.firstOrNull() ?: "",
             receiptUrls = finalUrls
+        )
+        settlementRef.set(settlement).await()
+        return settlementRef.id
+    }
+
+    suspend fun recordCashSettlement(
+        groupId: String,
+        fromUser: String,
+        toUser: String,
+        amount: Double
+    ): String {
+        val uid = currentUserId ?: throw IllegalArgumentException("User not authenticated")
+        if (groupId.isBlank()) throw IllegalArgumentException("Invalid group ID")
+        if (fromUser.isBlank() || toUser.isBlank()) throw IllegalArgumentException("Invalid user IDs for settlement")
+        val settlementRef = db.collection("groups").document(groupId).collection("settlements").document()
+        val settlement = Settlement(
+            id = settlementRef.id,
+            fromUser = fromUser,
+            toUser = toUser,
+            amount = amount,
+            method = "CASH",
+            status = "CONFIRMED",
+            timestamp = System.currentTimeMillis()
         )
         settlementRef.set(settlement).await()
         return settlementRef.id

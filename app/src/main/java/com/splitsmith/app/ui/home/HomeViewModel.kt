@@ -248,7 +248,14 @@ class HomeViewModel : ViewModel() {
                     rawPersonal = pe
                 )
             }
-            val groupActivities = groupExpenses.map { ge ->
+            val groupActivities = groupExpenses
+                .filter { ge ->
+                    val exp = ge.expense
+                    val isPayer = exp.paidBy == uid
+                    val myShare = exp.splits[uid] ?: 0.0
+                    isPayer || (exp.splitMode != "NONE" && myShare > 0.0)
+                }
+                .map { ge ->
                 val exp = ge.expense
                 val isTracker = exp.splitMode == "NONE"
                 val myShare = exp.splits[uid] ?: 0.0

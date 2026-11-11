@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.PersonAdd
 import com.splitsmith.app.ui.components.UserAvatar
 import com.splitsmith.app.ui.components.GroupIconView
 import com.splitsmith.app.ui.components.dotGridBackground
@@ -162,11 +163,21 @@ fun GroupDetailScreen(
         val tempNames = mutableMapOf<String, String>()
         val tempProfiles = mutableMapOf<String, UserProfile>()
         for (uid in keysToLoad) {
-            val profile = FirebaseManager.getUserProfile(uid)
-            if (profile != null) {
-                tempNames[uid] = profile.displayName
-                tempProfiles[uid] = profile
+            val virtual = currentGroup.virtualMembers[uid]
+            if (virtual != null) {
+                tempNames[uid] = virtual.name
+                tempProfiles[uid] = UserProfile(uid = uid, displayName = virtual.name)
+            } else {
+                val profile = FirebaseManager.getUserProfile(uid)
+                if (profile != null) {
+                    tempNames[uid] = profile.displayName
+                    tempProfiles[uid] = profile
+                }
             }
+        }
+        for ((pastId, pastName) in currentGroup.pastMembers) {
+            tempNames[pastId] = "$pastName (Former)"
+            tempProfiles[pastId] = UserProfile(uid = pastId, displayName = pastName)
         }
         userNamesMap = tempNames
         memberProfilesMap = tempProfiles
@@ -848,62 +859,86 @@ fun GroupDetailScreen(
                         }
                     }
 
-                    Button(
-                        onClick = {
-                            coroutineScope.launch {
-                                try {
-                                    val receiverUpi = FirebaseManager.getReceiverUpiId(debt.toUser)
-                                    UpiPaymentHelper.launchUpiPayment(
-                                        context = context,
-                                        receiverUpi = receiverUpi,
-                                        receiverName = toName,
-                                        amount = debt.amount,
-                                        note = "SplitSmith Group Settlement",
-                                        onPaymentInitiated = {
-                                            pendingConfirmUpiSettlement = debt
-                                            selectedDebtForSettlement = null
-                                        }
-                                    )
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
-                        shape = RoundedCornerShape(d.radiusMD),
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
-                    ) { Text("Pay via UPI App", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge) }
+                    val isGuestDebt = debt.fromUser.startsWith("guest_") || debt.toUser.startsWith("guest_")
 
-                    OutlinedButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                try {
-                                    isUploadingSettlementProof = true
-                                    var proofUrl = ""
-                                    selectedSettlementProofUri?.let { uri ->
-                                        val uploadRes = CloudinaryManager.uploadReceipt(context, uri, currentUserId ?: "user", "settlements")
-                                        proofUrl = uploadRes.getOrDefault("")
+                    if (!isGuestDebt) {
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    try {
+                                        val receiverUpi = FirebaseManager.getReceiverUpiId(debt.toUser)
+                                        UpiPaymentHelper.launchUpiPayment(
+                                            context = context,
+                                            receiverUpi = receiverUpi,
+                                            receiverName = toName,
+                                            amount = debt.amount,
+                                            note = "SplitSmith Group Settlement",
+                                            onPaymentInitiated = {
+                                                pendingConfirmUpiSettlement = debt
+                                                selectedDebtForSettlement = null
+                                            }
+                                        )
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                                     }
-                                    FirebaseManager.addSettlement(groupId, debt.toUser, debt.amount, "CASH", receiptUrl = proofUrl)
-                                    Toast.makeText(context, "Cash settlement request sent. Awaiting creditor confirmation.", Toast.LENGTH_LONG).show()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                                } finally {
-                                    isUploadingSettlementProof = false
-                                    selectedSettlementProofUri = null
-                                    selectedDebtForSettlement = null
                                 }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                            shape = RoundedCornerShape(d.radiusMD),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
+                        ) { Text("Pay via UPI App", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge) }
+                    }
+
+                    if (isGuestDebt) {
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    try {
+                                        FirebaseManager.recordCashSettlement(groupId, debt.fromUser, debt.toUser, debt.amount)
+                                        Toast.makeText(context, "Recorded cash settlement of ₹${String.format(java.util.Locale.US, "%.2f", debt.amount)}!", Toast.LENGTH_LONG).show()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                    } finally {
+                                        selectedDebtForSettlement = null
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                            shape = RoundedCornerShape(d.radiusMD),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
+                        ) { Text("Confirm Cash Settlement", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge) }
+                    } else {
+                        OutlinedButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    try {
+                                        isUploadingSettlementProof = true
+                                        var proofUrl = ""
+                                        selectedSettlementProofUri?.let { uri ->
+                                            val uploadRes = CloudinaryManager.uploadReceipt(context, uri, currentUserId ?: "user", "settlements")
+                                            proofUrl = uploadRes.getOrDefault("")
+                                        }
+                                        FirebaseManager.addSettlement(groupId, debt.toUser, debt.amount, "CASH", receiptUrl = proofUrl)
+                                        Toast.makeText(context, "Cash settlement request sent. Awaiting creditor confirmation.", Toast.LENGTH_LONG).show()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                    } finally {
+                                        isUploadingSettlementProof = false
+                                        selectedSettlementProofUri = null
+                                        selectedDebtForSettlement = null
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                            shape = RoundedCornerShape(d.radiusMD),
+                            enabled = !isUploadingSettlementProof,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.inkPrimary)
+                        ) {
+                            if (isUploadingSettlementProof) {
+                                CircularProgressIndicator(color = colors.inkPrimary, modifier = Modifier.size(20.dp))
+                            } else {
+                                Text("Mark Paid in Cash", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
-                        shape = RoundedCornerShape(d.radiusMD),
-                        enabled = !isUploadingSettlementProof,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.inkPrimary)
-                    ) {
-                        if (isUploadingSettlementProof) {
-                            CircularProgressIndicator(color = colors.inkPrimary, modifier = Modifier.size(20.dp))
-                        } else {
-                            Text("Mark Paid in Cash", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
                         }
                     }
                 }
@@ -2076,6 +2111,10 @@ private fun StyledSettingsTab(
     var unifiedContacts by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
     var showAddMembersSheet by remember { mutableStateOf(false) }
     var memberToRemove by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var debtWarningMember by remember { mutableStateOf<Pair<String, Double>?>(null) }
+    var showAddOfflineMemberDialog by remember { mutableStateOf(false) }
+    var offlineMemberNameInput by remember { mutableStateOf("") }
+    var memberToLink by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     LaunchedEffect(group?.id) {
         try {
@@ -2111,16 +2150,22 @@ private fun StyledSettingsTab(
         AlertDialog(
             onDismissRequest = { memberToRemove = null },
             title = { Text("Remove Member?", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to remove $targetName from this group? They will no longer have access to group expenses.", fontFamily = OutfitFamily) },
+            text = { Text("Are you sure you want to remove $targetName from this group? They will be moved to Former Members and past expense records will remain preserved.", fontFamily = OutfitFamily) },
             confirmButton = {
                 TextButton(
                     onClick = {
                         val uidToRemove = targetUid
+                        val nameToRemove = targetName
                         memberToRemove = null
                         coroutineScope.launch {
                             try {
-                                FirebaseManager.removeMemberFromGroup(group.id, uidToRemove)
-                                Toast.makeText(context, "Removed $targetName from group.", Toast.LENGTH_SHORT).show()
+                                FirebaseManager.removeMemberFromGroup(
+                                    groupId = group.id,
+                                    targetUserId = uidToRemove,
+                                    currentBalance = 0.0,
+                                    memberName = nameToRemove
+                                )
+                                Toast.makeText(context, "Removed $nameToRemove from group.", Toast.LENGTH_SHORT).show()
                             } catch (e: Exception) {
                                 Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                             }
@@ -2132,6 +2177,156 @@ private fun StyledSettingsTab(
             },
             dismissButton = {
                 TextButton(onClick = { memberToRemove = null }) {
+                    Text("Cancel", color = colors.inkMuted, fontFamily = OutfitFamily)
+                }
+            },
+            shape = RoundedCornerShape(d.radiusLG),
+            containerColor = colors.surfaceCard
+        )
+    }
+
+    if (debtWarningMember != null) {
+        val (name, balance) = debtWarningMember!!
+        val formatted = String.format(java.util.Locale.US, "%.2f", Math.abs(balance))
+        val message = if (balance < 0) {
+            "$name still owes ₹$formatted to the group. Settle all debts before removing them."
+        } else {
+            "The group still owes ₹$formatted to $name. Settle all debts before removing them."
+        }
+        AlertDialog(
+            onDismissRequest = { debtWarningMember = null },
+            title = { Text("Cannot Remove Member", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold) },
+            text = { Text(message, fontFamily = OutfitFamily) },
+            confirmButton = {
+                TextButton(onClick = { debtWarningMember = null }) {
+                    Text("OK", color = colors.inkPrimary, fontFamily = OutfitFamily)
+                }
+            },
+            shape = RoundedCornerShape(d.radiusLG),
+            containerColor = colors.surfaceCard
+        )
+    }
+
+    if (showAddOfflineMemberDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showAddOfflineMemberDialog = false
+                offlineMemberNameInput = ""
+            },
+            title = { Text("Add Offline Member", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                    Text(
+                        text = "For friends without a smartphone, children, or anyone who can't install the app right now. They can be included in splits and cash settlements.",
+                        fontFamily = OutfitFamily,
+                        fontSize = d.textLabelMedium,
+                        color = colors.inkMuted
+                    )
+                    OutlinedTextField(
+                        value = offlineMemberNameInput,
+                        onValueChange = { offlineMemberNameInput = it },
+                        label = { Text("Member Name (e.g. Rahul)", fontFamily = OutfitFamily) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val name = offlineMemberNameInput.trim()
+                        if (name.isNotEmpty()) {
+                            showAddOfflineMemberDialog = false
+                            offlineMemberNameInput = ""
+                            coroutineScope.launch {
+                                try {
+                                    FirebaseManager.addVirtualMember(group.id, name)
+                                    Toast.makeText(context, "Added offline member '$name'!", Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    },
+                    enabled = offlineMemberNameInput.isNotBlank()
+                ) {
+                    Text("Add", color = colors.inkPrimary, fontFamily = OutfitFamily, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showAddOfflineMemberDialog = false
+                        offlineMemberNameInput = ""
+                    }
+                ) {
+                    Text("Cancel", color = colors.inkMuted, fontFamily = OutfitFamily)
+                }
+            },
+            shape = RoundedCornerShape(d.radiusLG),
+            containerColor = colors.surfaceCard
+        )
+    }
+
+    if (memberToLink != null) {
+        val (guestId, guestName) = memberToLink!!
+        val availableContacts = remember(unifiedContacts, group.members) {
+            unifiedContacts.filter { it.uid !in group.members.keys }
+        }
+        AlertDialog(
+            onDismissRequest = { memberToLink = null },
+            title = { Text("Link '$guestName' to User", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                    Text(
+                        text = "Select a registered SplitSmith user to inherit all historical expenses and debts for $guestName:",
+                        fontFamily = OutfitFamily,
+                        fontSize = d.textLabelMedium,
+                        color = colors.inkMuted
+                    )
+                    if (availableContacts.isEmpty()) {
+                        Text(
+                            text = "No available contacts to link. Invite them to SplitSmith first.",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelMedium,
+                            color = colors.alertRed
+                        )
+                    } else {
+                        LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
+                            items(availableContacts) { contact ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            memberToLink = null
+                                            coroutineScope.launch {
+                                                try {
+                                                    FirebaseManager.linkVirtualMemberToUser(group.id, guestId, contact.uid)
+                                                    Toast.makeText(context, "Linked $guestName to ${contact.displayName}!", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                                }
+                                            }
+                                        }
+                                        .padding(vertical = d.space8),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    UserAvatar(avatarUrl = contact.avatarUrl, displayName = contact.displayName, size = d.avatarSm)
+                                    Spacer(modifier = Modifier.width(d.space8))
+                                    Column {
+                                        Text(contact.displayName, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textBodyLarge)
+                                        if (contact.email.isNotBlank()) Text(contact.email, fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
+                                    }
+                                }
+                                HorizontalDivider(color = colors.borderWhisper)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { memberToLink = null }) {
                     Text("Cancel", color = colors.inkMuted, fontFamily = OutfitFamily)
                 }
             },
@@ -3137,13 +3332,32 @@ private fun StyledSettingsTab(
                 )
                 Spacer(modifier = Modifier.width(d.space12))
 
+                val isGuest = group.virtualMembers.containsKey(uid) || uid.startsWith("guest_")
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = finalName,
-                        fontFamily = OutfitFamily,
-                        fontSize = d.textBodyLarge,
-                        color = colors.inkPrimary
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space4)) {
+                        Text(
+                            text = finalName,
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textBodyLarge,
+                            color = colors.inkPrimary
+                        )
+                        if (isGuest) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(colors.inkPrimary.copy(alpha = 0.08f))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "OFFLINE",
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.inkPrimary
+                                )
+                            }
+                        }
+                    }
                     if (isOwner) {
                         Text(
                             text = "Group Owner",
@@ -3206,9 +3420,30 @@ private fun StyledSettingsTab(
                         }
                     }
 
+                    if (isGuest && currentUserIsAdmin) {
+                        TextButton(
+                            onClick = { memberToLink = Pair(uid, memberName) },
+                            contentPadding = PaddingValues(horizontal = d.space8, vertical = d.space4)
+                        ) {
+                            Text(
+                                text = "Link Account",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelSmall,
+                                color = colors.inkPrimary
+                            )
+                        }
+                    }
+
                     if (canRemoveMember) {
                         TextButton(
-                            onClick = { memberToRemove = Pair(uid, memberName) },
+                            onClick = {
+                                val balance = netBalancesMap[uid] ?: 0.0
+                                if (Math.abs(balance) > 0.01) {
+                                    debtWarningMember = Pair(memberName, balance)
+                                } else {
+                                    memberToRemove = Pair(uid, memberName)
+                                }
+                            },
                             contentPadding = PaddingValues(horizontal = d.space8, vertical = d.space4)
                         ) {
                             Text(
@@ -3222,6 +3457,73 @@ private fun StyledSettingsTab(
                 }
             }
             HorizontalDivider(color = colors.borderWhisper)
+        }
+
+        if (group.pastMembers.isNotEmpty()) {
+            item {
+                Spacer(modifier = Modifier.height(d.space8))
+                Text(
+                    text = "FORMER MEMBERS (${group.pastMembers.size})",
+                    fontFamily = OutfitFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkMuted,
+                    letterSpacing = 1.2.sp
+                )
+            }
+            items(group.pastMembers.entries.toList()) { (pastId, pastName) ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = d.space8),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    UserAvatar(
+                        avatarUrl = "",
+                        displayName = pastName,
+                        size = d.avatarSm
+                    )
+                    Spacer(modifier = Modifier.width(d.space12))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = pastName,
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textBodyLarge,
+                            color = colors.inkMuted
+                        )
+                        Text(
+                            text = "Former Member (Settled)",
+                            fontFamily = OutfitFamily,
+                            fontSize = d.textLabelSmall,
+                            color = colors.inkMuted
+                        )
+                    }
+                    val myUid = FirebaseManager.currentUserId ?: ""
+                    val isGroupAdmin = group.adminId == myUid || group.admins[myUid] == true
+                    if (isGroupAdmin) {
+                        TextButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    try {
+                                        FirebaseManager.reactivateFormerMember(group.id, pastId)
+                                        Toast.makeText(context, "Re-activated $pastName!", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = d.space8, vertical = d.space4)
+                        ) {
+                            Text(
+                                text = "Re-activate",
+                                fontFamily = OutfitFamily,
+                                fontSize = d.textLabelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.inkPrimary
+                            )
+                        }
+                    }
+                }
+                HorizontalDivider(color = colors.borderWhisper)
+            }
         }
 
         // ── WhatsApp-Style Invite Members Section ──
@@ -3241,7 +3543,7 @@ private fun StyledSettingsTab(
                     letterSpacing = 1.5.sp
                 )
 
-                // Quick Share Link & QR Buttons
+                // Quick Share Link, QR & Offline Friend Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(d.space8)
@@ -3262,9 +3564,9 @@ private fun StyledSettingsTab(
                             horizontalArrangement = Arrangement.Center,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = colors.inkPrimary, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Copy Link", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = colors.inkPrimary, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Copy Link", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
                         }
                     }
 
@@ -3307,9 +3609,27 @@ private fun StyledSettingsTab(
                             horizontalArrangement = Arrangement.Center,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            Icon(Icons.Default.QrCode, contentDescription = null, tint = colors.inkPrimary, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Share QR", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                            Icon(Icons.Default.QrCode, contentDescription = null, tint = colors.inkPrimary, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Share QR", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                        }
+                    }
+
+                    Surface(
+                        onClick = { showAddOfflineMemberDialog = true },
+                        shape = RoundedCornerShape(d.radiusMD),
+                        color = colors.surfaceCard,
+                        border = BorderStroke(1.dp, colors.borderWhisper),
+                        modifier = Modifier.weight(1f).height(44.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Icon(Icons.Default.PersonAdd, contentDescription = null, tint = colors.inkPrimary, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("+ Offline", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
                         }
                     }
                 }

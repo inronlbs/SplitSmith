@@ -1,3 +1,59 @@
+## [2026-11-11 22:05] Virtual (Offline) Members & Member Lifecycle Management
+
+### Features & Capabilities
+1. **Virtual (Offline) Members (`DataModels.kt`, `FirebaseManager.kt`)**:
+   - Added `VirtualMember` model (`id`, `name`, `addedBy`, `createdAt`, `isArchived`) and extended `Group` with `virtualMembers` and `pastMembers`.
+   - Synthetic ID scheme: `guest_<uuid8>`.
+   - Implemented `FirebaseManager.addVirtualMember(groupId, name)` to register offline friends directly into group members.
+2. **Expense & Split Participation (`AddExpenseScreen.kt`, `GroupDetailScreen.kt`)**:
+   - Virtual members automatically participate in equal, exact, and percentage splits with a distinct `OFFLINE` / `GUEST` badge.
+   - Added support for selecting virtual members as the payer ("Paid by Rahul in Cash").
+3. **Cash Settlement for Offline Guests (`FirebaseManager.kt`, `GroupDetailScreen.kt`)**:
+   - Added `FirebaseManager.recordCashSettlement` to instantly record confirmed peer-to-peer cash settlements between members and offline guests, bypassing online UPI flows.
+4. **Accounting-Grade Zero-Balance Guard (`FirebaseManager.kt`, `GroupDetailScreen.kt`)**:
+   - Enforced removal precondition: members (real or guest) cannot be removed while their net balance is non-zero (`!= 0.0`).
+   - If an admin attempts removal with an unsettled balance, a dialog alerts them with the exact owed amount and prompts to settle first.
+5. **Former Member Archiving & Re-activation (Rule 2)**:
+   - When a settled member is removed, their profile is moved to `pastMembers`.
+   - Hidden from future splits, but historical expense receipts preserve their display name (labeled as "Former Member").
+   - Added a dedicated "FORMER MEMBERS" list in group settings with a 1-tap "Re-activate" button.
+6. **Account Linking (`FirebaseManager.linkVirtualMemberToUser`)**:
+   - Enables admins to link a guest member to a real registered user account once they install SplitSmith, seamlessly migrating past expenses, splits, and settlements.
+7. **Automated Unit Testing (`GroupMemberLifecycleTest.kt`)**:
+   - Added 5 comprehensive test cases covering guest recognition, peer debt calculations, cash settlements bringing balances to zero, zero-balance guard assertions, and group model serialization.
+
+### Verification & Quality Gates
+- **Gradle Test Suite**: `./gradlew testDebugUnitTest` passed with code 0 (`BUILD SUCCESSFUL in 1m 42s`, 27 tasks executed).
+- **Kotlin Compilation**: `compileDebugKotlin` and `compileDebugUnitTestKotlin` compiled cleanly with 0 errors.
+- **Emoji Audit**: 0 emojis present across all code, tests, and documentation.
+
+---
+
+## [2026-11-11 18:49] Recent Transactions Filter & 2x Bar Graph Width
+
+### Features & Fixes
+1. **Recent Transactions Filtering (`HomeViewModel.kt`)**:
+   - Filtered `groupExpenses` before mapping into `groupActivities` on the Home screen.
+   - Enforced rule: a group expense is only included in the current user's recent activities if they were the payer (`paidBy == uid`) or have an active debt share (`splits[uid] > 0.0`).
+   - For tracker expenses (`splitMode == "NONE"`), excluded entries where another member was the payer (`paidBy != uid`).
+   - Prevents other members' private splits or unrelated group expenses from appearing as false debts (`You owe -₹0.00`) on the Home page.
+2. **Weekly Spending Bar Chart 2x Width (`HomeScreen.kt`)**:
+   - Doubled the width of the weekly spending pillar bars from `6.dp` to `12.dp`.
+   - Maintained clean `RoundedCornerShape(999.dp)` pill styling and balanced spacing across all 7 days of the week.
+3. **Automated Unit Testing (`HomeViewModelTest.kt`)**:
+   - Added `calculateDashboardState_excludesGroupExpensesNotInvolvingCurrentUser` covering:
+     - Split expenses between other members only (excluded).
+     - Other members' tracker expenses (excluded).
+     - Split expenses where the user owes (included).
+     - Split expenses where the user paid (included).
+
+### Verification & Quality Gates
+- **Gradle Test Execution**: `./gradlew testDebugUnitTest` passed with code 0 (`BUILD SUCCESSFUL in 2m 26s`, 27 actionable tasks).
+- **Compilation Check**: `compileDebugKotlin` and `compileDebugUnitTestKotlin` executed and passed cleanly.
+- **Emoji Audit**: 0 emojis present across all modified codebase and documentation files.
+
+---
+
 ## [2026-11-07 13:30] Release v0.4.2.1 Published: Typography & Touch Target Accessibility Modernization
 
 ### Features & Highlights

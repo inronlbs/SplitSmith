@@ -95,10 +95,16 @@ fun AddExpenseScreen(
         val tempMap = mutableMapOf<String, String>()
         val tempProfiles = mutableMapOf<String, UserProfile>()
         for (uid in members) {
-            val profile = FirebaseManager.getUserProfile(uid)
-            if (profile != null) {
-                tempMap[uid] = profile.displayName
-                tempProfiles[uid] = profile
+            val virtual = currentGroup.virtualMembers[uid]
+            if (virtual != null) {
+                tempMap[uid] = virtual.name
+                tempProfiles[uid] = UserProfile(uid = uid, displayName = virtual.name)
+            } else {
+                val profile = FirebaseManager.getUserProfile(uid)
+                if (profile != null) {
+                    tempMap[uid] = profile.displayName
+                    tempProfiles[uid] = profile
+                }
             }
         }
         userNamesMap = tempMap
@@ -695,7 +701,7 @@ fun AddExpenseScreen(
                                         size = d.avatarXs
                                     )
                                     Text(
-                                        text = name,
+                                        text = if (memberProfilesMap[uid]?.isGuest == true) "$name (Guest)" else name,
                                         fontFamily = OutfitFamily,
                                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                         fontSize = d.textLabelMedium,
@@ -741,7 +747,7 @@ fun AddExpenseScreen(
                                             size = d.avatarXs
                                         )
                                         Text(
-                                            text = name,
+                                            text = if (memberProfilesMap[uid]?.isGuest == true) "$name (Guest)" else name,
                                             fontFamily = OutfitFamily,
                                             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                             fontSize = d.textLabelMedium,
@@ -914,7 +920,8 @@ fun AddExpenseScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(name, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textBodyLarge, color = colors.inkPrimary)
+                            val displayName = if (memberProfilesMap[uid]?.isGuest == true) "$name (Guest)" else name
+                            Text(displayName, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textBodyLarge, color = colors.inkPrimary)
                             OutlinedTextField(
                                 value = valInput,
                                 onValueChange = { inputVal ->
