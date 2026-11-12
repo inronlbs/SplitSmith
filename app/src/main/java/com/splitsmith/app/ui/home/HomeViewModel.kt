@@ -5,9 +5,11 @@ import android.net.Uri
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.splitsmith.app.data.DebtSolver
 import com.splitsmith.app.data.DirectSplit
 import com.splitsmith.app.data.FirebaseManager
 import com.splitsmith.app.data.GroupExpenseWithContext
+import com.splitsmith.app.data.GroupSettlementWithContext
 import com.splitsmith.app.data.PersonalExpense
 import com.splitsmith.app.data.UserProfile
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -54,13 +56,26 @@ class HomeViewModel : ViewModel() {
         FirebaseManager.observePersonalExpenses(),
         FirebaseManager.observeDirectSplits(),
         FirebaseManager.observeAllUserGroupExpenses(),
+        FirebaseManager.observeAllUserGroupSettlements(),
         isUploadingAvatarState
-    ) { profile, personalExpenses, directSplits, groupExpenses, isUploadingAvatar ->
+    ) { args: Array<Any?> ->
+        val profile = args[0] as? UserProfile
+        @Suppress("UNCHECKED_CAST")
+        val personalExpenses = args[1] as? List<PersonalExpense> ?: emptyList()
+        @Suppress("UNCHECKED_CAST")
+        val directSplits = args[2] as? List<DirectSplit> ?: emptyList()
+        @Suppress("UNCHECKED_CAST")
+        val groupExpenses = args[3] as? List<GroupExpenseWithContext> ?: emptyList()
+        @Suppress("UNCHECKED_CAST")
+        val groupSettlements = args[4] as? List<GroupSettlementWithContext> ?: emptyList()
+        val isUploadingAvatar = args[5] as? Boolean ?: false
+
         calculateDashboardState(
             profile = profile,
             personalExpenses = personalExpenses,
             directSplits = directSplits,
             groupExpenses = groupExpenses,
+            groupSettlements = groupSettlements,
             isUploadingAvatar = isUploadingAvatar,
             uid = currentUserId
         )
@@ -117,6 +132,7 @@ class HomeViewModel : ViewModel() {
             personalExpenses: List<PersonalExpense>,
             directSplits: List<DirectSplit>,
             groupExpenses: List<GroupExpenseWithContext>,
+            groupSettlements: List<GroupSettlementWithContext> = emptyList(),
             isUploadingAvatar: Boolean = false,
             uid: String,
             now: Long = System.currentTimeMillis()
@@ -141,7 +157,11 @@ class HomeViewModel : ViewModel() {
             val soloMonthly = personalExpenses.filter { it.date >= currentMonthStart }.sumOf { it.amount }
             val directMonthly = directSplits.filter { it.date >= currentMonthStart }.sumOf { it.myShare }
             val groupMonthly = groupExpenses.filter { it.expense.date >= currentMonthStart }.sumOf {
-                it.expense.splits[uid] ?: 0.0
+                if (it.isExpenseTracker) {
+                    if (it.expense.paidBy == uid) it.expense.amount else 0.0
+                } else {
+                    it.expense.splits[uid] ?: 0.0
+                }
             }
             val totalPersonalSpent = soloMonthly + directMonthly + groupMonthly
 
@@ -150,17 +170,44 @@ class HomeViewModel : ViewModel() {
             val remainingBudget = budgetLimit - totalPersonalSpent
             val dailyAllowance = if (remainingBudget > 0) remainingBudget / daysRemaining else 0.0
 
-            // Direct Receivable & Payable
-            val directRec = directSplits.filter { it.status == "PENDING" && it.paidBy == uid }.sumOf { it.myShare }
-            val groupRec = groupExpenses.filter { it.expense.paidBy == uid && it.expense.splitMode != "NONE" }.sumOf {
-                it.expense.amount - (it.expense.splits[uid] ?: 0.0)
+            // Direct Splits: Bilateral netting per peer UID (matching SplitExpensesScreen & DirectSplitDetailScreen)
+            val directSplitsGrouped = directSplits.groupBy { split ->
+                if (split.paidBy == uid) split.withUser else split.paidBy
             }
-            val totalDirectReceivable = directRec + groupRec
+            var directRec = 0.0
+            var directPay = 0.0
+            for ((peerUid, splits) in directSplitsGrouped) {
+                if (peerUid.isBlank() || peerUid == uid) continue
+                var peerNet = 0.0
+                for (s in splits) {
+                    if (s.status != "SETTLED") {
+                        if (s.paidBy == uid) peerNet += s.myShare
+                        else peerNet -= s.myShare
+                    }
+                }
+                if (peerNet > 0) directRec += peerNet
+                else if (peerNet < 0) directPay += -peerNet
+            }
 
-            val directPay = directSplits.filter { it.status == "PENDING" && it.paidBy != uid }.sumOf { it.myShare }
-            val groupPay = groupExpenses.filter { it.expense.paidBy != uid && it.expense.splitMode != "NONE" }.sumOf {
-                it.expense.splits[uid] ?: 0.0
+            // Group Debts: Exclude tracker groups; compute peer debts using DebtSolver for split groups
+            var groupRec = 0.0
+            var groupPay = 0.0
+
+            val splitGroupExpenses = groupExpenses.filter { !it.isExpenseTracker }
+            val splitGroupIds = splitGroupExpenses.map { it.groupId }.distinct()
+
+            for (groupId in splitGroupIds) {
+                val expsForGroup = splitGroupExpenses.filter { it.groupId == groupId }.map { it.expense }
+                val settlementsForGroup = groupSettlements.filter { it.groupId == groupId }.map { it.settlement }
+
+                val debts = DebtSolver.calculatePeerDebts(expsForGroup, settlementsForGroup)
+                for (debt in debts) {
+                    if (debt.toUser == uid) groupRec += debt.amount
+                    if (debt.fromUser == uid) groupPay += debt.amount
+                }
             }
+
+            val totalDirectReceivable = directRec + groupRec
             val totalDirectPayable = directPay + groupPay
 
             val netPosition = totalDirectReceivable - totalDirectPayable
@@ -199,7 +246,12 @@ class HomeViewModel : ViewModel() {
                 val diff = ge.expense.date - mondayStart
                 if (diff >= 0 && diff < 7 * dayMillis) {
                     val idx = (diff / dayMillis).toInt().coerceIn(0, 6)
-                    spends[idx] += (ge.expense.splits[uid] ?: 0.0)
+                    val spendAmt = if (ge.isExpenseTracker) {
+                        if (ge.expense.paidBy == uid) ge.expense.amount else 0.0
+                    } else {
+                        ge.expense.splits[uid] ?: 0.0
+                    }
+                    spends[idx] += spendAmt
                 }
             }
 
@@ -218,7 +270,14 @@ class HomeViewModel : ViewModel() {
             }
             groupExpenses.filter { it.expense.date >= currentMonthStart }.forEach { ge ->
                 val cat = ge.expense.category.ifBlank { "Group" }
-                catMap[cat] = (catMap[cat] ?: 0.0) + (ge.expense.splits[uid] ?: 0.0)
+                val spendAmt = if (ge.isExpenseTracker) {
+                    if (ge.expense.paidBy == uid) ge.expense.amount else 0.0
+                } else {
+                    ge.expense.splits[uid] ?: 0.0
+                }
+                if (spendAmt > 0) {
+                    catMap[cat] = (catMap[cat] ?: 0.0) + spendAmt
+                }
             }
             val categoryBreakdown = catMap.toList().sortedByDescending { it.second }
 
@@ -253,11 +312,11 @@ class HomeViewModel : ViewModel() {
                     val exp = ge.expense
                     val isPayer = exp.paidBy == uid
                     val myShare = exp.splits[uid] ?: 0.0
-                    isPayer || (exp.splitMode != "NONE" && myShare > 0.0)
+                    ge.isExpenseTracker || isPayer || (exp.splitMode != "NONE" && myShare > 0.0)
                 }
                 .map { ge ->
                 val exp = ge.expense
-                val isTracker = exp.splitMode == "NONE"
+                val isTracker = ge.isExpenseTracker || exp.splitMode == "NONE"
                 val myShare = exp.splits[uid] ?: 0.0
                 val isPayer = exp.paidBy == uid
                 val netAmount = if (isTracker) exp.amount else if (isPayer) (exp.amount - myShare) else myShare

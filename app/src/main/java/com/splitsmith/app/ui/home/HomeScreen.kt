@@ -629,26 +629,15 @@ fun HomeScreen(
                             showQuickAddSheet = false
                             showSelectGroupForExpenseDialog = true
                         }
-                        // 4. Create Split Group
+                        // 4. Create Group
                         QuickActionRow(
-                            title = "Create Split Group",
-                            subtitle = "Split bills & track 'who owes who' debts",
+                            title = "Create Group",
+                            subtitle = "Split bills with balances or track shared expenses",
                             icon = Icons.Default.GroupAdd,
                             colors = colors, d = d
                         ) {
                             showQuickAddSheet = false
                             createGroupIsTracker = false
-                            showCreateGroupSheet = true
-                        }
-                        // 5. Create Expense Tracker Group
-                        QuickActionRow(
-                            title = "Create Expense Tracker Group",
-                            subtitle = "Track trips, projects, company spend without debts",
-                            icon = Icons.Default.Groups,
-                            colors = colors, d = d
-                        ) {
-                            showQuickAddSheet = false
-                            createGroupIsTracker = true
                             showCreateGroupSheet = true
                         }
                     }

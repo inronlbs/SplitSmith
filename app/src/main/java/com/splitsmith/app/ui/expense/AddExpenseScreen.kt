@@ -171,7 +171,7 @@ fun AddExpenseScreen(
     }
 
     val amountVal = amountStr.toDoubleOrNull() ?: 0.0
-    val eachShare = if (selectedMembers.isNotEmpty() && amountVal > 0)
+    val eachShare = if (currentGroup?.isExpenseTracker != true && selectedMembers.isNotEmpty() && amountVal > 0)
         "= \u20b9${String.format(java.util.Locale.US, "%.2f", amountVal / selectedMembers.size)} each" else ""
 
     // Remainder calculation for live banner
@@ -358,7 +358,7 @@ fun AddExpenseScreen(
                                          amount = amountVal,
                                          paidBy = selectedPayerId,
                                          category = selectedCategory,
-                                         splitMode = splitMode,
+                                         splitMode = effectiveSplitMode,
                                          splits = computedSplits,
                                          date = selectedDateMillis,
                                          receiptUrls = finalUploadedUrls
@@ -371,7 +371,7 @@ fun AddExpenseScreen(
                                          amount = amountVal,
                                          paidBy = selectedPayerId,
                                          category = selectedCategory,
-                                         splitMode = splitMode,
+                                         splitMode = effectiveSplitMode,
                                          splits = computedSplits,
                                          receiptUrl = finalUploadedUrls.firstOrNull() ?: "",
                                          receiptUrls = finalUploadedUrls,

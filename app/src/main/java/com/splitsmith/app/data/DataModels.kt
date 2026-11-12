@@ -163,7 +163,14 @@ data class Debt(
 data class GroupExpenseWithContext(
     val expense: Expense,
     val groupId: String,
-    val groupName: String
+    val groupName: String,
+    val isExpenseTracker: Boolean = false
+)
+
+@Keep
+data class GroupSettlementWithContext(
+    val settlement: Settlement,
+    val groupId: String
 )
 
 

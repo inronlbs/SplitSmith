@@ -1639,7 +1639,7 @@ object FirebaseManager {
                         .addSnapshotListener { expSnapshot, expError ->
                             if (expSnapshot != null) {
                                 val exps = expSnapshot.toObjects(Expense::class.java).map {
-                                    GroupExpenseWithContext(it, group.id, group.name)
+                                    GroupExpenseWithContext(it, group.id, group.name, group.isExpenseTracker)
                                 }
                                 expenseMap[group.id] = exps
                                 val sortedAll = expenseMap.values.flatten().sortedByDescending { it.expense.date }
@@ -1647,6 +1647,57 @@ object FirebaseManager {
                             }
                         }
                     listeners.add(expListener)
+                }
+            }
+
+        awaitClose {
+            groupsListener.remove()
+            listeners.forEach { it.remove() }
+        }
+    }
+
+    fun observeAllUserGroupSettlements(): Flow<List<GroupSettlementWithContext>> = callbackFlow {
+        val uid = currentUserId
+        if (uid == null) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+        val listeners = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
+        val settlementMap = mutableMapOf<String, List<GroupSettlementWithContext>>()
+
+        val groupsListener = db.collection("groups")
+            .whereEqualTo("members.$uid", true)
+            .addSnapshotListener { groupsSnapshot, error ->
+                if (error != null || groupsSnapshot == null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+
+                listeners.forEach { it.remove() }
+                listeners.clear()
+                settlementMap.clear()
+
+                val groups = groupsSnapshot.toObjects(Group::class.java).filter { !it.isExpenseTracker }
+                if (groups.isEmpty()) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+
+                for (group in groups) {
+                    val stListener = db.collection("groups")
+                        .document(group.id)
+                        .collection("settlements")
+                        .addSnapshotListener { stSnapshot, _ ->
+                            if (stSnapshot != null) {
+                                val settlements = stSnapshot.toObjects(Settlement::class.java).map {
+                                    GroupSettlementWithContext(it, group.id)
+                                }
+                                settlementMap[group.id] = settlements
+                                trySend(settlementMap.values.flatten())
+                            }
+                        }
+                    listeners.add(stListener)
                 }
             }
 

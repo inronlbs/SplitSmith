@@ -6,7 +6,9 @@ import android.net.Uri
 import android.widget.Toast
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -113,7 +115,7 @@ fun AttachmentChipsView(
                     index = index,
                     isEditable = isEditable,
                     onRemove = { onRemoveAttachment?.invoke(index) },
-                    onEdit = { onEditAttachment?.invoke(index) },
+                    onEdit = { if (!item.isPdf) onEditAttachment?.invoke(index) },
                     onClick = {
                         coroutineScope.launch {
                             isDownloading = true
@@ -195,6 +197,66 @@ fun AttachmentImageViewerDialog(
     onDismiss: () -> Unit
 ) {
     val colors = LocalSplitColors.current
+    val context = LocalContext.current
+    val isPdf = remember(fileName, imageUri, imageUrl) {
+        fileName.endsWith(".pdf", ignoreCase = true) ||
+        imageUrl?.contains(".pdf", ignoreCase = true) == true ||
+        (imageUri != null && com.splitsmith.app.util.AttachmentCompressor.isPdfUri(context, imageUri))
+    }
+
+    var pdfBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var isPdfRendering by remember { mutableStateOf(false) }
+
+    val rawModel: Any? = imageUri ?: imageUrl?.ifBlank { null }
+
+    LaunchedEffect(isPdf, rawModel) {
+        if (isPdf && rawModel != null) {
+            isPdfRendering = true
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val pfd = when {
+                        imageUri != null && imageUri.scheme == "file" && imageUri.path != null -> {
+                            val f = java.io.File(imageUri.path!!)
+                            if (f.exists()) android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY) else null
+                        }
+                        imageUri != null && imageUri.scheme == "content" -> {
+                            context.contentResolver.openFileDescriptor(imageUri, "r")
+                        }
+                        imageUri != null -> {
+                            val f = java.io.File(imageUri.path ?: "")
+                            if (f.exists()) android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+                            else context.contentResolver.openFileDescriptor(imageUri, "r")
+                        }
+                        imageUrl != null && imageUrl.startsWith("file://") -> {
+                            val f = java.io.File(imageUrl.removePrefix("file://"))
+                            if (f.exists()) android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY) else null
+                        }
+                        else -> null
+                    }
+                    if (pfd != null) {
+                        val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                        if (renderer.pageCount > 0) {
+                            val page = renderer.openPage(0)
+                            val w = (page.width * 2).coerceIn(800, 2400)
+                            val h = (page.height * 2).coerceIn(800, 3200)
+                            val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                            bmp.eraseColor(android.graphics.Color.WHITE)
+                            page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            page.close()
+                            pdfBitmap = bmp
+                        }
+                        renderer.close()
+                        pfd.close()
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("AttachmentChipsView", "Pdf preview error: ${e.message}", e)
+                } finally {
+                    isPdfRendering = false
+                }
+            }
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -202,8 +264,6 @@ fun AttachmentImageViewerDialog(
         var scale by remember { mutableFloatStateOf(1f) }
         var offsetX by remember { mutableFloatStateOf(0f) }
         var offsetY by remember { mutableFloatStateOf(0f) }
-
-        val rawModel: Any? = imageUri ?: imageUrl?.ifBlank { null }
 
         // Check if model points to a non-existent local file from another device
         val isLocalFileMissing = remember(rawModel) {
@@ -287,6 +347,54 @@ fun AttachmentImageViewerDialog(
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
+                } else if (isPdf) {
+                    if (isPdfRendering) {
+                        CircularProgressIndicator(color = Color.White)
+                    } else if (pdfBitmap != null) {
+                        Image(
+                            bitmap = pdfBitmap!!.asImageBitmap(),
+                            contentDescription = "PDF Document Preview",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer(
+                                    scaleX = scale,
+                                    scaleY = scale,
+                                    translationX = offsetX,
+                                    translationY = offsetY
+                                )
+                        )
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .padding(32.dp)
+                                .fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Description,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = Color.White.copy(alpha = 0.8f)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "PDF Document",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 18.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Tap 'Open PDF' in the top right to view this document in your PDF reader.",
+                                fontFamily = OutfitFamily,
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 14.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
                 } else if (imageModel != null) {
                     AsyncImage(
                         model = imageModel,
@@ -358,7 +466,50 @@ fun AttachmentImageViewerDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (isEditable && index >= 0 && onEditAttachment != null) {
+                    if (isPdf) {
+                        Surface(
+                            onClick = {
+                                try {
+                                    val targetFile = when {
+                                        imageUri != null && imageUri.scheme == "file" && imageUri.path != null -> java.io.File(imageUri.path!!)
+                                        imageUrl != null && imageUrl.startsWith("file://") -> java.io.File(imageUrl.removePrefix("file://"))
+                                        else -> null
+                                    }
+                                    val contentUri = if (targetFile != null && targetFile.exists()) {
+                                        androidx.core.content.FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            targetFile
+                                        )
+                                    } else if (imageUri != null) {
+                                        imageUri
+                                    } else {
+                                        Uri.parse(imageUrl ?: "")
+                                    }
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(contentUri, "application/pdf")
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "No PDF app found on device", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.White.copy(alpha = 0.15f),
+                            contentColor = Color.White
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = "Open in PDF App", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Open PDF", fontFamily = OutfitFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    } else if (isEditable && index >= 0 && onEditAttachment != null) {
                         Surface(
                             onClick = {
                                 onEditAttachment(index)
@@ -474,7 +625,15 @@ private fun openAttachment(
 ) {
     if (item.isPdf) {
         try {
-            val targetUri = if (item.uri != null) item.uri else Uri.parse(item.url)
+            val targetUri = if (item.uri != null) {
+                if (item.uri.scheme == "file" && item.uri.path != null) {
+                    val f = java.io.File(item.uri.path!!)
+                    if (f.exists()) androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f) else item.uri
+                } else item.uri
+            } else if (item.url.startsWith("file://")) {
+                val f = java.io.File(item.url.removePrefix("file://"))
+                if (f.exists()) androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f) else Uri.parse(item.url)
+            } else Uri.parse(item.url)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(targetUri, "application/pdf")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

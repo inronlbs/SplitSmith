@@ -1180,3 +1180,31 @@ Patch release resolving missing Edit & Delete options in expense detail bottom s
    - Published GitHub Release: `https://github.com/inronlbs/SplitSmith/releases/tag/v0.4.2.4`
    - Deployed APK and `version.json` update to Firebase Hosting CDN (`https://splitsmith.web.app/splitsmith.bin`).
    - Git submodule and parent repository synchronized.
+
+## [2026-11-13 00:15] Fixed Company Expense Save, PDF Black Screen & Infinite Loading, Unified Central "+" Group Menu, and Net Position
+
+### Summary of Changes
+1. **Unified Central "+" Action Sheet (`HomeScreen.kt`)**:
+   - Replaced redundant separate entries ("Create Split Group" and "Create Expense Tracker Group") with a single clean "Create Group" entry that opens the 2-step group creation sheet.
+
+2. **Company/Tracker Expense Save Fix (`AddExpenseScreen.kt`)**:
+   - Fixed lines 361 & 374 to pass `splitMode = effectiveSplitMode` (`"NONE"` for tracker/company groups), preventing participant validation rejection (`splits.isEmpty()`).
+   - Hidden `= ₹XX.XX each` subtitle when `currentGroup?.isExpenseTracker == true`.
+
+3. **PDF In-App Rendering & Crop Loop Prevention (`AttachmentChipsView.kt`, `ReceiptEditorModal.kt`)**:
+   - Rendered PDF page previews natively using `android.graphics.pdf.PdfRenderer` on a clean white page bitmap with pinch-to-zoom (eliminating the black screen caused by Coil).
+   - Added an "Open PDF" external viewer button in the top bar using secure `FileProvider` (`com.splitsmith.app.fileprovider`).
+   - Hidden the photo crop/edit pencil button for PDF attachments (`!item.isPdf`).
+   - Added safety dismissal in `ReceiptEditorModal` for PDF URIs to prevent infinite loading spinners.
+
+4. **Net Position Hero Card Overhaul (`DataModels.kt`, `FirebaseManager.kt`, `HomeViewModel.kt`)**:
+   - Extended `GroupExpenseWithContext` with `isExpenseTracker: Boolean`.
+   - Added `GroupSettlementWithContext` and `observeAllUserGroupSettlements()` to stream real-time group settlements.
+   - Overhauled `HomeViewModel.calculateDashboardState`:
+     - Group expenses: Excluded tracker groups from creating false debts; calculated peer debts via `DebtSolver.calculatePeerDebts(expenses, settlements)` for split groups so confirmed settlements drop outstanding balances to ₹0.
+     - Direct splits: Net bilateral balances per friend, including both `"PENDING"` and `"WAITING_APPROVAL"`.
+     - Monthly outflow: Accurately counted user spending in tracker groups (`amount` when paid by user).
+
+### Verification
+- `testDebugUnitTest`: BUILD SUCCESSFUL (27 actionable tasks, 0 failures).
+- Strictly zero emojis verified across all code diffs.

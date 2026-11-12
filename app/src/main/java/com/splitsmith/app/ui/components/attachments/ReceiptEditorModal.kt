@@ -155,6 +155,11 @@ fun ReceiptEditorModal(
     LaunchedEffect(imageUri) {
         withContext(Dispatchers.IO) {
             try {
+                if (com.splitsmith.app.util.AttachmentCompressor.isPdfUri(context, imageUri)) {
+                    isLoading = false
+                    withContext(Dispatchers.Main) { onDismiss() }
+                    return@withContext
+                }
                 val scheme = imageUri.scheme ?: ""
                 val inputStream = when {
                     scheme == "http" || scheme == "https" -> {
