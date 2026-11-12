@@ -1151,3 +1151,32 @@ Patch release resolving missing Edit & Delete options in expense detail bottom s
 - `compileDebugKotlin`: SUCCESSFUL (28s)
 - `testDebugUnitTest`: SUCCESSFUL (22s, 27 tasks passed)
 - Zero emojis verified across codebase diff.
+
+## [2026-11-12 20:50] Release v0.4.2.4 Published: Normal vs Company Expense Tracker Differentiation
+
+### Summary of Changes
+1. **Data Model Updates (`DataModels.kt`)**:
+   - Added `trackReimbursements: Boolean = false` to `data class Group`.
+   - Defaulted to `false` for backwards compatibility with all existing groups.
+
+2. **Backend & Creation Flow (`FirebaseManager.kt`, `SplitExpensesScreen.kt`)**:
+   - Updated `FirebaseManager.createGroup` signature to accept `trackReimbursements: Boolean = false` and store it in Firestore.
+   - In `CreateGroupBottomSheet` (Step 2), added an optional checkbox toggle `[ ] Track Company Reimbursements` ("Track out-of-pocket claims & company refunds") under the Expense Tracker option.
+   - When unchecked (or for regular Split groups), `trackReimbursements` is saved as `false`.
+
+3. **Group Detail UI Differentiation (`GroupDetailScreen.kt`)**:
+   - Passed `trackReimbursements` to `StyledExpensesTab`, `GroupExpenseDetailBottomSheet`, and `StyledMemberBreakdownTab`.
+   - In `StyledExpensesTab`: Expense amount color is muted (`inkMuted`) only when `trackReimbursements && expense.isReimbursed`. Normal expense tracker groups show normal ink colors.
+   - In `GroupExpenseDetailBottomSheet`: The "Mark Claimed" / "Claimed (Tap to Undo)" action button is only rendered if `isExpenseTracker && trackReimbursements`. Normal expense tracker groups do not display reimbursement action buttons.
+   - In `StyledMemberBreakdownTab`:
+     - If `trackReimbursements == true`: Displays "Claimed / Settled", "Pending from Company", and the "Record Reimbursement" button and batch checklist dialog.
+     - If `trackReimbursements == false`: Displays clean original "SPEND SUMMARY" with "Total Spent", "Total Logged" (expense count), and Budget Limit, with zero reimbursement or corporate claims clutter.
+
+4. **Production Build & Distribution**:
+   - Version: `versionCode = 67`, `versionName = "0.4.2.4"`.
+   - Release binaries compiled and signed with upload keystore:
+     - `SplitSmith-v0.4.2.4-release.apk` (70.4 MB)
+     - `SplitSmith-v0.4.2.4-release.aab` (43.8 MB)
+   - Published GitHub Release: `https://github.com/inronlbs/SplitSmith/releases/tag/v0.4.2.4`
+   - Deployed APK and `version.json` update to Firebase Hosting CDN (`https://splitsmith.web.app/splitsmith.bin`).
+   - Git submodule and parent repository synchronized.
