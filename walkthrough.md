@@ -1,3 +1,59 @@
+## [2026-11-12 19:10] Release v0.4.2.3 Published
+
+### Build & Release Deliverables
+- **Version**: `versionCode = 66`, `versionName = "0.4.2.3"`
+- **Signed APK**: `SplitSmith-v0.4.2.3-release.apk` (70.4 MB)
+- **Signed Bundle**: `SplitSmith-v0.4.2.3-release.aab` (43.8 MB)
+- **GitHub Release**: [v0.4.2.3 Tag](https://github.com/inronlbs/SplitSmith/releases/tag/v0.4.2.3)
+- **Firebase Hosting CDN**: Deployed to `https://splitsmith.web.app` with `public/splitsmith.bin` and `public/version.json`.
+
+---
+
+## [2026-11-12 18:51] Company Expense Claims, Offline Member Photos & Kebab Menu Fix
+
+### Features & Fixes
+1. **Minimal Claim/Reimbursement Tracking (`DataModels.kt`, `FirebaseManager.kt`, `GroupDetailScreen.kt`)**:
+   - Extended `Expense` model with `isReimbursed: Boolean = false` and `reimbursedAt: Long = 0L`.
+   - **Minimal Expense List Feed**: 0 pills, badges, or loud text. When an expense is marked claimed, its amount (`₹XXXX`) is styled in soft muted gray (`inkMuted` instead of bold `inkPrimary`), signaling that the claim is closed.
+   - **Expense Details Sheet Single Button**: Added single clean action button (`Mark Claimed` / `Claimed (Tap to Undo)`) in `GroupExpenseDetailBottomSheet` for Expense Tracker groups.
+   - **Spend Summary Card Extension**: Updated the existing summary card in `StyledMemberBreakdownTab` to display `Total Spent`, `Claimed / Settled`, and `Pending from Company`.
+   - **Batch Reimbursement**: Added `Record Reimbursement` button opening an itemized checklist of pending receipts with live running total and 1-tap `batchMarkExpensesReimbursed` confirmation.
+2. **Offline Member Photo Upload (Admin Only)**:
+   - Added `avatarUrl: String = ""` to `VirtualMember`.
+   - In `StyledSettingsTab` member 3-dot dropdown menu, added `Change Photo` (and `Remove Photo`) for offline members, restricted to group admins.
+   - Images are compressed and stored via `FirebaseManager.updateVirtualMemberAvatar`, automatically propagating to member avatars across the application.
+3. **Kebab Menu Visibility Bug Fix (`GroupDetailScreen.kt`, `HomeScreen.kt`)**:
+   - Fixed layout constraint in `GroupExpenseDetailBottomSheet` by constraining title with `Modifier.weight(1f)` and `maxLines = 1` with `TextOverflow.Ellipsis`.
+   - Ensures the 3-dot kebab menu button is never pushed off-screen and remains centered and visible.
+4. **Automated Unit Testing (`GroupMemberLifecycleTest.kt`)**:
+   - Added tests covering default `isReimbursed` values, timestamp updates, and `VirtualMember.avatarUrl` persistence.
+
+### Verification & Quality Gates
+- **Gradle Test Suite**: `./gradlew testDebugUnitTest` passed with code 0 (`BUILD SUCCESSFUL in 3m 25s`, 27 actionable tasks).
+- **Emoji Audit**: 0 emojis present across all code, tests, and documentation.
+
+---
+
+## [2026-11-12 16:54] Group Join Permission Fix & Member Row UI Minimization
+
+### Features & Fixes
+1. **Firestore Group Join Permission Fix (`firestore.rules`)**:
+   - Fixed `PERMISSION_DENIED: Missing or insufficient permissions` encountered when invited members accept group invitations.
+   - Identified root cause: `allow update` on `/groups/{groupId}` verified `isGroupAdmin`, existing `members`, and `joinRequests`, but omitted invited users in `pendingMembers`.
+   - Added `('pendingMembers' in resource.data && resource.data.pendingMembers[request.auth.uid] == true)` to group update rules.
+   - Deployed updated rules directly to Firebase production (`splitsmith`) via `firebase-tools deploy --only firestore:rules`.
+2. **Member Row UI Minimization & 3-Dot Overflow Menu (`GroupDetailScreen.kt`)**:
+   - Replaced horizontal inline text buttons (`Make Admin`, `Link Account`, `Remove`) with a single compact 3-dot `IconButton` (`Icons.Default.MoreVert`, 36dp) and Material 3 `DropdownMenu`.
+   - Fixed invalid privilege exposure: `Make Admin` is now restricted to registered users (`!isGuest`), preventing guest accounts from displaying admin actions.
+   - Fixed badge compression: Applied `Modifier.weight(1f, fill = false)` with `maxLines = 1` and `TextOverflow.Ellipsis` on member names, guaranteeing that the `OFFLINE` badge maintains full horizontal geometry and padding without wrapping vertically.
+
+### Verification & Quality Gates
+- **Cloud Deployment**: Released rules file `firestore.rules` to Firebase production (`cloud.firestore`). Deploy complete.
+- **Gradle Test Suite**: `./gradlew testDebugUnitTest` passed with code 0 (`BUILD SUCCESSFUL in 2m 58s`, 27 actionable tasks).
+- **Emoji Audit**: 0 emojis present across all code, tests, and documentation.
+
+---
+
 ## [2026-11-11 22:05] Virtual (Offline) Members & Member Lifecycle Management
 
 ### Features & Capabilities

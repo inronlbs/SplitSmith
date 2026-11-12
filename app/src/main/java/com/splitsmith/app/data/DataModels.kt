@@ -51,7 +51,8 @@ data class VirtualMember(
     val name: String = "",
     val addedBy: String = "",
     val createdAt: Long = 0L,
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+    val avatarUrl: String = ""
 )
 
 @Keep
@@ -94,7 +95,9 @@ data class Expense(
     val splits: Map<String, Double> = emptyMap(), // uid -> amount
     val receiptUrl: String = "",
     val receiptUrls: List<String> = emptyList(),
-    val createdBy: String = ""
+    val createdBy: String = "",
+    val isReimbursed: Boolean = false,
+    val reimbursedAt: Long = 0L
 ) {
     fun getEffectiveReceiptUrls(): List<String> {
         if (receiptUrls.isNotEmpty()) return receiptUrls

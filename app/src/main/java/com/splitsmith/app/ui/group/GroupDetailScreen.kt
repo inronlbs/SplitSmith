@@ -166,7 +166,7 @@ fun GroupDetailScreen(
             val virtual = currentGroup.virtualMembers[uid]
             if (virtual != null) {
                 tempNames[uid] = virtual.name
-                tempProfiles[uid] = UserProfile(uid = uid, displayName = virtual.name)
+                tempProfiles[uid] = UserProfile(uid = uid, displayName = virtual.name, avatarUrl = virtual.avatarUrl)
             } else {
                 val profile = FirebaseManager.getUserProfile(uid)
                 if (profile != null) {
@@ -741,6 +741,7 @@ fun GroupDetailScreen(
                                     userNames = userNamesMap,
                                     memberProfilesMap = memberProfilesMap,
                                     groupBudgetLimit = groupBudgetLimit,
+                                    groupId = groupId,
                                     d = d,
                                     inkPrimary = inkPrimary,
                                     inkMuted = inkMuted,
@@ -1383,7 +1384,7 @@ private fun StyledExpensesTab(
                             fontFamily = JetBrainsMonoFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = d.textMonoLarge,
-                            color = inkPrimary
+                            color = if (expense.isReimbursed) inkMuted else inkPrimary
                         )
                     }
                     HorizontalDivider(color = borderWhisper, thickness = 0.5.dp)
@@ -1400,6 +1401,7 @@ private fun StyledExpensesTab(
             expense = exp,
             groupId = groupId,
             userNames = userNames,
+            isExpenseTracker = isExpenseTracker,
             onDismiss = { selectedExpenseForDetail = null },
             onEdit = {
                 selectedExpenseForDetail = null
@@ -1421,6 +1423,7 @@ private fun StyledMemberBreakdownTab(
     userNames: Map<String, String>,
     memberProfilesMap: Map<String, UserProfile>,
     groupBudgetLimit: Double,
+    groupId: String = "",
     d: com.splitsmith.app.theme.Dimens,
     inkPrimary: Color,
     inkMuted: Color,
@@ -1429,6 +1432,10 @@ private fun StyledMemberBreakdownTab(
 ) {
     val colors = LocalSplitColors.current
     val totalGroupSpend = remember(expenses) { expenses.sumOf { it.amount } }
+    val totalClaimed = remember(expenses) { expenses.filter { it.isReimbursed }.sumOf { it.amount } }
+    val pendingClaim = remember(totalGroupSpend, totalClaimed) { (totalGroupSpend - totalClaimed).coerceAtLeast(0.0) }
+    var showReimbursementDialog by remember { mutableStateOf(false) }
+
     val memberSpendMap = remember(expenses, membersList) {
         membersList.associateWith { uid ->
             expenses.filter { it.paidBy == uid }.sumOf { it.amount }
@@ -1436,6 +1443,116 @@ private fun StyledMemberBreakdownTab(
     }
     val sortedMembers = remember(memberSpendMap, membersList) {
         membersList.sortedByDescending { memberSpendMap[it] ?: 0.0 }
+    }
+
+    if (showReimbursementDialog) {
+        val pendingExpenses = remember(expenses) { expenses.filter { !it.isReimbursed } }
+        val selectedExpenseIds = remember(pendingExpenses) {
+            mutableStateMapOf<String, Boolean>().apply {
+                pendingExpenses.forEach { put(it.id, true) }
+            }
+        }
+        val selectedTotal = pendingExpenses.filter { selectedExpenseIds[it.id] == true }.sumOf { it.amount }
+        val coroutineScope = rememberCoroutineScope()
+        val context = LocalContext.current
+
+        AlertDialog(
+            onDismissRequest = { showReimbursementDialog = false },
+            containerColor = colors.surfaceCard,
+            title = {
+                Text(
+                    text = "Record Reimbursement",
+                    fontFamily = OutfitFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = d.textTitleLarge,
+                    color = inkPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                    Text(
+                        text = "Select expenses reimbursed by company (Total: \u20b9${selectedTotal.formatCurrency()}):",
+                        fontFamily = OutfitFamily,
+                        fontSize = d.textBodyMedium,
+                        color = inkMuted
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 260.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(pendingExpenses) { exp ->
+                            val isChecked = selectedExpenseIds[exp.id] == true
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(d.radiusSM))
+                                    .clickable { selectedExpenseIds[exp.id] = !isChecked }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = isChecked,
+                                    onCheckedChange = { selectedExpenseIds[exp.id] = it },
+                                    colors = CheckboxDefaults.colors(checkedColor = inkPrimary)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = exp.description.ifEmpty { exp.category },
+                                        fontFamily = OutfitFamily,
+                                        fontSize = d.textBodyMedium,
+                                        color = inkPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = exp.category,
+                                        fontFamily = OutfitFamily,
+                                        fontSize = d.textLabelSmall,
+                                        color = inkMuted
+                                    )
+                                }
+                                Text(
+                                    text = "\u20b9${exp.amount.formatCurrency()}",
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = d.textBodyMedium,
+                                    color = inkPrimary
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val idsToReimburse = pendingExpenses.filter { selectedExpenseIds[it.id] == true }.map { it.id }
+                        coroutineScope.launch {
+                            try {
+                                FirebaseManager.batchMarkExpensesReimbursed(groupId, idsToReimburse, true)
+                                Toast.makeText(context, "Recorded \u20b9${selectedTotal.formatCurrency()} reimbursed!", Toast.LENGTH_SHORT).show()
+                                showReimbursementDialog = false
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = inkPrimary),
+                    enabled = pendingExpenses.any { selectedExpenseIds[it.id] == true }
+                ) {
+                    Text("Confirm", fontFamily = OutfitFamily, color = colors.canvasChalk)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReimbursementDialog = false }) {
+                    Text("Cancel", fontFamily = OutfitFamily, color = inkMuted)
+                }
+            }
+        )
     }
 
     LazyColumn(
@@ -1463,8 +1580,33 @@ private fun StyledMemberBreakdownTab(
                             Text("₹${totalGroupSpend.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
                         }
                         Column(horizontalAlignment = Alignment.End) {
-                            Text("Total Logged", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
-                            Text("${expenses.size} expenses", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
+                            Text("Claimed / Settled", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                            Text("₹${totalClaimed.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.positiveGreen)
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Pending from Company", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                            Text("₹${pendingClaim.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleMedium, color = if (pendingClaim > 0.0) colors.inkPrimary else inkMuted)
+                        }
+                        if (pendingClaim > 0.0 && groupId.isNotEmpty()) {
+                            TextButton(
+                                onClick = { showReimbursementDialog = true },
+                                contentPadding = PaddingValues(horizontal = d.space12, vertical = d.space4)
+                            ) {
+                                Text(
+                                    text = "Record Reimbursement",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = d.textLabelMedium,
+                                    color = inkPrimary
+                                )
+                            }
                         }
                     }
 
@@ -2115,6 +2257,27 @@ private fun StyledSettingsTab(
     var showAddOfflineMemberDialog by remember { mutableStateOf(false) }
     var offlineMemberNameInput by remember { mutableStateOf("") }
     var memberToLink by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var selectedVirtualMemberForPhoto by remember { mutableStateOf<String?>(null) }
+    val virtualMemberPhotoPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        val memberId = selectedVirtualMemberForPhoto
+        if (uri != null && memberId != null && group != null) {
+            coroutineScope.launch {
+                try {
+                    val base64 = com.splitsmith.app.util.ImageUtils.compressImageUriToBase64(context, uri)
+                    if (base64 != null) {
+                        FirebaseManager.updateVirtualMemberAvatar(group.id, memberId, base64)
+                        Toast.makeText(context, "Member photo updated!", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Upload failed: ${e.message}", Toast.LENGTH_LONG).show()
+                } finally {
+                    selectedVirtualMemberForPhoto = null
+                }
+            }
+        }
+    }
 
     LaunchedEffect(group?.id) {
         try {
@@ -3312,6 +3475,15 @@ private fun StyledSettingsTab(
             val currentUserIsOwner = group.adminId == myUid
             val currentUserIsAdmin = currentUserIsOwner || group.admins[myUid] == true
             val canRemoveMember = !isCurrent && currentUserIsAdmin && !isOwner && (currentUserIsOwner || !isCoAdmin)
+            val isGuest = group.virtualMembers.containsKey(uid) || uid.startsWith("guest_")
+
+            val canMakeAdmin = !isGuest && !isOwner && !isCoAdmin && currentUserIsAdmin
+            val canRevokeAdmin = !isGuest && !isOwner && isCoAdmin && (currentUserIsOwner || group.adminId.isEmpty())
+            val canLinkAccount = isGuest && currentUserIsAdmin
+            val canEditGuestPhoto = isGuest && currentUserIsAdmin
+            val hasActions = canMakeAdmin || canRevokeAdmin || canLinkAccount || canRemoveMember || canEditGuestPhoto
+
+            var showMemberMenu by remember { mutableStateOf(false) }
 
             Row(
                 modifier = Modifier
@@ -3332,14 +3504,19 @@ private fun StyledSettingsTab(
                 )
                 Spacer(modifier = Modifier.width(d.space12))
 
-                val isGuest = group.virtualMembers.containsKey(uid) || uid.startsWith("guest_")
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space4)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(d.space8)
+                    ) {
                         Text(
                             text = finalName,
                             fontFamily = OutfitFamily,
                             fontSize = d.textBodyLarge,
-                            color = colors.inkPrimary
+                            color = colors.inkPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                         if (isGuest) {
                             Box(
@@ -3375,83 +3552,148 @@ private fun StyledSettingsTab(
                     }
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    if (!isOwner && !isCoAdmin && currentUserIsAdmin) {
-                        TextButton(
-                            onClick = {
-                                coroutineScope.launch {
-                                    try {
-                                        FirebaseManager.makeUserAdmin(group.id, uid)
-                                        Toast.makeText(context, "$memberName is now an admin!", Toast.LENGTH_SHORT).show()
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                if (hasActions) {
+                    Box {
+                        IconButton(
+                            onClick = { showMemberMenu = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Member Actions",
+                                tint = colors.inkMuted,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMemberMenu,
+                            onDismissRequest = { showMemberMenu = false },
+                            modifier = Modifier.background(colors.surfaceCard)
+                        ) {
+                            if (canMakeAdmin) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "Make Admin",
+                                            fontFamily = OutfitFamily,
+                                            fontSize = d.textLabelMedium,
+                                            color = colors.inkPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        showMemberMenu = false
+                                        coroutineScope.launch {
+                                            try {
+                                                FirebaseManager.makeUserAdmin(group.id, uid)
+                                                Toast.makeText(context, "$memberName is now an admin!", Toast.LENGTH_SHORT).show()
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
                                     }
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = d.space8, vertical = d.space4)
-                        ) {
-                            Text(
-                                text = "Make Admin",
-                                fontFamily = OutfitFamily,
-                                fontSize = d.textLabelSmall,
-                                color = colors.inkPrimary
-                            )
-                        }
-                    } else if (!isOwner && isCoAdmin && (group.adminId == myUid || group.adminId.isEmpty())) {
-                        TextButton(
-                            onClick = {
-                                coroutineScope.launch {
-                                    try {
-                                        FirebaseManager.revokeUserAdmin(group.id, uid)
-                                        Toast.makeText(context, "Revoked admin status for $memberName", Toast.LENGTH_SHORT).show()
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                )
+                            }
+                            if (canRevokeAdmin) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "Revoke Admin",
+                                            fontFamily = OutfitFamily,
+                                            fontSize = d.textLabelMedium,
+                                            color = colors.alertRed
+                                        )
+                                    },
+                                    onClick = {
+                                        showMemberMenu = false
+                                        coroutineScope.launch {
+                                            try {
+                                                FirebaseManager.revokeUserAdmin(group.id, uid)
+                                                Toast.makeText(context, "Revoked admin status for $memberName", Toast.LENGTH_SHORT).show()
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
                                     }
+                                )
+                            }
+                            if (canLinkAccount) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "Link Account",
+                                            fontFamily = OutfitFamily,
+                                            fontSize = d.textLabelMedium,
+                                            color = colors.inkPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        showMemberMenu = false
+                                        memberToLink = Pair(uid, memberName)
+                                    }
+                                )
+                            }
+                            if (canEditGuestPhoto) {
+                                val guestAvatar = group.virtualMembers[uid]?.avatarUrl.orEmpty()
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = if (guestAvatar.isNotBlank()) "Change Photo" else "Set Photo",
+                                            fontFamily = OutfitFamily,
+                                            fontSize = d.textLabelMedium,
+                                            color = colors.inkPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        showMemberMenu = false
+                                        selectedVirtualMemberForPhoto = uid
+                                        virtualMemberPhotoPicker.launch("image/*")
+                                    }
+                                )
+                                if (guestAvatar.isNotBlank()) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "Remove Photo",
+                                                fontFamily = OutfitFamily,
+                                                fontSize = d.textLabelMedium,
+                                                color = colors.alertRed
+                                            )
+                                        },
+                                        onClick = {
+                                            showMemberMenu = false
+                                            coroutineScope.launch {
+                                                try {
+                                                    FirebaseManager.updateVirtualMemberAvatar(group.id, uid, "")
+                                                    Toast.makeText(context, "Photo removed", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    )
                                 }
-                            },
-                            contentPadding = PaddingValues(horizontal = d.space8, vertical = d.space4)
-                        ) {
-                            Text(
-                                text = "Revoke Admin",
-                                fontFamily = OutfitFamily,
-                                fontSize = d.textLabelSmall,
-                                color = colors.alertRed
-                            )
-                        }
-                    }
-
-                    if (isGuest && currentUserIsAdmin) {
-                        TextButton(
-                            onClick = { memberToLink = Pair(uid, memberName) },
-                            contentPadding = PaddingValues(horizontal = d.space8, vertical = d.space4)
-                        ) {
-                            Text(
-                                text = "Link Account",
-                                fontFamily = OutfitFamily,
-                                fontSize = d.textLabelSmall,
-                                color = colors.inkPrimary
-                            )
-                        }
-                    }
-
-                    if (canRemoveMember) {
-                        TextButton(
-                            onClick = {
-                                val balance = netBalancesMap[uid] ?: 0.0
-                                if (Math.abs(balance) > 0.01) {
-                                    debtWarningMember = Pair(memberName, balance)
-                                } else {
-                                    memberToRemove = Pair(uid, memberName)
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = d.space8, vertical = d.space4)
-                        ) {
-                            Text(
-                                text = "Remove",
-                                fontFamily = OutfitFamily,
-                                fontSize = d.textLabelSmall,
-                                color = colors.alertRed
-                            )
+                            }
+                            if (canRemoveMember) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "Remove Member",
+                                            fontFamily = OutfitFamily,
+                                            fontSize = d.textLabelMedium,
+                                            color = colors.alertRed
+                                        )
+                                    },
+                                    onClick = {
+                                        showMemberMenu = false
+                                        val balance = netBalancesMap[uid] ?: 0.0
+                                        if (Math.abs(balance) > 0.01) {
+                                            debtWarningMember = Pair(memberName, balance)
+                                        } else {
+                                            memberToRemove = Pair(uid, memberName)
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -3811,6 +4053,7 @@ fun GroupExpenseDetailBottomSheet(
     expense: Expense,
     groupId: String,
     userNames: Map<String, String>,
+    isExpenseTracker: Boolean = false,
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
@@ -3843,7 +4086,11 @@ fun GroupExpenseDetailBottomSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.space12)) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(d.space12)
+                ) {
                     Surface(
                         shape = CircleShape,
                         color = colors.inkPrimary,
@@ -3853,16 +4100,32 @@ fun GroupExpenseDetailBottomSheet(
                             Icon(Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = null, tint = colors.canvasChalk, modifier = Modifier.size(20.dp))
                         }
                     }
-                    Column {
-                        Text(expense.description.ifEmpty { "Expense Details" }, fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleMedium, color = colors.inkPrimary)
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Text(
+                            text = expense.description.ifEmpty { "Expense Details" },
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textTitleMedium,
+                            color = colors.inkPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         Text(expense.category, fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
                     }
                 }
 
                 if (canManageExpense) {
                     Box {
-                        IconButton(onClick = { showMenu = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = colors.inkPrimary)
+                        IconButton(
+                            onClick = { showMenu = true },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Options",
+                                tint = colors.inkPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
                         DropdownMenu(
                             expanded = showMenu,
@@ -3958,7 +4221,41 @@ fun GroupExpenseDetailBottomSheet(
             val coroutineScope = rememberCoroutineScope()
             val context = LocalContext.current
 
-            if (expense.paidBy != myUid && myShare > 0) {
+            if (isExpenseTracker) {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            try {
+                                FirebaseManager.toggleExpenseReimbursement(
+                                    groupId = groupId,
+                                    expenseId = expense.id,
+                                    isReimbursed = !expense.isReimbursed
+                                )
+                                Toast.makeText(
+                                    context,
+                                    if (!expense.isReimbursed) "Marked as claimed" else "Marked as pending",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                onDismiss()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                    shape = RoundedCornerShape(d.radiusMD),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (expense.isReimbursed) colors.inkMuted else colors.inkPrimary
+                    )
+                ) {
+                    Text(
+                        text = if (expense.isReimbursed) "Claimed (Tap to Undo)" else "Mark Claimed",
+                        fontFamily = OutfitFamily,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.canvasChalk
+                    )
+                }
+            } else if (expense.paidBy != myUid && myShare > 0) {
                 Button(
                     onClick = {
                         coroutineScope.launch {

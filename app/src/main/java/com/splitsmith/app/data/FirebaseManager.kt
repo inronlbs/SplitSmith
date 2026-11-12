@@ -542,6 +542,12 @@ object FirebaseManager {
         batch.commit().await()
     }
 
+    suspend fun updateVirtualMemberAvatar(groupId: String, memberId: String, avatarUrl: String) {
+        db.collection("groups").document(groupId)
+            .update("virtualMembers.$memberId.avatarUrl", avatarUrl)
+            .await()
+    }
+
     suspend fun updateGroupIcon(groupId: String, iconName: String) {
         db.collection("groups").document(groupId).update("iconName", iconName).await()
     }
@@ -710,6 +716,31 @@ object FirebaseManager {
             }
         }
         db.collection("groups").document(groupId).collection("expenses").document(expenseId).delete().await()
+    }
+
+    suspend fun toggleExpenseReimbursement(groupId: String, expenseId: String, isReimbursed: Boolean) {
+        val updates = mapOf(
+            "isReimbursed" to isReimbursed,
+            "reimbursedAt" to if (isReimbursed) System.currentTimeMillis() else 0L
+        )
+        db.collection("groups").document(groupId).collection("expenses").document(expenseId)
+            .update(updates)
+            .await()
+    }
+
+    suspend fun batchMarkExpensesReimbursed(groupId: String, expenseIds: List<String>, isReimbursed: Boolean) {
+        if (expenseIds.isEmpty()) return
+        val batch = db.batch()
+        val timestamp = if (isReimbursed) System.currentTimeMillis() else 0L
+        val groupExpenseColl = db.collection("groups").document(groupId).collection("expenses")
+        for (id in expenseIds) {
+            val docRef = groupExpenseColl.document(id)
+            batch.update(docRef, mapOf(
+                "isReimbursed" to isReimbursed,
+                "reimbursedAt" to timestamp
+            ))
+        }
+        batch.commit().await()
     }
 
     fun observeExpenses(groupId: String): Flow<List<Expense>> = callbackFlow {

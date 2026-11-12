@@ -58,12 +58,13 @@ service cloud.firestore {
       // Create group if user sets themselves as adminId
       allow create: if isAuthenticated() && request.resource.data.adminId == request.auth.uid;
 
-      // Update group if user is an admin or adding/updating member/request fields
+      // Update group if user is an admin or adding/updating member/request/pending fields
       allow update: if isAuthenticated() && (
         isGroupAdmin(groupId) ||
-        resource.data.members[request.auth.uid] == true ||
-        request.resource.data.joinRequests[request.auth.uid] == true ||
-        resource.data.joinRequests[request.auth.uid] == true
+        ('members' in resource.data && resource.data.members[request.auth.uid] == true) ||
+        ('pendingMembers' in resource.data && resource.data.pendingMembers[request.auth.uid] == true) ||
+        ('joinRequests' in request.resource.data && request.resource.data.joinRequests[request.auth.uid] == true) ||
+        ('joinRequests' in resource.data && resource.data.joinRequests[request.auth.uid] == true)
       );
 
       // Only group admin can delete a group

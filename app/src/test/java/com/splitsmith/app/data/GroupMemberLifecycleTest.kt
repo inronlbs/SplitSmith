@@ -118,4 +118,33 @@ class GroupMemberLifecycleTest {
         assertEquals("Vikram", group.pastMembers["old_member_1"])
         assertTrue(group.members.containsKey(guestRahul))
     }
+
+    @Test
+    fun expense_reimbursementTracking_defaultsAndUpdates() {
+        val expense = Expense(
+            id = "exp_corp_1",
+            amount = 1500.0,
+            description = "Client Lunch",
+            paidBy = realUserAmit
+        )
+
+        assertFalse(expense.isReimbursed)
+        assertEquals(0L, expense.reimbursedAt)
+
+        val updated = expense.copy(isReimbursed = true, reimbursedAt = 1700000000L)
+        assertTrue(updated.isReimbursed)
+        assertEquals(1700000000L, updated.reimbursedAt)
+    }
+
+    @Test
+    fun virtualMember_avatarUrl_isPreserved() {
+        val vm = VirtualMember(
+            id = guestRahul,
+            name = "Rahul",
+            addedBy = realUserAmit,
+            avatarUrl = "https://example.com/avatar.jpg"
+        )
+
+        assertEquals("https://example.com/avatar.jpg", vm.avatarUrl)
+    }
 }

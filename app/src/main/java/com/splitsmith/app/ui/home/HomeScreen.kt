@@ -3955,7 +3955,10 @@ fun GroupExpenseDetailBottomSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.Groups,
                         contentDescription = "Group Expense",
@@ -3963,13 +3966,15 @@ fun GroupExpenseDetailBottomSheet(
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(d.space12))
-                    Column {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Text(
                             text = exp.description.ifEmpty { exp.category },
                             fontFamily = OutfitFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = d.textHeadlineMedium,
-                            color = colors.inkPrimary
+                            color = colors.inkPrimary,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         Text(
                             text = "${groupExpense.groupName} • ${exp.category}",
