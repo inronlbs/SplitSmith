@@ -73,6 +73,7 @@ data class Group(
     val isExpenseTracker: Boolean = false,
     @get:PropertyName("expenseTracker")
     val expenseTracker: Boolean = false,
+    val trackReimbursements: Boolean = false,
     val imageUrl: String = "",
     val virtualMembers: Map<String, VirtualMember> = emptyMap(),
     val pastMembers: Map<String, String> = emptyMap()

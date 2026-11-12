@@ -1190,6 +1190,7 @@ fun CreateGroupBottomSheet(
 
     var currentStep by rememberSaveable { mutableStateOf(1) }
     var isTrackerMode by rememberSaveable(isExpenseTracker) { mutableStateOf(isExpenseTracker) }
+    var trackReimbursements by rememberSaveable { mutableStateOf(false) }
     var groupName by remember { mutableStateOf("") }
     var selectedIconName by remember { mutableStateOf("Trip") }
     var memberSearchQuery by remember { mutableStateOf("") }
@@ -1729,6 +1730,49 @@ fun CreateGroupBottomSheet(
                     }
                 }
 
+                if (isTrackerMode) {
+                    Spacer(modifier = Modifier.height(d.space8))
+                    Surface(
+                        onClick = { trackReimbursements = !trackReimbursements },
+                        shape = RoundedCornerShape(d.radiusMD),
+                        color = if (trackReimbursements) colors.inkPrimary.copy(alpha = 0.05f) else colors.canvasChalk,
+                        border = BorderStroke(1.dp, if (trackReimbursements) colors.inkPrimary else colors.borderWhisper),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = d.space12, vertical = d.space8),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Track Company Reimbursements",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = d.textBodyMedium,
+                                    color = colors.inkPrimary
+                                )
+                                Text(
+                                    text = "Track out-of-pocket claims & company refunds",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textLabelSmall,
+                                    color = colors.inkMuted
+                                )
+                            }
+                            Switch(
+                                checked = trackReimbursements,
+                                onCheckedChange = { trackReimbursements = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = colors.canvasChalk,
+                                    checkedTrackColor = colors.inkPrimary,
+                                    uncheckedThumbColor = colors.canvasChalk,
+                                    uncheckedTrackColor = colors.borderWhisper
+                                )
+                            )
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(d.space16))
 
                 // Create Button
@@ -1744,6 +1788,7 @@ fun CreateGroupBottomSheet(
                                     type = selectedIconName,
                                     memberUids = addedMembers.map { it.uid },
                                     isExpenseTracker = isTrackerMode,
+                                    trackReimbursements = if (isTrackerMode) trackReimbursements else false,
                                     imageUrl = selectedGroupImageBase64
                                 )
                                 onGroupCreated(id)

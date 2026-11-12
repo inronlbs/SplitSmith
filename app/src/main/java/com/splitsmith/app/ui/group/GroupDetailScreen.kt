@@ -724,6 +724,7 @@ fun GroupDetailScreen(
                             userNames = userNamesMap,
                             groupId = groupId,
                             isExpenseTracker = currentGroup.isExpenseTracker,
+                            trackReimbursements = currentGroup.trackReimbursements,
                             onNavigateToAddExpense = onNavigateToAddExpense,
                             onDeleteExpense = { expenseToDelete = it },
                             showSearchFilters = showSearchFilters,
@@ -742,6 +743,7 @@ fun GroupDetailScreen(
                                     memberProfilesMap = memberProfilesMap,
                                     groupBudgetLimit = groupBudgetLimit,
                                     groupId = groupId,
+                                    trackReimbursements = currentGroup.trackReimbursements,
                                     d = d,
                                     inkPrimary = inkPrimary,
                                     inkMuted = inkMuted,
@@ -1187,6 +1189,7 @@ private fun StyledExpensesTab(
     userNames: Map<String, String>,
     groupId: String,
     isExpenseTracker: Boolean = false,
+    trackReimbursements: Boolean = false,
     onNavigateToAddExpense: (groupId: String, expenseId: String?) -> Unit,
     onDeleteExpense: (Expense) -> Unit,
     showSearchFilters: Boolean,
@@ -1379,12 +1382,13 @@ private fun StyledExpensesTab(
                                 color = inkMuted
                             )
                         }
+                        val isClaimed = trackReimbursements && expense.isReimbursed
                         Text(
                             text = "₹${if (expense.amount % 1.0 == 0.0) expense.amount.toInt().toString() else String.format("%.2f", expense.amount)}",
                             fontFamily = JetBrainsMonoFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = d.textMonoLarge,
-                            color = if (expense.isReimbursed) inkMuted else inkPrimary
+                            color = if (isClaimed) inkMuted else inkPrimary
                         )
                     }
                     HorizontalDivider(color = borderWhisper, thickness = 0.5.dp)
@@ -1402,6 +1406,7 @@ private fun StyledExpensesTab(
             groupId = groupId,
             userNames = userNames,
             isExpenseTracker = isExpenseTracker,
+            trackReimbursements = trackReimbursements,
             onDismiss = { selectedExpenseForDetail = null },
             onEdit = {
                 selectedExpenseForDetail = null
@@ -1424,6 +1429,7 @@ private fun StyledMemberBreakdownTab(
     memberProfilesMap: Map<String, UserProfile>,
     groupBudgetLimit: Double,
     groupId: String = "",
+    trackReimbursements: Boolean = false,
     d: com.splitsmith.app.theme.Dimens,
     inkPrimary: Color,
     inkMuted: Color,
@@ -1445,7 +1451,7 @@ private fun StyledMemberBreakdownTab(
         membersList.sortedByDescending { memberSpendMap[it] ?: 0.0 }
     }
 
-    if (showReimbursementDialog) {
+    if (trackReimbursements && showReimbursementDialog) {
         val pendingExpenses = remember(expenses) { expenses.filter { !it.isReimbursed } }
         val selectedExpenseIds = remember(pendingExpenses) {
             mutableStateMapOf<String, Boolean>().apply {
@@ -1570,42 +1576,59 @@ private fun StyledMemberBreakdownTab(
             ) {
                 Column(modifier = Modifier.padding(d.space16), verticalArrangement = Arrangement.spacedBy(d.space12)) {
                     Text("SPEND SUMMARY", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Total Spent", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
-                            Text("₹${totalGroupSpend.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
+                    if (trackReimbursements) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Total Spent", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                                Text("₹${totalGroupSpend.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("Claimed / Settled", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                                Text("₹${totalClaimed.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.positiveGreen)
+                            }
                         }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("Claimed / Settled", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
-                            Text("₹${totalClaimed.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.positiveGreen)
-                        }
-                    }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Pending from Company", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
-                            Text("₹${pendingClaim.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleMedium, color = if (pendingClaim > 0.0) colors.inkPrimary else inkMuted)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Pending from Company", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                                Text("₹${pendingClaim.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleMedium, color = if (pendingClaim > 0.0) colors.inkPrimary else inkMuted)
+                            }
+                            if (pendingClaim > 0.0 && groupId.isNotEmpty()) {
+                                TextButton(
+                                    onClick = { showReimbursementDialog = true },
+                                    contentPadding = PaddingValues(horizontal = d.space12, vertical = d.space4)
+                                ) {
+                                    Text(
+                                        text = "Record Reimbursement",
+                                        fontFamily = OutfitFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = d.textLabelMedium,
+                                        color = inkPrimary
+                                    )
+                                }
+                            }
                         }
-                        if (pendingClaim > 0.0 && groupId.isNotEmpty()) {
-                            TextButton(
-                                onClick = { showReimbursementDialog = true },
-                                contentPadding = PaddingValues(horizontal = d.space12, vertical = d.space4)
-                            ) {
-                                Text(
-                                    text = "Record Reimbursement",
-                                    fontFamily = OutfitFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = d.textLabelMedium,
-                                    color = inkPrimary
-                                )
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Total Spent", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                                Text("₹${totalGroupSpend.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("Total Logged", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                                Text("${expenses.size} expenses", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkMuted)
                             }
                         }
                     }
@@ -4054,6 +4077,7 @@ fun GroupExpenseDetailBottomSheet(
     groupId: String,
     userNames: Map<String, String>,
     isExpenseTracker: Boolean = false,
+    trackReimbursements: Boolean = false,
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
@@ -4221,7 +4245,7 @@ fun GroupExpenseDetailBottomSheet(
             val coroutineScope = rememberCoroutineScope()
             val context = LocalContext.current
 
-            if (isExpenseTracker) {
+            if (isExpenseTracker && trackReimbursements) {
                 Button(
                     onClick = {
                         coroutineScope.launch {

@@ -278,7 +278,15 @@ object FirebaseManager {
         }
     }
 
-    suspend fun createGroup(name: String, iconName: String, type: String, memberUids: List<String> = emptyList(), isExpenseTracker: Boolean = false, imageUrl: String = ""): String {
+    suspend fun createGroup(
+        name: String,
+        iconName: String,
+        type: String,
+        memberUids: List<String> = emptyList(),
+        isExpenseTracker: Boolean = false,
+        trackReimbursements: Boolean = false,
+        imageUrl: String = ""
+    ): String {
         val uid = currentUserId ?: throw RuntimeException("Not authenticated")
         val groupRef = db.collection("groups").document()
         val pendingMap = memberUids.filter { it != uid }.distinct().associateWith { true }
@@ -293,6 +301,7 @@ object FirebaseManager {
             admins = mapOf(uid to true),
             isExpenseTracker = isExpenseTracker,
             expenseTracker = isExpenseTracker,
+            trackReimbursements = trackReimbursements,
             imageUrl = imageUrl
         )
         groupRef.set(group).await()
