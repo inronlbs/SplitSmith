@@ -1407,3 +1407,56 @@ Patch release resolving missing Edit & Delete options in expense detail bottom s
   - GitHub Release created and binary assets uploaded.
   - Website CDN updated with new binary and `version.json`.
   - Zero emojis maintained across all code, logs, and documentation.
+
+
+## [2026-11-15 21:20] Format Dedicated Settlement Status Line in Company Expenses List
+
+### Problem Solved
+- In `GroupDetailScreen.kt` (`StyledExpensesTab`), the settlement timestamp previously concatenated to the end of the metadata string wrapped mid-phrase onto two lines (e.g. `Settled 15` on line 1, and `nov, 03:50 pm` on line 2).
+- Separated the metadata and settlement status into distinct lines, retaining standard `inkMuted` text color without green color changes as directed by the user.
+
+### Key Changes
+- **`GroupDetailScreen.kt`**:
+  - Kept payment metadata on line 1 with `maxLines = 1, overflow = TextOverflow.Ellipsis`.
+  - Added dedicated status line for `✓ Settled $dayMonth, $time` using non-breaking spaces (`\u00A0`), styled in `colors.inkMuted` and `fontSize = d.textLabelSmall`, preventing broken date/time segments across lines.
+
+### Verification
+- Executed `./gradlew testDebugUnitTest` with JDK 17: `BUILD SUCCESSFUL in 1m 41s` (27 actionable tasks, 0 errors, all unit tests passed).
+- Zero emojis maintained across all code, logs, and documentation.
+
+
+## [2026-11-15 21:28] Group Header UX Refinements: Avatar Viewer, Enlarged Size & Flat Touch Target
+
+### Problem Solved
+- Clicking the group title previously flashed a full-width rectangular ripple across the top of the screen.
+- Clicking the group picture opened group settings instead of letting the user view the group image.
+- Group avatar was relatively small (44dp).
+
+### Key Changes
+- **`GroupDetailScreen.kt`**:
+  - **Enlarged Group Picture**: Increased `GroupIconView` size from `44.dp` to `52.dp`.
+  - **Dedicated Image Viewer**: Tapping the group picture opens `showGroupImageViewer`:
+    - Displays full-screen zoomable preview via `AttachmentImageViewerDialog` for custom uploaded group photos.
+    - Displays an enlarged (120dp) circular icon dialog for icon-only groups.
+  - **Clean Title Click**: Applied click listener directly to the title `Column` with `indication = null`, completely eliminating the harsh rectangular gray box highlight when opening Group Settings.
+
+### Verification
+- Executed `./gradlew testDebugUnitTest` with JDK 17: `BUILD SUCCESSFUL in 51s` (27 actionable tasks, 0 errors, all unit tests passed).
+- Zero emojis maintained across all code, logs, and documentation.
+
+
+## [2026-11-15 21:32] Release v0.4.4.1 Published
+
+### Release Details
+- **Version**: `0.4.4.1` (`versionCode = 71`)
+- **Release Tag**: `v0.4.4.1`
+- **GitHub Release**: [SplitSmith v0.4.4.1 Release](https://github.com/inronlbs/SplitSmith/releases/tag/v0.4.4.1)
+- **Firebase Hosting CDN**: Deployed to `https://splitsmith.web.app/splitsmith.bin`
+- **Release Assets**:
+  - `SplitSmith-v0.4.4.1-release.apk` (70,439,725 bytes)
+  - `SplitSmith-v0.4.4.1-release.aab` (43,827,603 bytes)
+- **Deployment Status**:
+  - Signed release AAB and APK compiled cleanly with JDK 17 (`BUILD SUCCESSFUL in 2m 25s`).
+  - GitHub Release created and binary assets uploaded.
+  - Website CDN updated with new binary and `version.json`.
+  - Zero emojis maintained across all code, logs, and documentation.

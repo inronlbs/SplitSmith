@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.ui.draw.alpha
@@ -101,6 +102,7 @@ fun GroupDetailScreen(
     var userNamesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var memberProfilesMap by remember { mutableStateOf<Map<String, UserProfile>>(emptyMap()) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var showGroupImageViewer by remember { mutableStateOf(false) }
     var expenseToDelete by remember { mutableStateOf<Expense?>(null) }
     var showSearchFilters by rememberSaveable { mutableStateOf(false) }
     var pendingConfirmUpiSettlement by remember { mutableStateOf<Debt?>(null) }
@@ -402,24 +404,29 @@ fun GroupDetailScreen(
                     }
                 }
             } else {
-                // ── Compact Header (Tap header for settings) ──
+                // ── Compact Header (Avatar views image, title opens settings) ──
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = d.space16, vertical = d.space4)
-                        .clip(RoundedCornerShape(d.radiusSM))
-                        .clickable { showSettingsSheet = true }
-                        .padding(vertical = d.space4),
+                        .padding(horizontal = d.space16, vertical = d.space4),
                     horizontalArrangement = Arrangement.spacedBy(d.space12),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     GroupIconView(
                         iconName = currentGroup.iconName,
                         imageUrl = currentGroup.imageUrl,
-                        size = 44.dp
+                        size = 52.dp,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable { showGroupImageViewer = true }
                     )
                     Column(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { showSettingsSheet = true },
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
@@ -1036,6 +1043,45 @@ fun GroupDetailScreen(
         }
     }
 
+    if (showGroupImageViewer && currentGroup != null) {
+        if (currentGroup.imageUrl.isNotBlank()) {
+            AttachmentImageViewerDialog(
+                imageUrl = currentGroup.imageUrl,
+                fileName = currentGroup.name,
+                onDismiss = { showGroupImageViewer = false }
+            )
+        } else {
+            androidx.compose.ui.window.Dialog(onDismissRequest = { showGroupImageViewer = false }) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(d.radiusLG))
+                        .background(colors.surfaceCard)
+                        .padding(d.space24),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(d.space16)
+                    ) {
+                        GroupIconView(
+                            iconName = currentGroup.iconName,
+                            imageUrl = "",
+                            size = 120.dp
+                        )
+                        Text(
+                            text = currentGroup.name,
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textHeadlineMedium,
+                            color = inkPrimary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     if (selectedMemberForModal != null) {
         val member = selectedMemberForModal!!
         val isCurrent = member.uid == currentUserId
@@ -1455,19 +1501,42 @@ private fun StyledExpensesTab(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(expense.description, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
+                            Text(
+                                text = expense.description,
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = d.textTitleMedium,
+                                color = inkPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                             val formattedDate = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(expense.date))
                             val isClaimed = trackReimbursements && expense.isClaimed
-                            val settledSuffix = if (isClaimed && expense.reimbursedAt > 0L) {
-                                val settledDateStr = java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.getDefault()).format(java.util.Date(expense.reimbursedAt))
-                                " · Settled $settledDateStr"
-                            } else ""
                             Text(
-                                text = "Paid by ${userNames[expense.paidBy] ?: "Payer"} · $formattedDate · ${expense.category}$settledSuffix",
+                                text = "Paid by ${userNames[expense.paidBy] ?: "Payer"} · $formattedDate · ${expense.category}",
                                 fontFamily = OutfitFamily,
                                 fontSize = d.textLabelMedium,
-                                color = inkMuted
+                                color = inkMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
+                            if (isClaimed) {
+                                val settledText = if (expense.reimbursedAt > 0L) {
+                                    val dayMonth = java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault()).format(java.util.Date(expense.reimbursedAt)).replace(" ", "\u00A0")
+                                    val time = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date(expense.reimbursedAt)).replace(" ", "\u00A0")
+                                    "✓ Settled $dayMonth, $time"
+                                } else {
+                                    "✓ Settled"
+                                }
+                                Text(
+                                    text = settledText,
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textLabelSmall,
+                                    color = inkMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                         val isClaimed = trackReimbursements && expense.isClaimed
                         Text(
