@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Check
@@ -401,56 +402,42 @@ fun GroupDetailScreen(
                     }
                 }
             } else {
-                // ── Compact Header ────────────────────────────────
+                // ── Compact Header (Tap header for settings) ──
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = d.space16, vertical = d.space4),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                        .padding(horizontal = d.space16, vertical = d.space4)
+                        .clip(RoundedCornerShape(d.radiusSM))
+                        .clickable { showSettingsSheet = true }
+                        .padding(vertical = d.space4),
+                    horizontalArrangement = Arrangement.spacedBy(d.space12),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
+                    GroupIconView(
+                        iconName = currentGroup.iconName,
+                        imageUrl = currentGroup.imageUrl,
+                        size = 44.dp
+                    )
+                    Column(
                         modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(d.space12),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        GroupIconView(
-                            iconName = currentGroup.iconName,
-                            imageUrl = currentGroup.imageUrl,
-                            size = 44.dp
+                        Text(
+                            text = currentGroup.name,
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textHeadlineMedium,
+                            color = inkPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        Column(
-                            modifier = Modifier.weight(1f, fill = false),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Text(
-                                text = currentGroup.name,
-                                fontFamily = OutfitFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = d.textHeadlineMedium,
-                                color = inkPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = if (currentGroup.isTracker) "Expense Tracker · Code: ${groupId.take(6).uppercase()}" else "Split Group · Code: ${groupId.take(6).uppercase()}",
-                                fontFamily = JetBrainsMonoFamily,
-                                fontSize = d.textMonoSmall,
-                                color = inkMuted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                    IconButton(
-                        onClick = { showSettingsSheet = true },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Group Settings",
-                            tint = inkPrimary,
-                            modifier = Modifier.size(22.dp)
+                        Text(
+                            text = if (currentGroup.isTracker) "Expense Tracker · Code: ${groupId.take(6).uppercase()}" else "Split Group · Code: ${groupId.take(6).uppercase()}",
+                            fontFamily = JetBrainsMonoFamily,
+                            fontSize = d.textMonoSmall,
+                            color = inkMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -1470,8 +1457,13 @@ private fun StyledExpensesTab(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(expense.description, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
                             val formattedDate = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(expense.date))
+                            val isClaimed = trackReimbursements && expense.isClaimed
+                            val settledSuffix = if (isClaimed && expense.reimbursedAt > 0L) {
+                                val settledDateStr = java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.getDefault()).format(java.util.Date(expense.reimbursedAt))
+                                " · Settled $settledDateStr"
+                            } else ""
                             Text(
-                                text = "Paid by ${userNames[expense.paidBy] ?: "Payer"} · $formattedDate · ${expense.category}",
+                                text = "Paid by ${userNames[expense.paidBy] ?: "Payer"} · $formattedDate · ${expense.category}$settledSuffix",
                                 fontFamily = OutfitFamily,
                                 fontSize = d.textLabelMedium,
                                 color = inkMuted
@@ -1902,6 +1894,9 @@ private fun StyledBalancesTab(
     val mySettlements = remember(settlements, currentUserId) {
         settlements.filter { it.fromUser == currentUserId || it.toUser == currentUserId }
     }
+    val displayedSettlements = remember(settlements, mySettlements, isAdmin, selectedBalanceView) {
+        if (isAdmin && selectedBalanceView == "ALL") settlements else mySettlements
+    }
     val myDebts = remember(debts, currentUserId) {
         debts.filter { it.fromUser == currentUserId }
     }
@@ -2126,13 +2121,20 @@ private fun StyledBalancesTab(
                 }
             }
 
-            if (mySettlements.isNotEmpty()) {
+            val isAllDebtsView = isAdmin && selectedBalanceView == "ALL"
+            if (displayedSettlements.isNotEmpty()) {
                 item {
                     Spacer(modifier = Modifier.height(d.space16))
-                    Text("SETTLED TRANSACTIONS", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
+                    Text(
+                        if (isAllDebtsView) "SETTLED TRANSACTIONS (ALL)" else "SETTLED TRANSACTIONS",
+                        fontFamily = OutfitFamily,
+                        fontSize = d.textLabelSmall,
+                        color = inkMuted,
+                        letterSpacing = 1.5.sp
+                    )
                     Spacer(modifier = Modifier.height(d.space8))
                 }
-                items(mySettlements) { settlement ->
+                items(displayedSettlements) { settlement ->
                     val senderName = userNames[settlement.fromUser] ?: "Payer"
                     val receiverName = userNames[settlement.toUser] ?: "Receiver"
                     val isPending = settlement.status == "PENDING"
@@ -2173,7 +2175,11 @@ private fun StyledBalancesTab(
                         }
                         Spacer(modifier = Modifier.width(d.space12))
                         Column(modifier = Modifier.weight(1f)) {
-                            val transactionText = if (isPayer) "You paid $receiverName" else "$senderName paid you"
+                            val transactionText = when {
+                                isPayer -> "You paid $receiverName"
+                                isCreditor -> "$senderName paid you"
+                                else -> "$senderName paid $receiverName"
+                            }
                             Text(
                                 transactionText,
                                 fontFamily = OutfitFamily,
@@ -2227,7 +2233,7 @@ private fun StyledBalancesTab(
                         } else if (isPayer) {
                             alertRed
                         } else {
-                            inkMuted
+                            inkPrimary
                         }
                         
                         Text(
@@ -2319,6 +2325,7 @@ private fun StyledBalancesTab(
                 userNames = userNames,
                 memberProfilesMap = memberProfilesMap,
                 isCreditor = isCreditor,
+                isAdmin = isAdmin,
                 onDismiss = { selectedSettlementForDetail = null },
                 onApprove = {
                     coroutineScope.launch {
@@ -4325,6 +4332,8 @@ fun GroupExpenseDetailBottomSheet(
 ) {
     val d = LocalDimens.current
     val colors = LocalSplitColors.current
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
     val currentUid = FirebaseManager.currentUserId
     val canManageExpense = currentUid != null && (
@@ -4397,14 +4406,39 @@ fun GroupExpenseDetailBottomSheet(
                             onDismissRequest = { showMenu = false },
                             modifier = Modifier.background(colors.surfaceCard)
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Edit Expense", fontFamily = OutfitFamily, color = colors.inkPrimary) },
-                                onClick = {
-                                    showMenu = false
-                                    onEdit()
-                                },
-                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = colors.inkPrimary) }
-                            )
+                            val isClaimedReimbursement = isExpenseTracker && trackReimbursements && expense.isClaimed
+                            if (!isClaimedReimbursement) {
+                                DropdownMenuItem(
+                                    text = { Text("Edit Expense", fontFamily = OutfitFamily, color = colors.inkPrimary) },
+                                    onClick = {
+                                        showMenu = false
+                                        onEdit()
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = colors.inkPrimary) }
+                                )
+                            }
+                            if (isClaimedReimbursement) {
+                                DropdownMenuItem(
+                                    text = { Text("Undo Settlement", fontFamily = OutfitFamily, color = colors.inkPrimary) },
+                                    onClick = {
+                                        showMenu = false
+                                        coroutineScope.launch {
+                                            try {
+                                                FirebaseManager.toggleExpenseReimbursement(
+                                                    groupId = groupId,
+                                                    expenseId = expense.id,
+                                                    isReimbursed = false
+                                                )
+                                                Toast.makeText(context, "Marked as pending", Toast.LENGTH_SHORT).show()
+                                                onDismiss()
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = colors.inkPrimary) }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Delete Expense", fontFamily = OutfitFamily, color = colors.alertRed) },
                                 onClick = {
@@ -4480,6 +4514,17 @@ fun GroupExpenseDetailBottomSheet(
                     Text("Date", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
                     Text(formattedDate, fontFamily = OutfitFamily, fontWeight = FontWeight.Medium, color = colors.inkPrimary, fontSize = d.textBodyLarge)
                 }
+
+                if (isExpenseTracker && trackReimbursements && expense.isClaimed && expense.reimbursedAt > 0L) {
+                    val formattedSettledDate = remember(expense.reimbursedAt) {
+                        val sdf = java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault())
+                        sdf.format(java.util.Date(expense.reimbursedAt))
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Settled On", fontFamily = OutfitFamily, color = colors.inkMuted, fontSize = d.textBodyLarge)
+                        Text(formattedSettledDate, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, color = colors.positiveGreen, fontSize = d.textBodyLarge)
+                    }
+                }
             }
 
             if (!isExpenseTracker || expense.splits.isNotEmpty()) {
@@ -4502,42 +4547,42 @@ fun GroupExpenseDetailBottomSheet(
 
             val myUid = FirebaseManager.currentUserId ?: ""
             val myShare = expense.splits[myUid] ?: 0.0
-            val coroutineScope = rememberCoroutineScope()
-            val context = LocalContext.current
 
             if (isExpenseTracker && trackReimbursements) {
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            try {
-                                FirebaseManager.toggleExpenseReimbursement(
-                                    groupId = groupId,
-                                    expenseId = expense.id,
-                                    isReimbursed = !expense.isClaimed
-                                )
-                                Toast.makeText(
-                                    context,
-                                    if (!expense.isClaimed) "Marked as settled" else "Marked as pending",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                onDismiss()
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                if (!expense.isClaimed) {
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                try {
+                                    FirebaseManager.toggleExpenseReimbursement(
+                                        groupId = groupId,
+                                        expenseId = expense.id,
+                                        isReimbursed = true
+                                    )
+                                    Toast.makeText(
+                                        context,
+                                        "Marked as settled",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    onDismiss()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
                             }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
-                    shape = RoundedCornerShape(d.radiusMD),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (expense.isClaimed) colors.inkMuted else colors.inkPrimary
-                    )
-                ) {
-                    Text(
-                        text = if (expense.isClaimed) "Settled (Tap to Undo)" else "Mark Settled",
-                        fontFamily = OutfitFamily,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.canvasChalk
-                    )
+                        },
+                        modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
+                        shape = RoundedCornerShape(d.radiusMD),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.inkPrimary
+                        )
+                    ) {
+                        Text(
+                            text = "Mark Settled",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.canvasChalk
+                        )
+                    }
                 }
             } else if (expense.paidBy != myUid && myShare > 0) {
                 Button(
@@ -4685,6 +4730,7 @@ fun SettlementDetailBottomSheet(
     userNames: Map<String, String>,
     memberProfilesMap: Map<String, UserProfile>,
     isCreditor: Boolean,
+    isAdmin: Boolean = false,
     onDismiss: () -> Unit,
     onApprove: () -> Unit,
     onDecline: () -> Unit,
@@ -4879,7 +4925,7 @@ fun SettlementDetailBottomSheet(
 
             if (!isConfirmed) {
                 HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
-                if (isCreditor) {
+                if (isCreditor || isAdmin) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(d.space12)
@@ -4898,7 +4944,7 @@ fun SettlementDetailBottomSheet(
                             shape = RoundedCornerShape(d.radiusMD),
                             colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
                         ) {
-                            Text("Approve Received", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
+                            Text(if (isCreditor) "Approve Received" else "Approve as Admin", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
                         }
                     }
                 } else {

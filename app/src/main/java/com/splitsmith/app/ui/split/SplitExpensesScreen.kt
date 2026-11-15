@@ -187,7 +187,13 @@ fun SplitExpensesScreen(
             cached?.uid?.ifEmpty { rawPeer } ?: rawPeer
         }
         
-        val allPeerUids = (splitsGrouped.keys + connectedUsers.map { it.uid })
+        // When searching, include all connected contacts; in default feed, only show peers with transaction history
+        val candidateUids = if (searchQuery.isNotBlank()) {
+            splitsGrouped.keys + connectedUsers.map { it.uid }
+        } else {
+            splitsGrouped.keys
+        }
+        val allPeerUids = candidateUids
             .filter { it.isNotEmpty() && it != currentUserId }
             .toSet()
         
@@ -240,13 +246,6 @@ fun SplitExpensesScreen(
         filteredGroups.forEach { list.add(SplitFeedItem.GroupEntry(it)) }
         settledPeers.forEach { list.add(SplitFeedItem.PeerEntry(it)) }
         list
-    }
-
-    val totalOwedToYou = remember(individualPeers) {
-        individualPeers.filter { it.netBalance > 0 }.sumOf { it.netBalance }
-    }
-    val totalYouOwe = remember(individualPeers) {
-        individualPeers.filter { it.netBalance < 0 }.sumOf { -it.netBalance }
     }
 
     // Bottom sheet for group creation
@@ -340,50 +339,6 @@ fun SplitExpensesScreen(
                 ),
                 textStyle = androidx.compose.ui.text.TextStyle(fontFamily = OutfitFamily, fontSize = d.textBodyLarge, color = colors.inkPrimary)
             )
-
-            // Minimalist Financial Standing Summary Row (Flat, clean, no heavy cards)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(d.space4)
-                ) {
-                    Text(
-                        text = "Owed to you: ",
-                        fontFamily = OutfitFamily,
-                        fontSize = d.textLabelMedium,
-                        color = colors.inkMuted
-                    )
-                    Text(
-                        text = "\u20b9${totalOwedToYou.formatCurrency()}",
-                        fontFamily = JetBrainsMonoFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = d.textBodyLarge,
-                        color = colors.inkPrimary
-                    )
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(d.space4)
-                ) {
-                    Text(
-                        text = "You owe: ",
-                        fontFamily = OutfitFamily,
-                        fontSize = d.textLabelMedium,
-                        color = colors.inkMuted
-                    )
-                    Text(
-                        text = "\u20b9${totalYouOwe.formatCurrency()}",
-                        fontFamily = JetBrainsMonoFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = d.textBodyLarge,
-                        color = if (totalYouOwe > 0) colors.alertRed else colors.inkMuted
-                    )
-                }
-            }
 
             // Minimal Segmented Filter Pills (All vs Groups vs Friends)
             Row(

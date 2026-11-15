@@ -1305,3 +1305,105 @@ Patch release resolving missing Edit & Delete options in expense detail bottom s
   - GitHub Release created and binary assets uploaded.
   - Website CDN updated with new binary and `version.json`.
   - Updated Firestore security rules deployed to `cloud.firestore`.
+
+
+## [2026-11-15 20:18] Remove Redundant Split Expenses Balance Row & Enable All Settlements View in Admin Balances
+
+### Problem Solved
+1. **Split Expenses Summary Zero Balances**:
+   - `SplitExpensesScreen.kt` had a summary row displaying "Owed to you: ₹0.00" and "You owe: ₹0.00" because it calculated balances exclusively against direct 1-on-1 splits (`individualPeers`), omitting group expenses and settlements.
+   - Per user directive, removed this redundant summary row from the Split Expenses feed to keep the UI clean and focused on search, filters, and feed navigation (the Home dashboard already comprehensively computes and displays direct + group receivable and payable balances).
+
+2. **Admin All Debts View Showing Only Admin Settlements**:
+   - In `GroupDetailScreen.kt` (`StyledBalancesTab`), the "SETTLED TRANSACTIONS" list was restricted to `mySettlements` (only transactions where `fromUser == currentUserId || toUser == currentUserId`).
+   - When the group admin selected the "All Debts (Admin)" toggle, transactions between other members were hidden.
+   - Updated `displayedSettlements` to show all group settlements when `isAdmin && selectedBalanceView == "ALL"`.
+   - Updated transaction labeling to `"$senderName paid $receiverName"` when viewing third-party transactions.
+   - Granted admins the ability to approve or decline pending settlement requests between other group members (or offline users) in `SettlementDetailBottomSheet`.
+
+### Key Changes
+- **`SplitExpensesScreen.kt`**:
+  - Removed `totalOwedToYou` and `totalYouOwe` calculations and the top summary row.
+- **`GroupDetailScreen.kt`**:
+  - Added `displayedSettlements` selector based on `selectedBalanceView` and `isAdmin`.
+  - Added "SETTLED TRANSACTIONS (ALL)" header when in All Debts mode.
+  - Formatted third-party transaction names and amount colors.
+  - Enabled admin moderation (`isAdmin` parameter in `SettlementDetailBottomSheet`) allowing admins to approve ("Approve as Admin") or decline settlements.
+
+### Verification
+- Executed `./gradlew testDebugUnitTest` with JDK 17: `BUILD SUCCESSFUL in 1m 43s` (27 actionable tasks, 0 errors, all unit tests passed).
+- Zero emojis maintained across all code, logs, and documentation.
+
+
+## [2026-11-15 20:28] WhatsApp-Style Group Header & Settled Expense Workflow Streamlining
+
+### Problem Solved
+1. **Settled Company Expense Workflow**:
+   - In company expense tracking groups, settled expenses previously displayed a large bottom button `"Settled (Tap to Undo)"`, and the 3-dot overflow menu permitted editing settled records.
+   - User requested hiding the bottom button once settled, moving the "Undo" capability into the 3-dot menu, and preventing edits to settled records.
+2. **Group Settings Header Navigation**:
+   - Replaced the dedicated gear settings icon in the top app bar with the WhatsApp-style header pattern: tapping anywhere on the group avatar, title, or code subtitle directly opens the Group Settings sheet. This eliminates icon clutter and provides maximum horizontal space for group names.
+
+### Key Changes
+- **`GroupDetailScreen.kt`**:
+  - **Top App Bar**: Removed standalone `IconButton(Icons.Default.Settings)`. Made the group header `Row` clickable with touch feedback (`.clip(RoundedCornerShape(d.radiusSM)).clickable { showSettingsSheet = true }`), expanding available width for group titles.
+  - **`ExpenseDetailBottomSheet` Overflow Menu**:
+    - Conditioned `"Edit Expense"` on `!isClaimedReimbursement` so settled records cannot be modified.
+    - Added `"Undo Settlement"` option (`Icons.AutoMirrored.Filled.Undo`) in the 3-dot overflow menu when `expense.isClaimed` is true, which toggles reimbursement back to pending and dismisses with a toast `"Marked as pending"`.
+  - **`ExpenseDetailBottomSheet` Bottom Button**:
+    - Rendered the `"Mark Settled"` button exclusively when `!expense.isClaimed`. When settled, the bottom button is removed.
+
+### Verification
+- Executed `./gradlew testDebugUnitTest` with JDK 17: `BUILD SUCCESSFUL in 51s` (27 actionable tasks, 0 errors, all unit tests passed).
+- Zero emojis maintained across all code, logs, and documentation.
+
+
+## [2026-11-15 20:33] Display Settlement Date & Time for Company Expenses
+
+### Problem Solved
+- Added user-facing visibility for the exact date and time at which a company expense was marked settled / reimbursed.
+- Utilized the existing `Expense.reimbursedAt` Firestore timestamp field.
+
+### Key Changes
+- **`GroupDetailScreen.kt`**:
+  - **`StyledExpensesTab`**: In the expense list subtitle, appended `" · Settled $settledDateStr"` (e.g., `15 Nov, 08:35 PM`) for any settled expense with recorded timestamp.
+  - **`GroupExpenseDetailBottomSheet`**: In the Details metadata section, added a `"Settled On"` row displaying the full timestamp (e.g., `"15 Nov 2026, 08:35 PM"`) in positive green (`colors.positiveGreen`).
+
+### Verification
+- Executed `./gradlew testDebugUnitTest` with JDK 17: `BUILD SUCCESSFUL in 55s` (27 actionable tasks, 0 errors, all unit tests passed).
+- Zero emojis maintained across all code, logs, and documentation.
+
+
+## [2026-11-15 20:45] Filter Zero-Transaction Contacts from Default Split Feed
+
+### Problem Solved
+- In `SplitExpensesScreen.kt`, connected contacts with zero transaction history were unconditionally listed in the default `All` and `Friends` feeds with blank balances and `"Connected friend"` subtitles, cluttering the feed.
+- Updated feed logic so only peers with actual direct split transaction history (`splitsGrouped.keys`) appear in the default feed.
+- Connected contacts without prior transactions remain searchable via the search bar and accessible via the `+` FAB / Quick Split contact picker.
+
+### Key Changes
+- **`SplitExpensesScreen.kt`**:
+  - In `individualPeers`, conditioned peer selection on `searchQuery.isNotBlank()`:
+    - If search query is blank: only peers with direct splits (`splitsGrouped.keys`) are included.
+    - If search query is not blank: all connected contacts are included, enabling users to search for any friend to initiate a new split.
+
+### Verification
+- Executed `./gradlew testDebugUnitTest` with JDK 17: `BUILD SUCCESSFUL in 46s` (27 actionable tasks, 0 errors, all unit tests passed).
+- Zero emojis maintained across all code, logs, and documentation.
+
+
+## [2026-11-15 20:51] Release v0.4.4.0 Published
+
+### Release Details
+- **Version**: `0.4.4.0` (`versionCode = 70`)
+- **Release Tag**: `v0.4.4.0`
+- **GitHub Release**: [SplitSmith v0.4.4.0 Release](https://github.com/inronlbs/SplitSmith/releases/tag/v0.4.4.0)
+- **Firebase Hosting CDN**: Deployed to `https://splitsmith.web.app/splitsmith.bin`
+- **Release Assets**:
+  - `SplitSmith-v0.4.4.0-release.apk` (70,439,725 bytes)
+  - `SplitSmith-v0.4.4.0-release.aab` (43,825,904 bytes)
+- **Deployment Status**:
+  - Signed release AAB and APK compiled cleanly with JDK 17 (`BUILD SUCCESSFUL in 3m`).
+  - GitHub Release created and binary assets uploaded.
+  - Website CDN updated with new binary and `version.json`.
+  - Zero emojis maintained across all code, logs, and documentation.
