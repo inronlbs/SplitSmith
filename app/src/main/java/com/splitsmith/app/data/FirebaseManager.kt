@@ -730,6 +730,7 @@ object FirebaseManager {
     suspend fun toggleExpenseReimbursement(groupId: String, expenseId: String, isReimbursed: Boolean) {
         val updates = mapOf(
             "isReimbursed" to isReimbursed,
+            "reimbursed" to isReimbursed,
             "reimbursedAt" to if (isReimbursed) System.currentTimeMillis() else 0L
         )
         db.collection("groups").document(groupId).collection("expenses").document(expenseId)
@@ -746,6 +747,7 @@ object FirebaseManager {
             val docRef = groupExpenseColl.document(id)
             batch.update(docRef, mapOf(
                 "isReimbursed" to isReimbursed,
+                "reimbursed" to isReimbursed,
                 "reimbursedAt" to timestamp
             ))
         }

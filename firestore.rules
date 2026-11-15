@@ -86,7 +86,8 @@ service cloud.firestore {
         allow read: if isGroupMember(groupId);
         allow create: if isGroupMember(groupId) && (
           request.resource.data.fromUser == request.auth.uid ||
-          request.resource.data.toUser == request.auth.uid
+          request.resource.data.toUser == request.auth.uid ||
+          isGroupAdmin(groupId)
         );
         allow update, delete: if isGroupMember(groupId) && (
           resource.data.fromUser == request.auth.uid ||

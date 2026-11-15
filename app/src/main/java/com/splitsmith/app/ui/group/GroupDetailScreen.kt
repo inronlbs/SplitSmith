@@ -153,6 +153,7 @@ fun GroupDetailScreen(
     val settlements  = settlementsState.value
 
     val currentUserId = FirebaseManager.currentUserId
+    val currentUserIsAdmin = currentGroup != null && currentUserId != null && (currentGroup.adminId == currentUserId || currentGroup.admins[currentUserId] == true)
     val isMember = currentGroup?.members?.get(currentUserId ?: "") == true
     val isPending = currentGroup?.joinRequests?.get(currentUserId ?: "") == true
     val isInvited = currentGroup?.pendingMembers?.get(currentUserId ?: "") == true
@@ -410,24 +411,13 @@ fun GroupDetailScreen(
                 ) {
                     Row(
                         modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(d.space8),
+                        horizontalArrangement = Arrangement.spacedBy(d.space12),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = inkPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
                         GroupIconView(
                             iconName = currentGroup.iconName,
                             imageUrl = currentGroup.imageUrl,
-                            size = 38.dp
+                            size = 44.dp
                         )
                         Column(
                             modifier = Modifier.weight(1f, fill = false),
@@ -443,7 +433,7 @@ fun GroupDetailScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = if (currentGroup.isExpenseTracker) "Expense Tracker · Code: ${groupId.take(6).uppercase()}" else "Split Group · Code: ${groupId.take(6).uppercase()}",
+                                text = if (currentGroup.isTracker) "Expense Tracker · Code: ${groupId.take(6).uppercase()}" else "Split Group · Code: ${groupId.take(6).uppercase()}",
                                 fontFamily = JetBrainsMonoFamily,
                                 fontSize = d.textMonoSmall,
                                 color = inkMuted,
@@ -499,12 +489,17 @@ fun GroupDetailScreen(
                 val myUid = FirebaseManager.currentUserId
                 val currentUserSpend = remember(expenses, myUid) { expenses.sumOf { it.splits[myUid ?: ""] ?: 0.0 } }
 
-                val isTracker = currentGroup.isExpenseTracker
+                val isTracker = currentGroup.isTracker
                 val myNetBalance = remember(netBalances) { netBalances[myUid] ?: 0.0 }
                 val myPaidAmount = remember(expenses, myUid) { expenses.filter { it.paidBy == myUid }.sumOf { it.amount } }
+                val myPendingClaim = remember(expenses, myUid) { expenses.filter { it.paidBy == myUid && !it.isClaimed }.sumOf { it.amount } }
 
                 val netText = if (isTracker) {
-                    "You spent: \u20b9${myPaidAmount.formatCurrency()}"
+                    if (currentGroup.trackReimbursements) {
+                        if (myPendingClaim > 0.01) "Pending: \u20b9${myPendingClaim.formatCurrency()}" else "All Settled"
+                    } else {
+                        "You spent: \u20b9${myPaidAmount.formatCurrency()}"
+                    }
                 } else {
                     when {
                         myNetBalance > 0.01  -> "You are owed \u20b9${myNetBalance.formatCurrency()}"
@@ -513,7 +508,11 @@ fun GroupDetailScreen(
                     }
                 }
                 val netColor = if (isTracker) {
-                    inkPrimary
+                    if (currentGroup.trackReimbursements) {
+                        if (myPendingClaim > 0.01) inkPrimary else positiveGreen
+                    } else {
+                        inkPrimary
+                    }
                 } else {
                     when {
                         myNetBalance > 0.01  -> positiveGreen
@@ -603,7 +602,6 @@ fun GroupDetailScreen(
                     }
                 }
 
-                val currentUserIsAdmin = currentGroup.adminId == myUid || currentGroup.admins[myUid] == true
                 val pendingApplicants = currentGroup.joinRequests.keys.toList()
                 android.util.Log.d("SplitSmith_JR", "GroupDetail: myUid=$myUid isAdmin=$currentUserIsAdmin groupAdminId=${currentGroup.adminId} adminsMap=${currentGroup.admins} pendingApplicants=$pendingApplicants")
 
@@ -666,7 +664,7 @@ fun GroupDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(d.space8),
                         modifier = Modifier.weight(1f)
                     ) {
-                        val tabLabels = if (currentGroup.isExpenseTracker) listOf("Expenses", "Breakdown") else listOf("Expenses", "Balances")
+                        val tabLabels = if (currentGroup.isTracker) listOf("Expenses", "Breakdown") else listOf("Expenses", "Balances")
                         tabLabels.forEachIndexed { index, label ->
                             val isActive = pagerState.currentPage == index
                             val bgColor by animateColorAsState(
@@ -723,7 +721,7 @@ fun GroupDetailScreen(
                             expenses = expenses,
                             userNames = userNamesMap,
                             groupId = groupId,
-                            isExpenseTracker = currentGroup.isExpenseTracker,
+                            isExpenseTracker = currentGroup.isTracker,
                             trackReimbursements = currentGroup.trackReimbursements,
                             onNavigateToAddExpense = onNavigateToAddExpense,
                             onDeleteExpense = { expenseToDelete = it },
@@ -735,7 +733,7 @@ fun GroupDetailScreen(
                             alertRed = alertRed
                         )
                         1 -> {
-                            if (currentGroup.isExpenseTracker) {
+                            if (currentGroup.isTracker) {
                                 StyledMemberBreakdownTab(
                                     expenses = expenses,
                                     membersList = currentGroup.members.keys.toList(),
@@ -764,6 +762,7 @@ fun GroupDetailScreen(
                                     borderWhisper = borderWhisper,
                                     alertRed = alertRed,
                                     accentIndigo = accentIndigo,
+                                    isAdmin = currentUserIsAdmin,
                                     onSettleClick = { debt -> selectedDebtForSettlement = debt }
                                 )
                             }
@@ -863,8 +862,10 @@ fun GroupDetailScreen(
                     }
 
                     val isGuestDebt = debt.fromUser.startsWith("guest_") || debt.toUser.startsWith("guest_")
+                    val isExternalPartyDebt = debt.fromUser != currentUserId && debt.toUser != currentUserId
+                    val canConfirmDirectCash = isGuestDebt || currentUserIsAdmin || debt.toUser == currentUserId
 
-                    if (!isGuestDebt) {
+                    if (!isGuestDebt && debt.fromUser == currentUserId) {
                         Button(
                             onClick = {
                                 coroutineScope.launch {
@@ -892,13 +893,13 @@ fun GroupDetailScreen(
                         ) { Text("Pay via UPI App", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge) }
                     }
 
-                    if (isGuestDebt) {
+                    if (canConfirmDirectCash) {
                         Button(
                             onClick = {
                                 coroutineScope.launch {
                                     try {
                                         FirebaseManager.recordCashSettlement(groupId, debt.fromUser, debt.toUser, debt.amount)
-                                        Toast.makeText(context, "Recorded cash settlement of ₹${String.format(java.util.Locale.US, "%.2f", debt.amount)}!", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(context, "Recorded cash settlement of \u20b9${String.format(java.util.Locale.US, "%.2f", debt.amount)}!", Toast.LENGTH_LONG).show()
                                     } catch (e: Exception) {
                                         Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                                     } finally {
@@ -909,7 +910,14 @@ fun GroupDetailScreen(
                             modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
                             shape = RoundedCornerShape(d.radiusMD),
                             colors = ButtonDefaults.buttonColors(containerColor = colors.inkPrimary, contentColor = colors.canvasChalk)
-                        ) { Text("Confirm Cash Settlement", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge) }
+                        ) {
+                            val buttonText = when {
+                                currentUserIsAdmin && isExternalPartyDebt -> "Confirm Cash Settlement (Admin)"
+                                debt.toUser == currentUserId -> "Confirm Cash Received"
+                                else -> "Confirm Cash Settlement"
+                            }
+                            Text(buttonText, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textLabelLarge)
+                        }
                     } else {
                         OutlinedButton(
                             onClick = {
@@ -1105,6 +1113,93 @@ fun GroupDetailScreen(
                         color = colors.inkPrimary,
                         modifier = Modifier.padding(horizontal = d.space16, vertical = d.space8)
                     )
+                }
+
+                val debtsOwedToMember = remember(debts, member.uid) { debts.filter { it.toUser == member.uid } }
+                val debtsMemberOwes = remember(debts, member.uid) { debts.filter { it.fromUser == member.uid } }
+
+                if (debtsOwedToMember.isNotEmpty() || debtsMemberOwes.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(d.radiusMD))
+                            .background(colors.borderWhisper.copy(alpha = 0.2f))
+                            .padding(d.space12),
+                        verticalArrangement = Arrangement.spacedBy(d.space8)
+                    ) {
+                        if (debtsOwedToMember.isNotEmpty()) {
+                            Text(
+                                text = "WHO OWES ${member.displayName.uppercase()}",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = d.textLabelSmall,
+                                color = colors.inkMuted,
+                                letterSpacing = 1.2.sp
+                            )
+                            debtsOwedToMember.forEach { debt ->
+                                val debtorName = userNamesMap[debt.fromUser] ?: "Member"
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(d.radiusSM))
+                                        .clickable(enabled = currentUserIsAdmin || debt.fromUser == currentUserId || debt.toUser == currentUserId) {
+                                            selectedDebtForSettlement = debt
+                                            selectedMemberForModal = null
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(debtorName, fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkPrimary)
+                                    Text(
+                                        text = "owes \u20b9${debt.amount.formatCurrency()}",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = d.textBodyMedium,
+                                        color = colors.positiveGreen
+                                    )
+                                }
+                            }
+                        }
+
+                        if (debtsMemberOwes.isNotEmpty()) {
+                            if (debtsOwedToMember.isNotEmpty()) {
+                                HorizontalDivider(color = colors.borderWhisper.copy(alpha = 0.5f), thickness = 0.5.dp)
+                            }
+                            Text(
+                                text = "${member.displayName.uppercase()} OWES",
+                                fontFamily = OutfitFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = d.textLabelSmall,
+                                color = colors.inkMuted,
+                                letterSpacing = 1.2.sp
+                            )
+                            debtsMemberOwes.forEach { debt ->
+                                val creditorName = userNamesMap[debt.toUser] ?: "Member"
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(d.radiusSM))
+                                        .clickable(enabled = currentUserIsAdmin || debt.fromUser == currentUserId || debt.toUser == currentUserId) {
+                                            selectedDebtForSettlement = debt
+                                            selectedMemberForModal = null
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(creditorName, fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkPrimary)
+                                    Text(
+                                        text = "\u20b9${debt.amount.formatCurrency()}",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = d.textBodyMedium,
+                                        color = colors.alertRed
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (!isCurrent) {
@@ -1382,7 +1477,7 @@ private fun StyledExpensesTab(
                                 color = inkMuted
                             )
                         }
-                        val isClaimed = trackReimbursements && expense.isReimbursed
+                        val isClaimed = trackReimbursements && expense.isClaimed
                         Text(
                             text = "₹${if (expense.amount % 1.0 == 0.0) expense.amount.toInt().toString() else String.format("%.2f", expense.amount)}",
                             fontFamily = JetBrainsMonoFamily,
@@ -1438,7 +1533,7 @@ private fun StyledMemberBreakdownTab(
 ) {
     val colors = LocalSplitColors.current
     val totalGroupSpend = remember(expenses) { expenses.sumOf { it.amount } }
-    val totalClaimed = remember(expenses) { expenses.filter { it.isReimbursed }.sumOf { it.amount } }
+    val totalClaimed = remember(expenses) { expenses.filter { it.isClaimed }.sumOf { it.amount } }
     val pendingClaim = remember(totalGroupSpend, totalClaimed) { (totalGroupSpend - totalClaimed).coerceAtLeast(0.0) }
     var showReimbursementDialog by remember { mutableStateOf(false) }
 
@@ -1452,7 +1547,7 @@ private fun StyledMemberBreakdownTab(
     }
 
     if (trackReimbursements && showReimbursementDialog) {
-        val pendingExpenses = remember(expenses) { expenses.filter { !it.isReimbursed } }
+        val pendingExpenses = remember(expenses) { expenses.filter { !it.isClaimed } }
         val selectedExpenseIds = remember(pendingExpenses) {
             mutableStateMapOf<String, Boolean>().apply {
                 pendingExpenses.forEach { put(it.id, true) }
@@ -1561,149 +1656,171 @@ private fun StyledMemberBreakdownTab(
         )
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = d.space24, top = d.space16, end = d.space24, bottom = 120.dp),
-        verticalArrangement = Arrangement.spacedBy(d.space16)
-    ) {
-        // Summary Card
-        item {
-            Surface(
-                shape = RoundedCornerShape(d.radiusMD),
-                color = colors.surfaceCard,
-                border = BorderStroke(1.dp, borderWhisper),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(d.space16), verticalArrangement = Arrangement.spacedBy(d.space12)) {
-                    Text("SPEND SUMMARY", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
-                    if (trackReimbursements) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text("Total Spent", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
-                                Text("₹${totalGroupSpend.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = d.space24, top = d.space16, end = d.space24, bottom = if (trackReimbursements && pendingClaim > 0.0) 100.dp else 120.dp),
+            verticalArrangement = Arrangement.spacedBy(d.space16)
+        ) {
+            // Summary Card
+            item {
+                Surface(
+                    shape = RoundedCornerShape(d.radiusMD),
+                    color = colors.surfaceCard,
+                    border = BorderStroke(1.dp, borderWhisper),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(d.space16), verticalArrangement = Arrangement.spacedBy(d.space12)) {
+                        Text("SPEND SUMMARY", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
+                        if (trackReimbursements) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("Total Spent", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                                    Text("₹${totalGroupSpend.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("Settled", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                                    Text("₹${totalClaimed.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.positiveGreen)
+                                }
                             }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text("Claimed / Settled", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
-                                Text("₹${totalClaimed.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = colors.positiveGreen)
-                            }
-                        }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text("Pending from Company", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
-                                Text("₹${pendingClaim.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleMedium, color = if (pendingClaim > 0.0) colors.inkPrimary else inkMuted)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("Pending from Company", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                                    Text("₹${pendingClaim.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleMedium, color = if (pendingClaim > 0.0) colors.inkPrimary else inkMuted)
+                                }
                             }
-                            if (pendingClaim > 0.0 && groupId.isNotEmpty()) {
-                                TextButton(
-                                    onClick = { showReimbursementDialog = true },
-                                    contentPadding = PaddingValues(horizontal = d.space12, vertical = d.space4)
-                                ) {
-                                    Text(
-                                        text = "Record Reimbursement",
-                                        fontFamily = OutfitFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = d.textLabelMedium,
-                                        color = inkPrimary
-                                    )
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("Total Spent", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                                    Text("₹${totalGroupSpend.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("Total Logged", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                                    Text("${expenses.size} expenses", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkMuted)
                                 }
                             }
                         }
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text("Total Spent", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
-                                Text("₹${totalGroupSpend.formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textTitleLarge, color = inkPrimary)
-                            }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text("Total Logged", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
-                                Text("${expenses.size} expenses", fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkMuted)
-                            }
-                        }
-                    }
 
-                    if (groupBudgetLimit > 0.0) {
-                        HorizontalDivider(color = borderWhisper.copy(alpha = 0.5f))
-                        val progress = (totalGroupSpend / groupBudgetLimit).coerceIn(0.0, 1.0).toFloat()
-                        val remaining = groupBudgetLimit - totalGroupSpend
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Budget: ₹${groupBudgetLimit.formatCurrency()}", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted)
-                                Text(if (remaining >= 0) "₹${remaining.formatCurrency()} left" else "Over: ₹${(-remaining).formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontSize = d.textLabelSmall, color = if (remaining >= 0) inkPrimary else colors.alertRed, fontWeight = FontWeight.Bold)
+                        if (groupBudgetLimit > 0.0) {
+                            HorizontalDivider(color = borderWhisper.copy(alpha = 0.5f))
+                            val progress = (totalGroupSpend / groupBudgetLimit).coerceIn(0.0, 1.0).toFloat()
+                            val remaining = groupBudgetLimit - totalGroupSpend
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Budget: ₹${groupBudgetLimit.formatCurrency()}", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted)
+                                    Text(if (remaining >= 0) "₹${remaining.formatCurrency()} left" else "Over: ₹${(-remaining).formatCurrency()}", fontFamily = JetBrainsMonoFamily, fontSize = d.textLabelSmall, color = if (remaining >= 0) inkPrimary else colors.alertRed, fontWeight = FontWeight.Bold)
+                                }
+                                LinearProgressIndicator(
+                                    progress = { progress },
+                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(d.radiusFull)),
+                                    color = if (remaining >= 0) accentIndigo else colors.alertRed,
+                                    trackColor = borderWhisper
+                                )
                             }
-                            LinearProgressIndicator(
-                                progress = { progress },
-                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(d.radiusFull)),
-                                color = if (remaining >= 0) accentIndigo else colors.alertRed,
-                                trackColor = borderWhisper
-                            )
                         }
                     }
                 }
             }
-        }
 
-        // Section Title
-        item {
-            Text("SPENDING BY MEMBER", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
-        }
+            // Section Title
+            item {
+                Text("SPENDING BY MEMBER", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
+            }
 
-        // Member List
-        items(sortedMembers) { uid ->
-            val profile = memberProfilesMap[uid]
-            val name = userNames[uid] ?: profile.getResolvedName("Member")
-            val spent = memberSpendMap[uid] ?: 0.0
-            val expenseCount = remember(expenses, uid) { expenses.count { it.paidBy == uid } }
-            val sharePct = if (totalGroupSpend > 0) ((spent / totalGroupSpend) * 100).toInt() else 0
+            // Member List
+            items(sortedMembers) { uid ->
+                val profile = memberProfilesMap[uid]
+                val name = userNames[uid] ?: profile.getResolvedName("Member")
+                val spent = memberSpendMap[uid] ?: 0.0
+                val expenseCount = remember(expenses, uid) { expenses.count { it.paidBy == uid } }
+                val sharePct = if (totalGroupSpend > 0) ((spent / totalGroupSpend) * 100).toInt() else 0
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = d.space8)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = d.space8)
                 ) {
-                    UserAvatar(
-                        avatarUrl = profile?.avatarUrl ?: "",
-                        displayName = name,
-                        size = d.avatarMd
-                    )
-                    Spacer(modifier = Modifier.width(d.space12))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(name, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
-                        Text("$expenseCount expenses · $sharePct% of total", fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        UserAvatar(
+                            avatarUrl = profile?.avatarUrl ?: "",
+                            displayName = name,
+                            size = d.avatarMd
+                        )
+                        Spacer(modifier = Modifier.width(d.space12))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(name, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
+                            val memberClaimed = remember(expenses, uid) { expenses.filter { it.paidBy == uid && it.isClaimed }.sumOf { it.amount } }
+                            val memberPending = remember(expenses, uid) { expenses.filter { it.paidBy == uid && !it.isClaimed }.sumOf { it.amount } }
+                            val subtitleText = if (trackReimbursements) {
+                                if (memberPending > 0.0) "Pending: \u20b9${memberPending.formatCurrency()} · Settled: \u20b9${memberClaimed.formatCurrency()}" else "All Settled · \u20b9${memberClaimed.formatCurrency()}"
+                            } else {
+                                "$expenseCount expenses · $sharePct% of total"
+                            }
+                            Text(subtitleText, fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                        }
+                        Text(
+                            text = "₹${spent.formatCurrency()}",
+                            fontFamily = JetBrainsMonoFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textMonoLarge,
+                            color = inkPrimary
+                        )
                     }
+                    if (totalGroupSpend > 0) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { (spent / totalGroupSpend).coerceIn(0.0, 1.0).toFloat() },
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(d.radiusFull)),
+                            color = accentIndigo,
+                            trackColor = borderWhisper.copy(alpha = 0.5f)
+                        )
+                    }
+                    HorizontalDivider(color = borderWhisper, modifier = Modifier.padding(top = d.space12))
+                }
+            }
+        }
+
+        if (trackReimbursements && pendingClaim > 0.0 && groupId.isNotEmpty()) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = d.space24, vertical = d.space16),
+                color = Color.Transparent
+            ) {
+                Button(
+                    onClick = { showReimbursementDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(d.buttonHeight),
+                    shape = RoundedCornerShape(d.radiusMD),
+                    colors = ButtonDefaults.buttonColors(containerColor = inkPrimary)
+                ) {
                     Text(
-                        text = "₹${spent.formatCurrency()}",
-                        fontFamily = JetBrainsMonoFamily,
+                        text = "Record Reimbursement (\u20b9${pendingClaim.formatCurrency()} pending)",
+                        fontFamily = OutfitFamily,
                         fontWeight = FontWeight.Bold,
-                        fontSize = d.textMonoLarge,
-                        color = inkPrimary
+                        fontSize = d.textBodyLarge,
+                        color = colors.canvasChalk
                     )
                 }
-                if (totalGroupSpend > 0) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress = { (spent / totalGroupSpend).coerceIn(0.0, 1.0).toFloat() },
-                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(d.radiusFull)),
-                        color = accentIndigo,
-                        trackColor = borderWhisper.copy(alpha = 0.5f)
-                    )
-                }
-                HorizontalDivider(color = borderWhisper, modifier = Modifier.padding(top = d.space12))
             }
         }
     }
@@ -1724,12 +1841,14 @@ private fun StyledBalancesTab(
     borderWhisper: Color,
     alertRed: Color,
     accentIndigo: Color,
+    isAdmin: Boolean = false,
     onSettleClick: (Debt) -> Unit
 ) {
     val colors = LocalSplitColors.current
     val currentUserId = FirebaseManager.currentUserId
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    var selectedBalanceView by rememberSaveable { mutableStateOf("MY") } // "MY" or "ALL"
     var selectedReceiptUrlForPreview by remember { mutableStateOf<String?>(null) }
     var targetSettlementForPreview by remember { mutableStateOf<Settlement?>(null) }
     var targetPendingSettlementForProof by remember { mutableStateOf<Settlement?>(null) }
@@ -1794,94 +1913,216 @@ private fun StyledBalancesTab(
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
 
-            item {
-                Text("WHO OWES WHAT", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
-                Spacer(modifier = Modifier.height(d.space8))
-            }
-
-            if (otherMembers.isEmpty()) {
+            if (isAdmin) {
                 item {
-                    Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
-                        Text("No other members in this group yet.", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = inkMuted)
-                    }
-                }
-            } else {
-                items(otherMembers) { peerUid ->
-                    val peerProfile = memberProfilesMap[peerUid]
-                    val peerName = userNames[peerUid] ?: peerProfile.getResolvedName("Member")
-
-                    val iOweDebt = debts.find { it.fromUser == currentUserId && it.toUser == peerUid }
-                    val theyOweDebt = debts.find { it.fromUser == peerUid && it.toUser == currentUserId }
-
-                    val matchingPendingRequest = pendingRequests.find {
-                        (it.fromUser == currentUserId && it.toUser == peerUid) ||
-                        (it.fromUser == peerUid && it.toUser == currentUserId)
-                    }
-                    val isPending = matchingPendingRequest != null
-                    val isPayer = matchingPendingRequest?.fromUser == currentUserId
-
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = d.rowHeightLg)
-                            .clickable {
-                                if (matchingPendingRequest != null) {
-                                    selectedSettlementForDetail = matchingPendingRequest
-                                } else if (iOweDebt != null) {
-                                    onSettleClick(iOweDebt)
-                                }
-                            }
-                            .padding(vertical = d.space12),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(bottom = d.space12),
+                        horizontalArrangement = Arrangement.spacedBy(d.space8)
                     ) {
-                        UserAvatar(
-                            avatarUrl = peerProfile?.avatarUrl ?: "",
-                            displayName = peerName,
-                            size = d.avatarMd
-                        )
-                        Spacer(modifier = Modifier.width(d.space12))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(peerName, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
-                            val statusSubtitle = when {
-                                iOweDebt != null -> "You owe $peerName"
-                                theyOweDebt != null -> "$peerName owes you"
-                                else -> "Settled up"
-                            }
-                            Text(statusSubtitle, fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
-                            if (isPending) {
+                        val isMyActive = selectedBalanceView == "MY"
+                        Surface(
+                            onClick = { selectedBalanceView = "MY" },
+                            shape = RoundedCornerShape(d.radiusFull),
+                            color = if (isMyActive) inkPrimary else colors.canvasChalk,
+                            border = if (!isMyActive) BorderStroke(1.dp, borderWhisper) else null,
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space16)) {
                                 Text(
-                                    text = if (isPayer) "Waiting for Confirmation" else "Needs Approval",
+                                    "My Balances",
                                     fontFamily = OutfitFamily,
-                                    fontSize = d.textLabelSmall,
-                                    color = if (isPayer) inkMuted else colors.positiveGreen,
-                                    fontWeight = FontWeight.Medium
+                                    fontSize = d.textLabelMedium,
+                                    fontWeight = if (isMyActive) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isMyActive) colors.canvasChalk else inkMuted
                                 )
                             }
                         }
 
-                        val (formattedAmount, amountColor) = when {
-                            iOweDebt != null -> {
-                                val amtStr = if (iOweDebt.amount % 1.0 == 0.0) iOweDebt.amount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", iOweDebt.amount)
-                                ("\u20b9$amtStr" to alertRed)
-                            }
-                            theyOweDebt != null -> {
-                                val amtStr = if (theyOweDebt.amount % 1.0 == 0.0) theyOweDebt.amount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", theyOweDebt.amount)
-                                ("\u20b9$amtStr" to colors.positiveGreen)
-                            }
-                            else -> {
-                                ("\u20b90" to inkMuted)
+                        val isAllActive = selectedBalanceView == "ALL"
+                        Surface(
+                            onClick = { selectedBalanceView = "ALL" },
+                            shape = RoundedCornerShape(d.radiusFull),
+                            color = if (isAllActive) inkPrimary else colors.canvasChalk,
+                            border = if (!isAllActive) BorderStroke(1.dp, borderWhisper) else null,
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = d.space16)) {
+                                Text(
+                                    "All Debts (Admin)",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textLabelMedium,
+                                    fontWeight = if (isAllActive) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isAllActive) colors.canvasChalk else inkMuted
+                                )
                             }
                         }
-
-                        Text(
-                            text = formattedAmount,
-                            fontFamily = JetBrainsMonoFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = d.textMonoLarge,
-                            color = if (isPending) amountColor.copy(alpha = 0.5f) else amountColor
-                        )
                     }
-                    HorizontalDivider(color = borderWhisper)
+                }
+            }
+
+            if (isAdmin && selectedBalanceView == "ALL") {
+                item {
+                    Text("GROUP SETTLEMENT MATRIX", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
+                    Spacer(modifier = Modifier.height(d.space8))
+                }
+
+                if (debts.isEmpty()) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                            Text("All members are settled up! Zero outstanding debts in group.", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = inkMuted)
+                        }
+                    }
+                } else {
+                    items(debts) { debt ->
+                        val fromName = userNames[debt.fromUser] ?: "Member"
+                        val toName = userNames[debt.toUser] ?: "Member"
+                        val fromProfile = memberProfilesMap[debt.fromUser]
+                        val toProfile = memberProfilesMap[debt.toUser]
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = d.rowHeightLg)
+                                .clickable { onSettleClick(debt) }
+                                .padding(vertical = d.space12),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy((-8).dp)
+                            ) {
+                                UserAvatar(
+                                    avatarUrl = fromProfile?.avatarUrl ?: "",
+                                    displayName = fromName,
+                                    size = d.avatarMd
+                                )
+                                UserAvatar(
+                                    avatarUrl = toProfile?.avatarUrl ?: "",
+                                    displayName = toName,
+                                    size = d.avatarMd
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(d.space12))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "$fromName \u2192 $toName",
+                                    fontFamily = OutfitFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = d.textTitleMedium,
+                                    color = inkPrimary
+                                )
+                                Text(
+                                    "$fromName owes $toName · Tap to settle",
+                                    fontFamily = OutfitFamily,
+                                    fontSize = d.textLabelSmall,
+                                    color = inkMuted
+                                )
+                            }
+                            Text(
+                                text = "\u20b9${debt.amount.formatCurrency()}",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = d.textMonoLarge,
+                                color = alertRed
+                            )
+                        }
+                        HorizontalDivider(color = borderWhisper)
+                    }
+                }
+            } else {
+                item {
+                    Text("WHO OWES WHAT", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = inkMuted, letterSpacing = 1.5.sp)
+                    Spacer(modifier = Modifier.height(d.space8))
+                }
+
+                if (otherMembers.isEmpty()) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                            Text("No other members in this group yet.", fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = inkMuted)
+                        }
+                    }
+                } else {
+                    items(otherMembers) { peerUid ->
+                        val peerProfile = memberProfilesMap[peerUid]
+                        val peerName = userNames[peerUid] ?: peerProfile.getResolvedName("Member")
+
+                        val iOweDebt = debts.find { it.fromUser == currentUserId && it.toUser == peerUid }
+                        val theyOweDebt = debts.find { it.fromUser == peerUid && it.toUser == currentUserId }
+
+                        val matchingPendingRequest = pendingRequests.find {
+                            (it.fromUser == currentUserId && it.toUser == peerUid) ||
+                            (it.fromUser == peerUid && it.toUser == currentUserId)
+                        }
+                        val isPending = matchingPendingRequest != null
+                        val isPayer = matchingPendingRequest?.fromUser == currentUserId
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = d.rowHeightLg)
+                                .clickable {
+                                    if (matchingPendingRequest != null) {
+                                        selectedSettlementForDetail = matchingPendingRequest
+                                    } else if (iOweDebt != null) {
+                                        onSettleClick(iOweDebt)
+                                    } else if (theyOweDebt != null && (peerUid.startsWith("guest_") || isAdmin)) {
+                                        onSettleClick(theyOweDebt)
+                                    }
+                                }
+                                .padding(vertical = d.space12),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            UserAvatar(
+                                avatarUrl = peerProfile?.avatarUrl ?: "",
+                                displayName = peerName,
+                                size = d.avatarMd
+                            )
+                            Spacer(modifier = Modifier.width(d.space12))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(peerName, fontFamily = OutfitFamily, fontWeight = FontWeight.SemiBold, fontSize = d.textTitleMedium, color = inkPrimary)
+                                val statusSubtitle = when {
+                                    iOweDebt != null -> "You owe $peerName"
+                                    theyOweDebt != null -> "$peerName owes you"
+                                    else -> "Settled up"
+                                }
+                                Text(statusSubtitle, fontFamily = OutfitFamily, fontSize = d.textLabelMedium, color = inkMuted)
+                                if (isPending) {
+                                    Text(
+                                        text = if (isPayer) "Waiting for Confirmation" else "Needs Approval",
+                                        fontFamily = OutfitFamily,
+                                        fontSize = d.textLabelSmall,
+                                        color = if (isPayer) inkMuted else colors.positiveGreen,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+
+                            val (formattedAmount, amountColor) = when {
+                                iOweDebt != null -> {
+                                    val amtStr = if (iOweDebt.amount % 1.0 == 0.0) iOweDebt.amount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", iOweDebt.amount)
+                                    ("\u20b9$amtStr" to alertRed)
+                                }
+                                theyOweDebt != null -> {
+                                    val amtStr = if (theyOweDebt.amount % 1.0 == 0.0) theyOweDebt.amount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", theyOweDebt.amount)
+                                    ("\u20b9$amtStr" to colors.positiveGreen)
+                                }
+                                else -> {
+                                    ("\u20b90" to inkMuted)
+                                }
+                            }
+
+                            Text(
+                                text = formattedAmount,
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = d.textMonoLarge,
+                                color = if (isPending) amountColor.copy(alpha = 0.5f) else amountColor
+                            )
+                        }
+                        HorizontalDivider(color = borderWhisper)
+                    }
                 }
             }
 
@@ -4189,6 +4430,23 @@ fun GroupExpenseDetailBottomSheet(
                     color = colors.inkPrimary
                 )
                 Text(text = "Total Expense", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted)
+                if (isExpenseTracker && trackReimbursements) {
+                    Spacer(modifier = Modifier.height(d.space8))
+                    Surface(
+                        shape = RoundedCornerShape(d.radiusFull),
+                        color = if (expense.isClaimed) colors.positiveGreen.copy(alpha = 0.12f) else colors.borderWhisper,
+                        border = BorderStroke(1.dp, if (expense.isClaimed) colors.positiveGreen.copy(alpha = 0.3f) else colors.borderWhisper)
+                    ) {
+                        Text(
+                            text = if (expense.isClaimed) "Settled" else "Pending",
+                            fontFamily = OutfitFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = d.textLabelSmall,
+                            color = if (expense.isClaimed) colors.positiveGreen else colors.inkMuted,
+                            modifier = Modifier.padding(horizontal = d.space12, vertical = d.space4)
+                        )
+                    }
+                }
             }
 
             HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
@@ -4224,16 +4482,18 @@ fun GroupExpenseDetailBottomSheet(
                 }
             }
 
-            HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
+            if (!isExpenseTracker || expense.splits.isNotEmpty()) {
+                HorizontalDivider(color = colors.borderWhisper, thickness = 0.5.dp)
 
-            // Member Split Shares
-            Text("SPLIT BREAKDOWN", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
-            Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
-                expense.splits.forEach { (uid, share) ->
-                    val name = userNames[uid] ?: "Member"
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(name, fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkPrimary)
-                        Text("₹${if (share % 1.0 == 0.0) share.toInt().toString() else String.format("%.2f", share)}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyMedium, color = colors.inkPrimary)
+                // Member Split Shares
+                Text("SPLIT BREAKDOWN", fontFamily = OutfitFamily, fontSize = d.textLabelSmall, color = colors.inkMuted, letterSpacing = 1.5.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(d.space8)) {
+                    expense.splits.forEach { (uid, share) ->
+                        val name = userNames[uid] ?: "Member"
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(name, fontFamily = OutfitFamily, fontSize = d.textBodyMedium, color = colors.inkPrimary)
+                            Text("₹${if (share % 1.0 == 0.0) share.toInt().toString() else String.format("%.2f", share)}", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = d.textBodyMedium, color = colors.inkPrimary)
+                        }
                     }
                 }
             }
@@ -4253,11 +4513,11 @@ fun GroupExpenseDetailBottomSheet(
                                 FirebaseManager.toggleExpenseReimbursement(
                                     groupId = groupId,
                                     expenseId = expense.id,
-                                    isReimbursed = !expense.isReimbursed
+                                    isReimbursed = !expense.isClaimed
                                 )
                                 Toast.makeText(
                                     context,
-                                    if (!expense.isReimbursed) "Marked as claimed" else "Marked as pending",
+                                    if (!expense.isClaimed) "Marked as settled" else "Marked as pending",
                                     Toast.LENGTH_SHORT
                                 ).show()
                                 onDismiss()
@@ -4269,11 +4529,11 @@ fun GroupExpenseDetailBottomSheet(
                     modifier = Modifier.fillMaxWidth().height(d.buttonHeight),
                     shape = RoundedCornerShape(d.radiusMD),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (expense.isReimbursed) colors.inkMuted else colors.inkPrimary
+                        containerColor = if (expense.isClaimed) colors.inkMuted else colors.inkPrimary
                     )
                 ) {
                     Text(
-                        text = if (expense.isReimbursed) "Claimed (Tap to Undo)" else "Mark Claimed",
+                        text = if (expense.isClaimed) "Settled (Tap to Undo)" else "Mark Settled",
                         fontFamily = OutfitFamily,
                         fontWeight = FontWeight.Bold,
                         color = colors.canvasChalk

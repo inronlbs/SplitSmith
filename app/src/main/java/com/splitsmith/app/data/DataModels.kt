@@ -97,9 +97,17 @@ data class Expense(
     val receiptUrl: String = "",
     val receiptUrls: List<String> = emptyList(),
     val createdBy: String = "",
+    @get:PropertyName("isReimbursed")
     val isReimbursed: Boolean = false,
+    @get:PropertyName("reimbursed")
+    val reimbursed: Boolean = false,
+    @get:PropertyName("reimbursedAt")
     val reimbursedAt: Long = 0L
 ) {
+    @get:Exclude
+    val isClaimed: Boolean
+        get() = isReimbursed || reimbursed
+
     fun getEffectiveReceiptUrls(): List<String> {
         if (receiptUrls.isNotEmpty()) return receiptUrls
         if (receiptUrl.isNotBlank()) return listOf(receiptUrl)

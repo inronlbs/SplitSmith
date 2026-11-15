@@ -1208,3 +1208,100 @@ Patch release resolving missing Edit & Delete options in expense detail bottom s
 ### Verification
 - `testDebugUnitTest`: BUILD SUCCESSFUL (27 actionable tasks, 0 failures).
 - Strictly zero emojis verified across all code diffs.
+
+
+## [2026-11-15 15:45] Group Top Bar Modernization: Back Button Removal and Profile Picture Enlargement
+
+### Summary of Changes
+1. **Removed Software Back Button (`GroupDetailScreen.kt`)**:
+   - Removed `IconButton(onClick = onBack)` and its `ArrowBack` icon from the top bar leading Row.
+   - Leverages standard Android system edge-swipe navigation, saving horizontal layout space and avoiding UI clutter.
+   - Retained the `onBack: () -> Unit` parameter for system events, error dismissal, and deletion callbacks.
+
+2. **Group Profile Picture Enlargement (`GroupDetailScreen.kt`)**:
+   - Enlarged `GroupIconView` size from `38.dp` to `44.dp`.
+   - Adjusted leading row item spacing from `d.space8` (`8.dp`) to `d.space12` (`12.dp`), creating a well-proportioned visual anchor beside the group name and code caption.
+
+### Verification
+- Ran Gradle unit test suite: `.\gradlew testDebugUnitTest` with JDK 17 (`jdk-17.0.8.1+1`).
+- Result: `BUILD SUCCESSFUL in 2m 11s` (27 actionable tasks, 12 executed, 15 up-to-date, 0 failures).
+- Strictly zero emojis maintained across code, logs, and documentation.
+
+
+## [2026-11-15 16:23] Fixed Company Expense Claim Deserialization, Simplified "Settled" Terminology, and Modernized Breakdown Sticky Button
+
+### Summary of Changes
+1. **Firestore JavaBean Dual-Mapping Bug Fix (`DataModels.kt`, `FirebaseManager.kt`)**:
+   - Resolved the root cause where `snapshot.toObjects(Expense::class.java)` discarded the `"isReimbursed"` document field because Java Bean conventions map `isFoo()` getters to property name `foo` (`reimbursed`).
+   - Dual-mapped `@get:PropertyName("isReimbursed")` and `@get:PropertyName("reimbursed")` in `data class Expense`, with a computed helper `@get:Exclude val isClaimed: Boolean get() = isReimbursed || reimbursed`.
+   - Updated `FirebaseManager.toggleExpenseReimbursement` and `batchMarkExpensesReimbursed` to write both `"isReimbursed"` and `"reimbursed"` atomically.
+
+2. **Simplified "Settled" Terminology & Detail Status Badge (`GroupDetailScreen.kt`)**:
+   - Replaced slashed/confusing terms (`"Claimed / Settled"`, `"Reimbursed / Claimed"`) with the clean, unified term **`"Settled"`**.
+   - Added a dedicated status chip under the amount in `GroupExpenseDetailBottomSheet`:
+     - If `expense.isClaimed`: Soft green pill with **`"Settled"`**.
+     - If not: Soft muted pill with **`"Pending"`**.
+   - Updated the action button in the sheet: **`"Mark Settled"`** / **`"Settled (Tap to Undo)"`**.
+   - Hid empty "SPLIT BREAKDOWN" section when tracker expenses have no member splits.
+
+3. **Breakdown Tab Layout Overhaul (`GroupDetailScreen.kt`)**:
+   - Replaced `"Claimed / Settled"` with **`"Settled"`** in the Spend Summary card.
+   - Removed the "Record Reimbursement" button from inside the Spend Summary card to eliminate clutter.
+   - Anchored a floating, full-width **`"Record Reimbursement (₹X pending)"`** primary action button at the bottom of the screen (`align(Alignment.BottomCenter)`).
+   - In "Spending by Member", displayed `Pending: ₹X · Settled: ₹Y` per member when `trackReimbursements` is active.
+   - Updated group top header to display pending claims (`"Pending: ₹X"` or `"All Settled"` in green).
+   - Ensured `currentGroup.isTracker` (`isExpenseTracker || expenseTracker`) is used consistently across all screen branching.
+
+### Verification
+- Added unit tests in `GroupMemberLifecycleTest.kt` verifying dual-key evaluation (`isReimbursed`, `reimbursed`, and `isClaimed`).
+- Ran `./gradlew testDebugUnitTest` with JDK 17: `BUILD SUCCESSFUL in 2m` (27 actionable tasks, 0 failures).
+- Strictly zero emojis maintained across code, logs, and documentation.
+
+
+## [2026-11-15 17:45] Admin-Only "All Debts" Settlement Matrix & Member Peer Debt Breakdown
+
+### Summary of Changes
+1. **Admin-Exclusive "All Debts" View (`GroupDetailScreen.kt`)**:
+   - In `StyledBalancesTab`, passed `isAdmin = currentUserIsAdmin`.
+   - When the user is a group admin, surfaced a clean segmented toggle:
+     - **"My Balances"** (default peer view relative to the admin).
+     - **"All Debts (Admin)"** (complete group-wide settlement matrix).
+   - When **"All Debts"** is active:
+     - Displays all peer debts across the group: `[Payer Avatar] [Payer Name] → [Receiver Avatar] [Receiver Name]` with amount `₹XXX`.
+     - Tapping any debt opens the settlement bottom sheet with **`"Confirm Cash Settlement (Admin)"`**, allowing the admin to settle debts on behalf of offline users or members who lost their device.
+   - For regular members, the toggle is completely hidden; they only see their own balances with peers ("My Balances"), preserving group privacy.
+
+2. **Itemized Peer Breakdown in Member Profile Sheet (`GroupDetailScreen.kt`)**:
+   - In `selectedMemberForModal` (opened by tapping any member or guest avatar chip in the top row):
+     - Added an itemized peer breakdown card:
+       - **WHO OWES [MEMBER]**: Lists every member who owes them and the exact amount in positive green.
+       - **[MEMBER] OWES**: Lists every member they owe and the exact amount in alert red.
+     - If the viewer is the Admin or one of the parties in the debt, tapping an item directly opens the settlement sheet to confirm the cash settlement.
+
+3. **Direct Cash Settlement for Creditors & Offline Guests (`GroupDetailScreen.kt`)**:
+   - Enabled tapping on peer rows where `theyOweDebt != null` (when the peer is an offline guest or viewer is admin) to open the settlement sheet with **`"Confirm Cash Received"`**.
+   - Solved the limitation where users couldn't record cash received from offline guests.
+
+4. **Firestore Security Rules Authorization (`firestore.rules`)**:
+   - Updated `match /groups/{groupId}/settlements/{settlementId}` `allow create` rule to include `|| isGroupAdmin(groupId)`, granting group admins the permission to record cash settlements between other members/guests.
+
+### Verification
+- Ran `./gradlew testDebugUnitTest` with JDK 17: `BUILD SUCCESSFUL in 1m 9s` (27 actionable tasks, 0 errors, 0 test failures).
+- Strictly zero emojis maintained across code, logs, and documentation.
+
+
+## [2026-11-15 18:37] Release v0.4.3.0 Published
+
+### Release Details
+- **Version**: `0.4.3.0` (`versionCode = 69`)
+- **Release Tag**: `v0.4.3.0`
+- **GitHub Release**: [SplitSmith v0.4.3.0 Release](https://github.com/inronlbs/SplitSmith/releases/tag/v0.4.3.0)
+- **Firebase Hosting CDN**: Deployed to `https://splitsmith.web.app/splitsmith.bin`
+- **Release Assets**:
+  - `SplitSmith-v0.4.3.0-release.apk` (70,439,729 bytes)
+  - `SplitSmith-v0.4.3.0-release.aab` (43,825,693 bytes)
+- **Deployment Status**:
+  - Signed release AAB and APK compiled cleanly with JDK 17 (`BUILD SUCCESSFUL in 3m 1s`).
+  - GitHub Release created and binary assets uploaded.
+  - Website CDN updated with new binary and `version.json`.
+  - Updated Firestore security rules deployed to `cloud.firestore`.

@@ -129,11 +129,18 @@ class GroupMemberLifecycleTest {
         )
 
         assertFalse(expense.isReimbursed)
+        assertFalse(expense.reimbursed)
+        assertFalse(expense.isClaimed)
         assertEquals(0L, expense.reimbursedAt)
 
         val updated = expense.copy(isReimbursed = true, reimbursedAt = 1700000000L)
         assertTrue(updated.isReimbursed)
+        assertTrue(updated.isClaimed)
         assertEquals(1700000000L, updated.reimbursedAt)
+
+        val legacyUpdated = expense.copy(reimbursed = true)
+        assertTrue(legacyUpdated.reimbursed)
+        assertTrue(legacyUpdated.isClaimed)
     }
 
     @Test
