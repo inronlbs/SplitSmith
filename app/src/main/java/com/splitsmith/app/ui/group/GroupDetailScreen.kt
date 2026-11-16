@@ -434,7 +434,7 @@ fun GroupDetailScreen(
                             fontFamily = OutfitFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = d.textHeadlineMedium,
-                            color = inkPrimary,
+                            color = colors.inkPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -1073,7 +1073,7 @@ fun GroupDetailScreen(
                             fontFamily = OutfitFamily,
                             fontWeight = FontWeight.Bold,
                             fontSize = d.textHeadlineMedium,
-                            color = inkPrimary,
+                            color = colors.inkPrimary,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
@@ -1085,8 +1085,6 @@ fun GroupDetailScreen(
     if (selectedMemberForModal != null) {
         val member = selectedMemberForModal!!
         val isCurrent = member.uid == currentUserId
-        val connectionsState = FirebaseManager.observeConnections().collectAsState(initial = emptyList())
-        val isConnected = connectionsState.value.any { it.uid == member.uid }
         val memberNetBalance = netBalances[member.uid] ?: 0.0
 
         ModalBottomSheet(
@@ -1275,33 +1273,6 @@ fun GroupDetailScreen(
                             border = BorderStroke(1.dp, colors.borderWhisper)
                         ) {
                             Text("Settle", fontFamily = OutfitFamily, fontWeight = FontWeight.Bold, fontSize = d.textLabelLarge, color = colors.inkPrimary)
-                        }
-
-                        // Connect Action
-                        OutlinedButton(
-                            onClick = {
-                                if (!isConnected) {
-                                    coroutineScope.launch {
-                                        try {
-                                            FirebaseManager.addConnection(member.uid)
-                                            Toast.makeText(context, "Connected with ${member.displayName}!", Toast.LENGTH_SHORT).show()
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                }
-                            },
-                            modifier = Modifier.weight(1f).height(d.buttonHeight),
-                            shape = RoundedCornerShape(d.radiusMD),
-                            border = BorderStroke(1.dp, if (isConnected) colors.borderWhisper else colors.inkPrimary)
-                        ) {
-                            Text(
-                                text = if (isConnected) "Connected" else "Connect",
-                                fontFamily = OutfitFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = d.textLabelLarge,
-                                color = if (isConnected) colors.inkMuted else colors.inkPrimary
-                            )
                         }
                     }
                 }
@@ -1506,7 +1477,7 @@ private fun StyledExpensesTab(
                                 fontFamily = OutfitFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = d.textTitleMedium,
-                                color = inkPrimary,
+                                color = colors.inkPrimary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -1666,7 +1637,7 @@ private fun StyledMemberBreakdownTab(
                                         text = exp.description.ifEmpty { exp.category },
                                         fontFamily = OutfitFamily,
                                         fontSize = d.textBodyMedium,
-                                        color = inkPrimary,
+                                        color = colors.inkPrimary,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )

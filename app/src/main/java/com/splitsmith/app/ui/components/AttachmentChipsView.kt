@@ -265,9 +265,29 @@ fun AttachmentImageViewerDialog(
         var offsetX by remember { mutableFloatStateOf(0f) }
         var offsetY by remember { mutableFloatStateOf(0f) }
 
+        val isBase64Image = remember(rawModel) {
+            rawModel is String && rawModel.startsWith("data:image")
+        }
+
+        val base64Bitmap = remember(rawModel, isBase64Image) {
+            if (isBase64Image && rawModel is String) {
+                try {
+                    val base64Data = rawModel.substringAfter("base64,")
+                    val decodedBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                    android.graphics.BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+                } catch (e: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
+        }
+
         // Check if model points to a non-existent local file from another device
-        val isLocalFileMissing = remember(rawModel) {
-            if (rawModel is Uri && rawModel.scheme == "file" && rawModel.path != null) {
+        val isLocalFileMissing = remember(rawModel, isBase64Image) {
+            if (isBase64Image) {
+                false
+            } else if (rawModel is Uri && rawModel.scheme == "file" && rawModel.path != null) {
                 !java.io.File(rawModel.path!!).exists()
             } else if (rawModel is String && (rawModel.startsWith("file://") || rawModel.startsWith("/data/"))) {
                 val cleanPath = rawModel.removePrefix("file://")
@@ -395,7 +415,20 @@ fun AttachmentImageViewerDialog(
                             )
                         }
                     }
-                } else if (imageModel != null) {
+                } else if (base64Bitmap != null) {
+                    Image(
+                        bitmap = base64Bitmap.asImageBitmap(),
+                        contentDescription = fileName,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offsetX,
+                                translationY = offsetY
+                            )
+                    )
+                } else if (imageModel != null && !isBase64Image) {
                     AsyncImage(
                         model = imageModel,
                         contentDescription = "Receipt photo full screen",

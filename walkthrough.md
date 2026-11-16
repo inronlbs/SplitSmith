@@ -1,3 +1,43 @@
+## [2026-11-16 13:58] Release v0.4.4.2 Published
+
+### Build & Release Deliverables
+- **Version**: `versionCode = 72`, `versionName = "0.4.4.2"`
+- **Signed APK**: `SplitSmith-v0.4.4.2-release.apk` (70.4 MB)
+- **Signed Bundle**: `SplitSmith-v0.4.4.2-release.aab` (43.8 MB)
+- **GitHub Release**: [v0.4.4.2 Tag](https://github.com/inronlbs/SplitSmith/releases/tag/v0.4.4.2)
+- **Firebase Hosting CDN**: Deployed to `https://splitsmith.web.app` with `public/splitsmith.bin` and `public/version.json`.
+
+---
+
+## [2026-11-16 13:36] Offline Guest Direct Split Name Resolution, Contact Modal Cleanup & Group Image Viewer Fix
+
+### Features & Fixes
+1. **Offline Guest Direct Split Resolution (`FirebaseManager.kt`, `SplitExpensesScreen.kt`, `DirectSplitDetailScreen.kt`)**:
+   - Resolved issue where direct splits with offline group members displayed as generic "Friend" with superhero placeholder avatars.
+   - Root cause: Offline virtual members (`guest_<uuid>`) exist only within group documents and lack standalone `/users` documents in Firestore. Both `getUserProfile()` and `getCachedUserProfile()` returned null.
+   - In `FirebaseManager.observeGroups()`: Automatically extracts and synchronizes all `group.virtualMembers` into `profileCache` and persistent `LocalContactCache` as `UserProfile(uid, displayName = vm.name, avatarUrl = vm.avatarUrl)`.
+   - In `FirebaseManager.getUserProfile(uid)`: Added fallback query searching group collections for `guest_` UIDs to guarantee resolution even on cold starts before full group flows emit.
+   - Synchronized virtual member profiles in `addVirtualMember()` and `updateVirtualMemberAvatar()`.
+   - In `SplitExpensesScreen.kt` and `DirectSplitDetailScreen.kt`: Added immediate synchronous lookup against loaded groups so offline member names and avatars render instantly with zero network delay.
+2. **Group Member Modal Clean Two-Button Layout (`GroupDetailScreen.kt`)**:
+   - Realigned the Connect feature to function strictly as "Add New Contact" (via User Code/Email/QR scan) rather than an in-group action.
+   - Removed the redundant "Connect" / "Connected" action button from the group member modal. Group members are already part of the same group, and offline guest members do not have accounts to connect.
+   - Modal now presents a balanced two-button row: **Split** and **Settle** (each occupying 50% width), completely eliminating awkward button text wrapping ("Connecte\nd").
+3. **Group Image Viewer Base64 Decoding (`AttachmentChipsView.kt`, `GroupDetailScreen.kt`)**:
+   - Fixed group image viewer showing a black screen when tapping group profile pictures.
+   - Group images are saved as WebP data URIs (`data:image/webp;base64,...`). Added native Base64 decoding into an `android.graphics.Bitmap` rendered with Compose's `Image(bitmap = base64Bitmap.asImageBitmap(), ...)` with pinch-to-zoom, pan, and double-tap zoom enabled.
+4. **Direct Split Overflow Menu Hygiene (`DirectSplitDetailScreen.kt`)**:
+   - Guarded the 3-dot overflow menu with `if (!peerUid.startsWith("guest_"))` to hide connection management actions for offline guests.
+5. **Automated Unit Testing (`GroupMemberLifecycleTest.kt`)**:
+   - Added tests verifying `UserProfile.isGuest` detection based on the `guest_` prefix and name/avatar preservation during virtual member conversion.
+
+### Verification & Quality Gates
+- **Gradle Test Suite**: `./gradlew testDebugUnitTest` passed with exit code 0 (`BUILD SUCCESSFUL in 1m 7s`, 27 actionable tasks).
+- **Compilation Quality**: Release compilation (`./gradlew assembleRelease bundleRelease`) completed with exit code 0 (`BUILD SUCCESSFUL in 2m 34s`, 60 actionable tasks).
+- **Emoji Audit**: 0 emojis present across all code, tests, and documentation.
+
+---
+
 ## [2026-11-12 19:10] Release v0.4.2.3 Published
 
 ### Build & Release Deliverables

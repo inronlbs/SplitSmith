@@ -56,13 +56,17 @@ fun DirectSplitDetailScreen(
     val splitsState = splitsFlow.collectAsState(initial = emptyList())
     val connectionsState = connectionsFlow.collectAsState(initial = emptyList())
 
-    var peerProfile by remember { mutableStateOf<UserProfile?>(null) }
+    var peerProfile by remember { mutableStateOf<UserProfile?>(FirebaseManager.getCachedUserProfile(peerUid)) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showDisconnectDialog by remember { mutableStateOf(false) }
     var selectedSplitForDetail by remember { mutableStateOf<DirectSplit?>(null) }
     var splitToConfirmSettlement by remember { mutableStateOf<DirectSplit?>(null) }
 
     LaunchedEffect(peerUid) {
+        val cached = FirebaseManager.getCachedUserProfile(peerUid)
+        if (cached != null) {
+            peerProfile = cached
+        }
         val fetched = FirebaseManager.getUserProfile(peerUid)
         if (fetched != null) {
             peerProfile = fetched
@@ -165,42 +169,44 @@ fun DirectSplitDetailScreen(
                     }
                 }
 
-                Box {
-                    IconButton(onClick = { showOverflowMenu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = colors.inkPrimary)
-                    }
-                    DropdownMenu(
-                        expanded = showOverflowMenu,
-                        onDismissRequest = { showOverflowMenu = false }
-                    ) {
-                        if (isConnected) {
-                            DropdownMenuItem(
-                                text = { Text("Disconnect Friend", fontFamily = OutfitFamily, color = colors.alertRed) },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    if (Math.abs(peerGroup.netBalance) > 0.01) {
-                                        val netStr = if (peerGroup.netBalance > 0) "$peerName owes you \u20b9${peerGroup.netBalance.formatCurrency()}" else "You owe $peerName \u20b9${(-peerGroup.netBalance).formatCurrency()}"
-                                        Toast.makeText(context, "Cannot disconnect while $netStr. Settle up first!", Toast.LENGTH_LONG).show()
-                                    } else {
-                                        showDisconnectDialog = true
-                                    }
-                                }
-                            )
-                        } else {
-                            DropdownMenuItem(
-                                text = { Text("Reconnect Friend", fontFamily = OutfitFamily, color = colors.inkPrimary) },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    coroutineScope.launch {
-                                        try {
-                                            FirebaseManager.addConnection(peerUid)
-                                            Toast.makeText(context, "Connected with $peerName!", Toast.LENGTH_SHORT).show()
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                if (!peerUid.startsWith("guest_")) {
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = colors.inkPrimary)
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
+                        ) {
+                            if (isConnected) {
+                                DropdownMenuItem(
+                                    text = { Text("Disconnect Friend", fontFamily = OutfitFamily, color = colors.alertRed) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        if (Math.abs(peerGroup.netBalance) > 0.01) {
+                                            val netStr = if (peerGroup.netBalance > 0) "$peerName owes you \u20b9${peerGroup.netBalance.formatCurrency()}" else "You owe $peerName \u20b9${(-peerGroup.netBalance).formatCurrency()}"
+                                            Toast.makeText(context, "Cannot disconnect while $netStr. Settle up first!", Toast.LENGTH_LONG).show()
+                                        } else {
+                                            showDisconnectDialog = true
                                         }
                                     }
-                                }
-                            )
+                                )
+                            } else {
+                                DropdownMenuItem(
+                                    text = { Text("Connect Friend", fontFamily = OutfitFamily, color = colors.inkPrimary) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        coroutineScope.launch {
+                                            try {
+                                                FirebaseManager.addConnection(peerUid)
+                                                Toast.makeText(context, "Connected with $peerName!", Toast.LENGTH_SHORT).show()
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 }

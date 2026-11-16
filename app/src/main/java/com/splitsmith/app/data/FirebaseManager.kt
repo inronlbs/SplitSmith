@@ -263,6 +263,34 @@ object FirebaseManager {
             profileCache[uid] = memCached
             return memCached
         }
+        if (uid.startsWith("guest_")) {
+            val currentUid = currentUserId
+            if (currentUid != null) {
+                try {
+                    val groupSnapshots = db.collection("groups")
+                        .whereEqualTo("members.$currentUid", true)
+                        .get()
+                        .await()
+                    for (doc in groupSnapshots.documents) {
+                        val grp = doc.toObject(Group::class.java)
+                        val vm = grp?.virtualMembers?.get(uid)
+                        if (vm != null) {
+                            val resolved = UserProfile(
+                                uid = uid,
+                                displayName = vm.name,
+                                avatarUrl = vm.avatarUrl
+                            )
+                            profileCache[uid] = resolved
+                            LocalContactCache.put(resolved)
+                            return resolved
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("FirebaseManager", "Error resolving guest profile: ${e.message}")
+                }
+            }
+            return null
+        }
         return try {
             val snapshot = db.collection("users").document(uid).get().await()
             if (snapshot.exists()) {
@@ -401,6 +429,13 @@ object FirebaseManager {
                 "virtualMembers.$guestId", vm
             )
         }.await()
+        val guestProfile = UserProfile(
+            uid = guestId,
+            displayName = cleanName,
+            avatarUrl = ""
+        )
+        profileCache[guestId] = guestProfile
+        LocalContactCache.put(guestProfile)
         return guestId
     }
 
@@ -555,6 +590,10 @@ object FirebaseManager {
         db.collection("groups").document(groupId)
             .update("virtualMembers.$memberId.avatarUrl", avatarUrl)
             .await()
+        val existing = profileCache[memberId] ?: LocalContactCache.get(memberId)
+        val updated = existing?.copy(avatarUrl = avatarUrl) ?: UserProfile(uid = memberId, avatarUrl = avatarUrl)
+        profileCache[memberId] = updated
+        LocalContactCache.put(updated)
     }
 
     suspend fun updateGroupIcon(groupId: String, iconName: String) {
@@ -583,6 +622,17 @@ object FirebaseManager {
 
         fun sendMerged() {
             val merged = (memberGroups + requestedGroups + pendingGroups).distinctBy { it.id }
+            for (grp in merged) {
+                for ((vmId, vm) in grp.virtualMembers) {
+                    val p = UserProfile(
+                        uid = vmId,
+                        displayName = vm.name,
+                        avatarUrl = vm.avatarUrl
+                    )
+                    profileCache[vmId] = p
+                    LocalContactCache.put(p)
+                }
+            }
             trySend(merged)
         }
 

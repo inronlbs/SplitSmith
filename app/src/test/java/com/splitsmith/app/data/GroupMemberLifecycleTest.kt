@@ -154,4 +154,40 @@ class GroupMemberLifecycleTest {
 
         assertEquals("https://example.com/avatar.jpg", vm.avatarUrl)
     }
+
+    @Test
+    fun userProfile_isGuest_detectsPrefixCorrectly() {
+        val guestProfile = UserProfile(
+            uid = guestRahul,
+            displayName = "Rahul Guest"
+        )
+        val registeredProfile = UserProfile(
+            uid = realUserAmit,
+            displayName = "Amit Real"
+        )
+
+        assertTrue(guestProfile.isGuest)
+        assertFalse(registeredProfile.isGuest)
+        assertEquals("Rahul Guest", guestProfile.getResolvedName())
+        assertEquals("Amit Real", registeredProfile.getResolvedName())
+    }
+
+    @Test
+    fun virtualMember_mappingToUserProfile_preservesIdentityAndAvatar() {
+        val vm = VirtualMember(
+            id = "guest_naiji_123",
+            name = "Naiji",
+            addedBy = realUserAmit,
+            avatarUrl = "content://media/naiji.jpg"
+        )
+        val userProfile = UserProfile(
+            uid = vm.id,
+            displayName = vm.name,
+            avatarUrl = vm.avatarUrl
+        )
+
+        assertTrue(userProfile.isGuest)
+        assertEquals("Naiji", userProfile.getResolvedName("Friend"))
+        assertEquals("content://media/naiji.jpg", userProfile.avatarUrl)
+    }
 }

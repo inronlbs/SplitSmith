@@ -141,7 +141,7 @@ fun SplitExpensesScreen(
     var contactUpis by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var contactAvatars by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
-    LaunchedEffect(directSplits) {
+    LaunchedEffect(directSplits, groups) {
         val uids = (directSplits.map { it.paidBy } + directSplits.map { it.withUser })
             .filter { it.isNotEmpty() && it != currentUserId }
             .toSet()
@@ -149,6 +149,16 @@ fun SplitExpensesScreen(
         val upis = contactUpis.toMutableMap()
         val avs = contactAvatars.toMutableMap()
         
+        // 0. Pre-populate from group virtual members synchronously
+        for (g in groups) {
+            for ((vmId, vm) in g.virtualMembers) {
+                if (uids.contains(vmId)) {
+                    names[vmId] = vm.name
+                    avs[vmId] = vm.avatarUrl
+                }
+            }
+        }
+
         // 1. Immediately load any profiles already cached in memory
         for (uid in uids) {
             val cached = FirebaseManager.getCachedUserProfile(uid)
@@ -180,7 +190,7 @@ fun SplitExpensesScreen(
         }
     }
     
-    val individualPeers = remember(directSplits, connectedUsers, contactNames, contactAvatars, contactUpis, currentUserId, searchQuery) {
+    val individualPeers = remember(directSplits, connectedUsers, contactNames, contactAvatars, contactUpis, groups, currentUserId, searchQuery) {
         val splitsGrouped = directSplits.groupBy { split ->
             val rawPeer = if (split.paidBy == currentUserId) split.withUser else split.paidBy
             val cached = FirebaseManager.getCachedUserProfile(rawPeer)
@@ -198,7 +208,10 @@ fun SplitExpensesScreen(
             .toSet()
         
         allPeerUids.map { peerUid ->
-            val resolvedProfile = connectedUsers.find { it.uid == peerUid } ?: FirebaseManager.getCachedUserProfile(peerUid)
+            val vm = groups.firstNotNullOfOrNull { it.virtualMembers[peerUid] }
+            val resolvedProfile = connectedUsers.find { it.uid == peerUid }
+                ?: FirebaseManager.getCachedUserProfile(peerUid)
+                ?: vm?.let { UserProfile(uid = peerUid, displayName = it.name, avatarUrl = it.avatarUrl) }
             val name = resolvedProfile?.getResolvedName() ?: contactNames[peerUid] ?: resolvedProfile?.displayName ?: "Friend"
             val avatar = resolvedProfile?.avatarUrl ?: contactAvatars[peerUid] ?: ""
             val upi = resolvedProfile?.upiId ?: contactUpis[peerUid] ?: ""
